@@ -5,7 +5,6 @@
  * It loads `.env`, validates required variables, and applies safe defaults.
  */
 
-const path = require('path');
 const dotenv = require('dotenv');
 
 dotenv.config();
@@ -78,8 +77,6 @@ if (missing.length > 0) {
 const timeoutMs = asNumber(process.env.TIMEOUT_MS, DEFAULTS.TIMEOUT_MS);
 const userAgent = process.env.USER_AGENT || DEFAULTS.USER_AGENT;
 const sessionId = process.env.WA_SESSION_ID || DEFAULTS.WA_SESSION_ID;
-const sessionRoot = process.env.SESSION_ROOT || process.cwd();
-const sessionPath = path.join(sessionRoot, `${sessionId}.data.json`);
 
 /**
  * Exported application configuration.
@@ -122,7 +119,6 @@ const CONFIG = {
   // WhatsApp automation session/runtime options.
   WHATSAPP: {
     SESSION_ID: sessionId,
-    SESSION_DATA_PATH: sessionPath,
     AUTH_TIMEOUT_SEC: asNumber(process.env.WA_AUTH_TIMEOUT_SEC, DEFAULTS.WA_AUTH_TIMEOUT_SEC),
     MULTI_DEVICE: asBoolean(process.env.WA_MULTI_DEVICE, true),
   },

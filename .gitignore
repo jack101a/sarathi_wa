@@ -9,6 +9,7 @@ node_modules/
 # Runtime/session artifacts
 *.data.json
 _IGNORE_default-session/
+sessions/
 default-session/
 
 # Generated outputs

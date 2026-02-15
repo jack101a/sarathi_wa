@@ -15,9 +15,8 @@ const form2Command = require('./commands/form2');
 async function createBot() {
   const client = await create({
     sessionId: CONFIG.WHATSAPP.SESSION_ID,
-    sessionDataPath: CONFIG.WHATSAPP.SESSION_DATA_PATH,
     multiDevice: CONFIG.WHATSAPP.MULTI_DEVICE,
-    headless: CONFIG.PUPPETEER.HEADLESS !== false,
+    headless: CONFIG.PUPPETEER.HEADLESS,
     authTimeout: CONFIG.WHATSAPP.AUTH_TIMEOUT_SEC,
     blockCrashLogs: true,
   });
