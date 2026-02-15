@@ -1,0 +1,41 @@
+﻿# Dependencies
+node_modules/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Runtime/session artifacts
+*.data.json
+_IGNORE_default-session/
+default-session/
+
+# Generated outputs
+*.pdf
+*.jpg
+*.jpeg
+*.png
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Coverage and caches
+coverage/
+.nyc_output/
+.cache/
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Keep template env committed
+!.env.example

@@ -1,0 +1,27 @@
+{
+  "dependencies": {
+    "dotenv": "^17.3.1",
+    "puppeteer": "^24.37.3",
+    "@open-wa/wa-automate": "^4.76.0",
+    "axios": "^1.13.1",
+    "cheerio": "^1.1.2"
+  },
+  "name": "sarathiwa_bot",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "cross-env APP_ENV=production node server.js",
+    "start:dev": "cross-env APP_ENV=development node server.js",
+    "test:status": "node tests/testStatus.js",
+    "test:ack": "node tests/testAck.js",
+    "docker:build": "docker build -t sarathiwa-bot .",
+    "docker:run": "docker run --rm -p 3000:3000 --env-file .env sarathiwa-bot"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "cross-env": "^10.1.0"
+  }
+}
