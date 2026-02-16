@@ -18,14 +18,6 @@ function getFirstName(name) {
   return first.replace(/[^a-zA-Z0-9_-]/g, '') || 'Applicant';
 }
 
-function sanitizeReceiptHtml(html) {
-  return String(html || '')
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/^\s*\/\/\s*alert.*$/gim, '')
-    .replace(/^\s*alert\s*\(.*?\)\s*;?\s*$/gim, '')
-    .trim();
-}
-
 async function getAckPDF(appNo, dob) {
   if (!String(appNo || '').trim()) {
     throw new Error('Application number is required.');
@@ -79,11 +71,11 @@ async function getAckPDF(appNo, dob) {
         const doc = new DOMParser().parseFromString(html, 'text/html');
 
         const receiptNode = doc.querySelector('#divToPrint');
-        if (receiptNode) {
-          receiptNode.querySelectorAll('script').forEach((node) => node.remove());
+        const qrDiv = doc.querySelector('#QRDiv');
+        let combinedHTML = receiptNode ? receiptNode.outerHTML : '';
+        if (qrDiv) {
+          combinedHTML += qrDiv.outerHTML;
         }
-
-        const qr = doc.querySelector('#QRid')?.value || '';
 
         let nameText = '';
         const rows = Array.from(doc.querySelectorAll('tr'));
@@ -100,8 +92,7 @@ async function getAckPDF(appNo, dob) {
         }
 
         return {
-          content: receiptNode ? receiptNode.outerHTML : '',
-          qr,
+          content: combinedHTML,
           nameText,
         };
       },
@@ -116,11 +107,6 @@ async function getAckPDF(appNo, dob) {
       throw new Error('Acknowledgement content was not found.');
     }
 
-    const sanitizedContent = sanitizeReceiptHtml(receipt.content);
-    if (!sanitizedContent) {
-      throw new Error('Acknowledgement content is empty after sanitization.');
-    }
-
     const firstName = getFirstName(receipt.nameText);
     const filename = `${firstName}_${appNo}.pdf`;
     const outputPath = path.join(process.cwd(), filename);
@@ -129,7 +115,6 @@ async function getAckPDF(appNo, dob) {
       fs.unlinkSync(outputPath);
     }
 
-    const qrValue = JSON.stringify(receipt.qr || '');
     await page.setContent(
       `<!DOCTYPE html>
 <html>
@@ -148,47 +133,7 @@ async function getAckPDF(appNo, dob) {
     </style>
   </head>
   <body>
-    ${sanitizedContent}
-    <script>
-      (function () {
-        var qrValue = ${qrValue};
-        if (!qrValue) {
-          return;
-        }
-
-        var targetSelectors = ['#barcode', '#qrcode', '#qrCode', '#QRCode', '#qrImg'];
-        var target = null;
-
-        for (var i = 0; i < targetSelectors.length; i += 1) {
-          target = document.querySelector(targetSelectors[i]);
-          if (target) {
-            break;
-          }
-        }
-
-        if (!target) {
-          return;
-        }
-
-        var value = String(qrValue).trim();
-        if (/^<svg[\s\S]*<\/svg>$/i.test(value)) {
-          target.innerHTML = value;
-          return;
-        }
-
-        if (/^(data:image\/|https?:\/\/)/i.test(value)) {
-          var img = document.createElement('img');
-          img.src = value;
-          img.alt = 'QR';
-          img.style.maxWidth = '100%';
-          target.innerHTML = '';
-          target.appendChild(img);
-          return;
-        }
-
-        target.setAttribute('data-qr', value);
-      })();
-    </script>
+    ${receipt.content}
   </body>
 </html>`,
       { waitUntil: 'domcontentloaded' }
@@ -198,6 +143,7 @@ async function getAckPDF(appNo, dob) {
       path: outputPath,
       format: 'A4',
       printBackground: true,
+      pageRanges: '1',
       margin: {
         top: '10mm',
         bottom: '10mm',
