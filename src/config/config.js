@@ -123,6 +123,12 @@ const CONFIG = {
     MULTI_DEVICE: asBoolean(process.env.WA_MULTI_DEVICE, true),
   },
 
+  // Telegram automation options. Optional token; when absent bot startup is skipped.
+  TELEGRAM: {
+    TOKEN: String(process.env.TELEGRAM_BOT_TOKEN || '').trim() || null,
+    POLLING: true,
+  },
+
   // Puppeteer launch options with Docker-friendly overrides.
   PUPPETEER: {
     HEADLESS: asBoolean(process.env.PUPPETEER_HEADLESS, true) ? 'new' : false,
