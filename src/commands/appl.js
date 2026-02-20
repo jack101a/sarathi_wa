@@ -1,4 +1,4 @@
-﻿/**
+/**
  * appl command responsibility:
  * Entry point for the "appl" WhatsApp command handling.
  */
@@ -6,27 +6,28 @@
 const fs = require('fs');
 const { getAckPDF } = require('../services/ackService');
 
-async function applCommand(client, message) {
-  const parts = (message.body || '').split(/\s+/);
+async function applCommand(client, message, MessageMedia) {
+  const parts = (message.body || '').trim().split(/\s+/);
   const appNo = parts[1];
   const dob = parts[2];
 
   if (!appNo || !dob) {
-    await client.sendText(message.from, 'Usage: appl <application_number> <dob>');
+    await message.reply('Usage: appl <application_number> <dob>');
     return;
   }
 
-  await client.sendText(message.from, 'Fetching receipt...');
+  await message.reply('Fetching receipt...');
 
   try {
     const file = await getAckPDF(appNo, dob);
-    await client.sendFile(message.from, file, `Ack_${appNo}.pdf`, 'Receipt');
-    fs.unlinkSync(file);
+    const media = MessageMedia.fromFilePath(file);
+    await client.sendMessage(message.from, media, { caption: 'Receipt' });
+
+    if (fs.existsSync(file)) {
+      fs.unlinkSync(file);
+    }
   } catch (error) {
-    await client.sendText(
-      message.from,
-      'Failed to fetch receipt. Check DOB or application number.'
-    );
+    await message.reply('Failed to fetch receipt. Check DOB or application number.');
   }
 }
 

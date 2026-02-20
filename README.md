@@ -40,6 +40,8 @@ npm install
 npm run start
 ```
 
+First run will print a WhatsApp QR in terminal. After login, `LocalAuth` persists session data in `.wwebjs_auth/` so QR scan is not required on every restart.
+
 The app validates required env vars on startup and exits with a friendly message if any required variable is missing.
 
 ## Environment variable reference
@@ -47,10 +49,7 @@ The app validates required env vars on startup and exits with a friendly message
 - `APP_ENV`: `development` or `production`.
 - `DEBUG`: Enable debug logs (`true`/`false`).
 - `PORT`: App port value (for container/platform compatibility).
-- `WA_SESSION_ID`: WhatsApp session id.
-- `WA_AUTH_TIMEOUT_SEC`: WhatsApp auth timeout.
-- `WA_MULTI_DEVICE`: Enable multi-device mode.
-- `SESSION_ROOT`: Root directory for WA session cache file.
+- `SESSION_NAME`: LocalAuth client id used for persistent WhatsApp session storage.
 - `USER_AGENT`: Shared outbound user agent.
 - `TIMEOUT_MS`: HTTP and Puppeteer timeout in milliseconds.
 - `HOME_URL`: Sarathi home URL.
@@ -67,6 +66,7 @@ The app validates required env vars on startup and exits with a friendly message
 - `PUPPETEER_ARGS`: Optional comma-separated Chromium flags.
 - `TEST_APP_NO`: Optional app number for local tests.
 - `TEST_DOB`: Optional DOB for local tests.
+- `DISCORD_WEBHOOK_URL`: Optional webhook for alerts.
 
 ## Local run (Windows/Linux)
 
@@ -84,6 +84,7 @@ npm run test:ack
 Notes:
 - Use `path.join`-based config paths; no OS-specific path separators are required.
 - `cross-env` is used in npm scripts so env handling works on both Windows and Linux.
+- WhatsApp client uses `whatsapp-web.js` + `LocalAuth` (session files under `.wwebjs_auth/` and `.wwebjs_cache/`).
 
 ## Docker run
 

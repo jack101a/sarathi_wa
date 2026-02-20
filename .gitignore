@@ -11,6 +11,8 @@ node_modules/
 _IGNORE_default-session/
 sessions/
 default-session/
+.wwebjs_auth/
+.wwebjs_cache/
 
 # Generated outputs
 *.pdf
@@ -40,3 +42,4 @@ Thumbs.db
 
 # Keep template env committed
 !.env.example
+!.env copy.example

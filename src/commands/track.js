@@ -6,23 +6,27 @@
 const fs = require('fs');
 const { getVisualStatus } = require('../services/statusService');
 
-async function trackCommand(client, message) {
+async function trackCommand(client, message, MessageMedia) {
   try {
-    const parts = (message.body || '').split(/\s+/);
+    const parts = (message.body || '').trim().split(/\s+/);
     const appNo = parts[1];
 
     if (!appNo) {
-      await client.sendText(message.from, 'Usage: track <application_number>');
+      await message.reply('Usage: track <application_number>');
       return;
     }
 
-    await client.sendText(message.from, 'Fetching status...');
+    await message.reply('Fetching status...');
     const file = await getVisualStatus(appNo);
+    const media = MessageMedia.fromFilePath(file);
 
-    await client.sendImage(message.from, file, `Status_${appNo}.jpg`, 'Status');
-    fs.unlinkSync(file);
+    await client.sendMessage(message.from, media, { caption: 'Status' });
+
+    if (fs.existsSync(file)) {
+      fs.unlinkSync(file);
+    }
   } catch (error) {
-    await client.sendText(message.from, 'Not Found');
+    await message.reply('Not Found');
   }
 }
 

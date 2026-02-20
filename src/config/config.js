@@ -50,8 +50,7 @@ const DEFAULTS = {
   TIMEOUT_MS: 60000,
   SESSION_MAX_REQUESTS: 50,
   SESSION_TTL_MS: 10 * 60 * 1000,
-  WA_SESSION_ID: 'default-session',
-  WA_AUTH_TIMEOUT_SEC: 60,
+  SESSION_NAME: 'sarathi-session',
 };
 
 const REQUIRED_ENV_KEYS = [
@@ -76,7 +75,7 @@ if (missing.length > 0) {
 
 const timeoutMs = asNumber(process.env.TIMEOUT_MS, DEFAULTS.TIMEOUT_MS);
 const userAgent = process.env.USER_AGENT || DEFAULTS.USER_AGENT;
-const sessionId = process.env.WA_SESSION_ID || DEFAULTS.WA_SESSION_ID;
+const sessionName = String(process.env.SESSION_NAME || DEFAULTS.SESSION_NAME).trim() || DEFAULTS.SESSION_NAME;
 
 /**
  * Exported application configuration.
@@ -116,11 +115,9 @@ const CONFIG = {
     TTL_MS: asNumber(process.env.SESSION_TTL_MS, DEFAULTS.SESSION_TTL_MS),
   },
 
-  // WhatsApp automation session/runtime options.
+  // WhatsApp runtime options for whatsapp-web.js.
   WHATSAPP: {
-    SESSION_ID: sessionId,
-    AUTH_TIMEOUT_SEC: asNumber(process.env.WA_AUTH_TIMEOUT_SEC, DEFAULTS.WA_AUTH_TIMEOUT_SEC),
-    MULTI_DEVICE: asBoolean(process.env.WA_MULTI_DEVICE, true),
+    SESSION_NAME: sessionName,
   },
 
   // Telegram automation options. Optional token; when absent bot startup is skipped.
