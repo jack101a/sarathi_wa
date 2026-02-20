@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  sarathi-bot:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: sarathi_bot_app
+    restart: always
+    # Increase shared memory to prevent Chrome from crashing
+    shm_size: '1gb'
+    environment:
+      - NODE_ENV=production
+      - SESSION_NAME=default-session
+      - PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome
+      # Add other .env variables here if needed
+    volumes:
+      # This maps the session folder to your host machine
+      - ./auth_data:/app/.wwebjs_auth
+      # Optional: map a logs folder if you use one
+      - ./logs:/app/logs
+    # Keep the terminal open for QR code scanning
+    stdin_open: true
+    tty: true
+    # Required for Puppeteer/Chrome sandbox inside Docker
+    security_opt:
+      - seccomp:unconfined
