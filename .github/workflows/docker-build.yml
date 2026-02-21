@@ -1,0 +1,36 @@
+### SECTION: Global Config
+name: Build and Publish Docker Image
+
+# Strictly locked to the 'docker' branch. 
+# Pushing to 'main' will NOT trigger this.
+on:
+  push:
+    branches: [ "docker" ] 
+
+### SECTION: Main Logic
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          # Tagged explicitly as ':docker' instead of ':latest' for total isolation
+          tags: ghcr.io/jack101a/sarathiwa_bot:docker

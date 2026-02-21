@@ -1,31 +1,22 @@
-### SECTION: Docker Compose Config
 version: '3.8'
 
 services:
   sarathi-bot:
-    build: 
-      context: .
-      dockerfile: Dockerfile
-    container_name: sarathi_bot
+    # Pulling the isolated 'docker' tag
+    image: ghcr.io/jack101a/sarathiwa_bot:docker
+    container_name: sarathi_bot_app
     restart: always
     
-    # Excellent catch! This prevents Chrome from running out of memory.
     shm_size: '1gb'
     
-    # Tell Docker to load everything (including the empty EXECUTABLE_PATH) from your .env file
     env_file:
       - .env
       
     volumes:
-      # This maps the session folder to your host machine so auth survives restarts
       - ./auth_data:/app/.wwebjs_auth
-      # Optional: map a logs folder if you use one
-      - ./logs:/app/logs
       
-    # Keep the terminal open for QR code scanning
     stdin_open: true
     tty: true
     
-    # Required for Puppeteer/Chrome sandbox inside Docker
     security_opt:
       - seccomp:unconfined
