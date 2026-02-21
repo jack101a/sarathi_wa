@@ -1,13 +1,28 @@
-﻿node_modules
+﻿### SECTION: Dependencies & Logs
+node_modules
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 *.log
+
+### SECTION: Secrets & Source Control
 .env
 .git
 .gitignore
+
+### SECTION: WhatsApp & Puppeteer Local Data
+# Block old session data files
 _IGNORE_default-session
 default-session.data.json
+
+# Block the local WhatsApp authentication folders (we use a Docker Volume for this now)
+.wwebjs_auth
+auth_data
+
+# Block local browser binaries (Puppeteer will download fresh ones inside the container)
+.cache
+
+### SECTION: OS Artifacts & Temporary Files
 *.tmp
 *.temp
 *.pdf
