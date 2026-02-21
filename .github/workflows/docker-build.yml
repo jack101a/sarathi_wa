@@ -33,4 +33,4 @@ jobs:
           context: .
           push: true
           # Tagged explicitly as ':docker' instead of ':latest' for total isolation
-          tags: ghcr.io/jack101a/sarathiwa_bot:docker
+          tags: ghcr.io/jack101a/sarathiwa_bot:latest
