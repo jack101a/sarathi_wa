@@ -6,6 +6,7 @@
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const CONFIG = require('./config/config');
+const { isAuthorized } = require('./core/auth');
 
 const trackCommand = require('./commands/track');
 const applCommand = require('./commands/appl');
@@ -41,6 +42,11 @@ async function createBot() {
   });
 
   client.on('message', async (message) => {
+    // Authorization check: only allow authorized users and groups
+    if (!isAuthorized(message, CONFIG)) {
+      return; // Silently ignore unauthorized
+    }
+
     const parts = (message.body || '').trim().split(/\s+/);
     const command = (parts[0] || '').toLowerCase();
 

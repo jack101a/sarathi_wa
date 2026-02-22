@@ -8,6 +8,8 @@ const TelegramBot = require('node-telegram-bot-api');
 const { getVisualStatus } = require('./services/statusService');
 const { getAckPDF } = require('./services/ackService');
 const { downloadForm } = require('./services/formService');
+const { isTgAuthorized } = require('./core/auth');
+const CONFIG = require('./config/config');
 
 function parseArgs(raw) {
   return String(raw || '')
@@ -64,7 +66,15 @@ async function startTelegramBot(config) {
     console.error(`Telegram polling error: ${error.message}`);
   });
 
+  // Authorization check: only allow authorized users and groups
+  bot.on('message', (msg) => {
+    if (!isTgAuthorized(msg, CONFIG)) {
+      return; // Silently ignore unauthorized
+    }
+  });
+
   bot.onText(/^\/start(?:@[^\s]+)?(?:\s+.*)?$/i, async (msg) => {
+    if (!isTgAuthorized(msg, CONFIG)) return;
     const chatId = msg.chat.id;
     console.log(`[telegram] /start chat=${chatId}`);
     await bot.sendMessage(
@@ -74,12 +84,14 @@ async function startTelegramBot(config) {
   });
 
   bot.onText(/^\/help(?:@[^\s]+)?(?:\s+.*)?$/i, async (msg) => {
+    if (!isTgAuthorized(msg, CONFIG)) return;
     const chatId = msg.chat.id;
     console.log(`[telegram] /help chat=${chatId}`);
     await bot.sendMessage(chatId, buildHelpText());
   });
 
   bot.onText(/^\/track(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
+    if (!isTgAuthorized(msg, CONFIG)) return;
     const chatId = msg.chat.id;
     const args = parseArgs(match && match[1]);
     const appNo = args[0];
@@ -103,6 +115,7 @@ async function startTelegramBot(config) {
   });
 
   bot.onText(/^\/appl(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
+    if (!isTgAuthorized(msg, CONFIG)) return;
     const chatId = msg.chat.id;
     const args = parseArgs(match && match[1]);
     const appNo = args[0];
@@ -130,6 +143,7 @@ async function startTelegramBot(config) {
   });
 
   bot.onText(/^\/form1(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
+    if (!isTgAuthorized(msg, CONFIG)) return;
     const chatId = msg.chat.id;
     const args = parseArgs(match && match[1]);
     const appNo = args[0];
@@ -157,6 +171,7 @@ async function startTelegramBot(config) {
   });
 
   bot.onText(/^\/form1a(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
+    if (!isTgAuthorized(msg, CONFIG)) return;
     const chatId = msg.chat.id;
     const args = parseArgs(match && match[1]);
     const appNo = args[0];
@@ -184,6 +199,7 @@ async function startTelegramBot(config) {
   });
 
   bot.onText(/^\/form2(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
+    if (!isTgAuthorized(msg, CONFIG)) return;
     const chatId = msg.chat.id;
     const args = parseArgs(match && match[1]);
     const appNo = args[0];

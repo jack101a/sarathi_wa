@@ -126,6 +126,14 @@ const CONFIG = {
     POLLING: true,
   },
 
+  // Security settings for authorization checks
+  SECURITY: {
+    AUTHORIZED_USERS: parseCsv(process.env.AUTHORIZED_USERS || ''),
+    AUTHORIZED_GROUPS: parseCsv(process.env.AUTHORIZED_GROUPS || ''),
+    AUTHORIZED_TG_USERS: parseCsv(process.env.AUTHORIZED_TG_USERS || ''),
+    AUTHORIZED_TG_GROUPS: parseCsv(process.env.AUTHORIZED_TG_GROUPS || ''),
+  },
+
   // Puppeteer launch options with Docker-friendly overrides.
   PUPPETEER: {
     HEADLESS: asBoolean(process.env.PUPPETEER_HEADLESS, true) ? 'new' : false,
