@@ -4,11 +4,12 @@
 FROM node:20-bullseye-slim AS deps
 WORKDIR /app
 
-# 1. Tell Puppeteer to download the bundled Chrome right here in our app folder
+# 1. Keep the existing cache location and skip Puppeteer's bundled browser download.
 ENV PUPPETEER_CACHE_DIR=/app/.cache
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 COPY package*.json ./
-# 2. This installs Node modules AND triggers the Puppeteer Chrome download into .cache
+# 2. Install production dependencies only.
 RUN npm ci --omit=dev
 
 
@@ -19,13 +20,15 @@ ENV NODE_ENV=production
 ENV APP_ENV=production
 ENV PORT=${PORT}
 
-# 3. Tell the runtime where to find that bundled browser we are about to copy over
+# 3. Point Puppeteer at the system Chromium installed in this image.
 ENV PUPPETEER_CACHE_DIR=/app/.cache
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-# 4. Install ONLY the underlying OS plumbing (graphical/audio libraries) 
-# that the bundled Chrome needs. Notice there is no wget/google-chrome here!
+# 4. Install the system Chromium package plus the shared libraries Puppeteer needs.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    chromium \
     fonts-liberation \
     libasound2 \
     libatk-bridge2.0-0 \
@@ -66,9 +69,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# 5. Copy the node_modules AND the bundled Chrome cache from the prep cook
+# 5. Copy the installed dependencies from the prep cook.
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/.cache ./.cache
 
 # 6. Copy the rest of your app (bot.js, config.js, etc.)
 COPY . .
