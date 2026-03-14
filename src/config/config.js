@@ -6,9 +6,12 @@
  */
 
 const dotenv = require('dotenv');
+const path = require('path');
 
 dotenv.config();
 
+const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
+const DATA_DIR = path.join(PROJECT_ROOT, 'data');
 const APP_ENV = (process.env.APP_ENV || process.env.NODE_ENV || 'development').toLowerCase();
 
 function asNumber(value, fallback) {
@@ -37,6 +40,16 @@ function parseCsv(value) {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function resolveProjectPath(value, fallbackRelativePath) {
+  const candidate = String(value || '').trim();
+
+  if (candidate) {
+    return path.isAbsolute(candidate) ? candidate : path.join(PROJECT_ROOT, candidate);
+  }
+
+  return path.join(DATA_DIR, fallbackRelativePath);
 }
 
 const DEFAULTS = {
@@ -76,6 +89,7 @@ if (missing.length > 0) {
 const timeoutMs = asNumber(process.env.TIMEOUT_MS, DEFAULTS.TIMEOUT_MS);
 const userAgent = process.env.USER_AGENT || DEFAULTS.USER_AGENT;
 const sessionName = String(process.env.SESSION_NAME || DEFAULTS.SESSION_NAME).trim() || DEFAULTS.SESSION_NAME;
+const whatsappPhoneNumber = String(process.env.WHATSAPP_PHONE_NUMBER || '').trim();
 
 /**
  * Exported application configuration.
@@ -118,12 +132,29 @@ const CONFIG = {
   // WhatsApp runtime options for whatsapp-web.js.
   WHATSAPP: {
     SESSION_NAME: sessionName,
+    PHONE_NUMBER: whatsappPhoneNumber || null,
   },
 
   // Telegram automation options. Optional token; when absent bot startup is skipped.
   TELEGRAM: {
     TOKEN: String(process.env.TELEGRAM_BOT_TOKEN || '').trim() || null,
     POLLING: true,
+  },
+
+  AUTO_TRACK: {
+    CRON: String(process.env.AUTO_TRACK_CRON || '0 10-22/3 * * *').trim(),
+    STORE_PATH: resolveProjectPath(
+      process.env.AUTO_TRACK_STORE_FILE,
+      'tracked_applications.json'
+    ),
+  },
+
+  VAHAN_TRACK: {
+    STORE_PATH: resolveProjectPath(
+      process.env.VAHAN_TRACK_STORE_FILE,
+      'vahan_tracked_applications.json'
+    ),
+    POLL_INTERVAL_MS: asNumber(process.env.VAHAN_TRACK_INTERVAL_MS, 2 * 60 * 1000),
   },
 
   // Security settings for authorization checks

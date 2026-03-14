@@ -11,6 +11,12 @@ const cheerio = require('cheerio');
 const fs = require('fs');
 const path = require('path');
 
+function normalizeText(value) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function buildStatusHTML(content) {
   return `<!DOCTYPE html>
 <html>
@@ -55,7 +61,7 @@ function buildStatusHTML(content) {
 </html>`;
 }
 
-async function getVisualStatus(appNo) {
+async function fetchStatusMarkup(appNo) {
   if (!appNo) {
     throw new Error('Application number is required.');
   }
@@ -85,25 +91,157 @@ async function getVisualStatus(appNo) {
     $('td').filter((_, el) => $(el).text().includes('Note::')).remove();
 
     const extracted = $('form#applViewStages').html() || $('body').html() || '';
-    const wrappedHTML = buildStatusHTML(extracted);
-    const filename = `Status_${appNo}.jpg`;
-    const filePath = path.join(process.cwd(), filename);
+    return {
+      extractedHTML: extracted,
+      wrappedHTML: buildStatusHTML(extracted),
+    };
+  } catch (error) {
+    throw new Error(`Unable to fetch status markup: ${error.message}`);
+  }
+}
 
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
+async function getStatusSnapshot(appNo, options = {}) {
+  const { keepFile = false, filename = `Status_${appNo}.jpg` } = options;
+  const { extractedHTML, wrappedHTML } = await fetchStatusMarkup(appNo);
+  const filePath = path.join(process.cwd(), filename);
 
-    await renderHTML(wrappedHTML, {
-      type: 'image',
-      path: filePath,
+  if (fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath);
+  }
+
+  await renderHTML(wrappedHTML, {
+    type: 'image',
+    path: filePath,
+  });
+
+  const buffer = fs.readFileSync(filePath);
+
+  if (!keepFile) {
+    fs.unlinkSync(filePath);
+  }
+
+  return {
+    html: extractedHTML,
+    filePath,
+    buffer,
+  };
+}
+
+async function getVisualStatus(appNo) {
+  try {
+    const snapshot = await getStatusSnapshot(appNo, {
+      keepFile: true,
+      filename: `Status_${appNo}.jpg`,
     });
 
-    return filePath;
+    return snapshot.filePath;
   } catch (error) {
     throw new Error(`Unable to fetch visual status: ${error.message}`);
   }
 }
 
+function parseStatusDetails(html) {
+  const $ = cheerio.load(html || '');
+  const approvalKeywords = [
+    'APPROVAL OF DL',
+    'APPROVAL OF ENDORSEMENTS',
+    'APPROVAL OF LL',
+  ];
+
+  const dispatchHeading = $('h3')
+    .filter((_, el) => normalizeText($(el).text()).includes('Licence has been dispatched'))
+    .first();
+
+  if (dispatchHeading.length > 0) {
+    const dlNumber = normalizeText(
+      $('td')
+        .filter((_, el) => normalizeText($(el).text()).includes('Driving Licence Number'))
+        .first()
+        .next('td')
+        .find('b')
+        .first()
+        .text()
+    );
+
+    const dispatchTable = $('th')
+      .filter((_, el) => normalizeText($(el).text()).includes('Speed Post Tracker No'))
+      .first()
+      .closest('table');
+    const trackerNo = normalizeText(
+      dispatchTable.find('tr').eq(1).find('td').eq(3).find('b').first().text()
+    );
+
+    return {
+      kind: 'dispatched',
+      dlNumber,
+      trackerNo,
+      message: normalizeText(dispatchHeading.text()),
+    };
+  }
+
+  const completedApprovalRow = $('fieldset')
+    .filter((_, el) =>
+      normalizeText($(el).find('legend').first().text()).includes('Completed Action(s)')
+    )
+    .find('table tbody tr')
+    .filter((_, el) => {
+      const actionName = normalizeText($(el).find('td').eq(0).find('b').first().text()).toUpperCase();
+      const statusText = normalizeText($(el).find('td').eq(1).find('b').first().text()).toUpperCase();
+
+      return approvalKeywords.some((keyword) => actionName.includes(keyword)) && statusText === 'COMPLETED';
+    })
+    .first();
+
+  if (completedApprovalRow.length > 0) {
+    return {
+      kind: 'approved',
+      approvedAction: normalizeText(completedApprovalRow.find('td').eq(0).find('b').first().text()),
+      approvedOn: normalizeText(completedApprovalRow.find('td').eq(2).find('b').first().text()),
+    };
+  }
+
+  const pendingCounterHeading = $('h3')
+    .filter((_, el) => normalizeText($(el).text()).toLowerCase().includes('not pending at your counter'))
+    .first();
+
+  if (pendingCounterHeading.length > 0) {
+    return {
+      kind: 'pending-counter',
+      message: normalizeText(pendingCounterHeading.text()),
+    };
+  }
+
+  const currentStatusRow = $('#covTable tr')
+    .filter((_, el) => $(el).find('td').length > 0)
+    .first();
+
+  const transaction = normalizeText(currentStatusRow.find('td').eq(0).find('b').first().text());
+  const stage = normalizeText(currentStatusRow.find('td').eq(1).find('b').first().text());
+  const counter = normalizeText(currentStatusRow.find('td').eq(2).find('b').first().text());
+  const stageUpper = stage.toUpperCase();
+
+  if (
+    approvalKeywords.some((keyword) => stageUpper.includes(keyword))
+  ) {
+    return {
+      kind: 'approval-stage',
+      transaction,
+      stage,
+      counter,
+    };
+  }
+
+  return {
+    kind: 'pending',
+    transaction,
+    stage,
+    counter,
+  };
+}
+
 module.exports = {
   getVisualStatus,
+  getStatusSnapshot,
+  fetchStatusMarkup,
+  parseStatusDetails,
 };

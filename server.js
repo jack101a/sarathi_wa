@@ -34,6 +34,18 @@ async function startServer() {
     }
   }
 
+  try {
+    const { startAutoTrackScheduler } = require('./src/services/autoTrackService');
+    startAutoTrackScheduler();
+  } catch (error) {
+    console.error('Auto-track scheduler failed to start.');
+    console.error(error.message);
+
+    if (process.env.APP_ENV !== 'production') {
+      console.error(error.stack);
+    }
+  }
+
   return waClient;
 }
 

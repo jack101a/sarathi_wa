@@ -41,6 +41,7 @@ npm run start
 ```
 
 First run will print a WhatsApp QR in terminal. After login, `LocalAuth` persists session data in `.wwebjs_auth/` so QR scan is not required on every restart.
+If `WHATSAPP_PHONE_NUMBER` is set, the bot requests an 8-digit WhatsApp pairing code instead. That code is broadcast to Discord and Telegram when those integrations are configured.
 
 The app validates required env vars on startup and exits with a friendly message if any required variable is missing.
 
@@ -50,6 +51,7 @@ The app validates required env vars on startup and exits with a friendly message
 - `DEBUG`: Enable debug logs (`true`/`false`).
 - `PORT`: App port value (for container/platform compatibility).
 - `SESSION_NAME`: LocalAuth client id used for persistent WhatsApp session storage.
+- `WHATSAPP_PHONE_NUMBER`: Optional phone number for WhatsApp `Link with phone number` pairing.
 - `USER_AGENT`: Shared outbound user agent.
 - `TIMEOUT_MS`: HTTP and Puppeteer timeout in milliseconds.
 - `HOME_URL`: Sarathi home URL.
