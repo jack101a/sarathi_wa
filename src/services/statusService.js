@@ -147,6 +147,13 @@ function parseStatusDetails(html) {
     'APPROVAL OF ENDORSEMENTS',
     'APPROVAL OF LL',
   ];
+  const currentStatusRow = $('#covTable tr')
+    .filter((_, el) => $(el).find('td').length > 0)
+    .first();
+  const transaction = normalizeText(currentStatusRow.find('td').eq(0).find('b').first().text());
+  const stage = normalizeText(currentStatusRow.find('td').eq(1).find('b').first().text());
+  const counter = normalizeText(currentStatusRow.find('td').eq(2).find('b').first().text());
+  const stageUpper = stage.toUpperCase();
 
   const dispatchHeading = $('h3')
     .filter((_, el) => normalizeText($(el).text()).includes('Licence has been dispatched'))
@@ -176,6 +183,9 @@ function parseStatusDetails(html) {
       dlNumber,
       trackerNo,
       message: normalizeText(dispatchHeading.text()),
+      transaction,
+      stage,
+      counter,
     };
   }
 
@@ -197,6 +207,9 @@ function parseStatusDetails(html) {
       kind: 'approved',
       approvedAction: normalizeText(completedApprovalRow.find('td').eq(0).find('b').first().text()),
       approvedOn: normalizeText(completedApprovalRow.find('td').eq(2).find('b').first().text()),
+      transaction,
+      stage,
+      counter,
     };
   }
 
@@ -208,17 +221,11 @@ function parseStatusDetails(html) {
     return {
       kind: 'pending-counter',
       message: normalizeText(pendingCounterHeading.text()),
+      transaction,
+      stage,
+      counter,
     };
   }
-
-  const currentStatusRow = $('#covTable tr')
-    .filter((_, el) => $(el).find('td').length > 0)
-    .first();
-
-  const transaction = normalizeText(currentStatusRow.find('td').eq(0).find('b').first().text());
-  const stage = normalizeText(currentStatusRow.find('td').eq(1).find('b').first().text());
-  const counter = normalizeText(currentStatusRow.find('td').eq(2).find('b').first().text());
-  const stageUpper = stage.toUpperCase();
 
   if (
     approvalKeywords.some((keyword) => stageUpper.includes(keyword))

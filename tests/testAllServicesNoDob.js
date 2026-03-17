@@ -1,8 +1,10 @@
 require('dotenv').config();
 
+const fs = require('fs');
 const { getVisualStatus } = require('../src/services/statusService');
 const { downloadForm } = require('../src/services/formService');
 const { getAckPDF } = require('../src/services/ackService');
+const { closeBrowser } = require('../src/core/puppeteerEngine');
 
 async function run() {
   const appNo = String(process.env.TEST_APP_NO || '').trim();
@@ -18,10 +20,11 @@ async function run() {
   console.log('');
 
   const results = [];
+  let statusFile = null;
 
   try {
-    const file = await getVisualStatus(appNo);
-    results.push({ service: 'statusService.getVisualStatus', ok: true, detail: file });
+    statusFile = await getVisualStatus(appNo);
+    results.push({ service: 'statusService.getVisualStatus', ok: true, detail: statusFile });
   } catch (err) {
     results.push({
       service: 'statusService.getVisualStatus',
@@ -71,9 +74,15 @@ async function run() {
   if (failed.length) {
     process.exitCode = 1;
   }
+
+  if (statusFile && fs.existsSync(statusFile)) {
+    fs.unlinkSync(statusFile);
+  }
 }
 
 run().catch((err) => {
   console.error('Fatal:', err.message);
   process.exit(1);
+}).finally(async () => {
+  await closeBrowser();
 });

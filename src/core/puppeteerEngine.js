@@ -50,8 +50,25 @@ async function getBrowser() {
   return browserInstance;
 }
 
+async function closeBrowser() {
+  if (!browserInstance) {
+    return;
+  }
+
+  const activeBrowser = browserInstance;
+  browserInstance = null;
+  await activeBrowser.close();
+}
+
 async function renderHTML(content, options = {}) {
-  const { type, path, pdfOptions = {}, imageOptions = {} } = options;
+  const {
+    type,
+    path,
+    pdfOptions = {},
+    imageOptions = {},
+    waitForSelector = null,
+    waitForFunction = null,
+  } = options;
   let page;
 
   try {
@@ -59,6 +76,14 @@ async function renderHTML(content, options = {}) {
     page = await browser.newPage();
 
     await page.setContent(content, { waitUntil: 'domcontentloaded' });
+
+    if (waitForSelector) {
+      await page.waitForSelector(waitForSelector, { timeout: 30000 });
+    }
+
+    if (waitForFunction) {
+      await page.waitForFunction(waitForFunction, { timeout: 30000 });
+    }
 
     if (type === 'image') {
       await page.setViewport({
@@ -93,4 +118,5 @@ async function renderHTML(content, options = {}) {
 module.exports = {
   renderHTML,
   getBrowser,
+  closeBrowser,
 };

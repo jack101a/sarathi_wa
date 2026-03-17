@@ -34,6 +34,27 @@ function isAuthorized(message, config) {
   }
 }
 
+function getWhatsAppSenderId(message) {
+  const senderId = String(message && (message.author || message.from) || '').trim();
+
+  if (senderId.endsWith('@c.us')) {
+    return senderId.replace('@c.us', '');
+  }
+
+  return senderId;
+}
+
+function isAdminUser(message, config) {
+  try {
+    const senderId = getWhatsAppSenderId(message);
+    const ownerPhone = String(config.WHATSAPP && config.WHATSAPP.PHONE_NUMBER || '').trim();
+    return config.SECURITY.ADMIN_USERS.includes(senderId) || (ownerPhone && senderId === ownerPhone);
+  } catch (error) {
+    console.error("WA admin check failed:", error);
+    return false;
+  }
+}
+
 /**
  * Telegram Bouncer
  * Why: Prevents random people from spamming the TG bot.
@@ -64,4 +85,4 @@ function isTgAuthorized(msg, config) {
   }
 }
 
-module.exports = { isAuthorized, isTgAuthorized };
+module.exports = { isAuthorized, isTgAuthorized, isAdminUser, getWhatsAppSenderId };

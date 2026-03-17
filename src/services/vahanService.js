@@ -22,6 +22,14 @@ const sessions = new Map();
 let pollTimer = null;
 let activeWhatsAppClient = null;
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function randomBetween(minMs, maxMs) {
+  return Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
+}
+
 function normalizeText(value) {
   return String(value || '')
     .replace(/\s+/g, ' ')
@@ -132,6 +140,7 @@ async function initializeSession(chatId, applicationNumber) {
     waitingForCaptcha: true,
     authenticated: false,
     lastCaptchaText: '',
+    captchaRetryCount: 0,
     requestInFlight: false,
   };
 
@@ -319,30 +328,41 @@ function isMeaningfulValue(value) {
   return Boolean(text) && text !== 'NOT AVAILABLE';
 }
 
-function isApprovedCard(card) {
-  if (isMeaningfulValue(card.extra.rcPrintOrSmartCardStatus)) {
-    return true;
-  }
-
-  if (isMeaningfulValue(card.extra.dispatchRcStatus)) {
-    return true;
-  }
-
-  return getRelevantRows(card).some((row) => {
-    const currentStatus = normalizeText(row.currentStatus).toUpperCase();
-    return currentStatus.includes('COMPLETED') || currentStatus.includes('APPROVED ON');
-  });
+function isDispatchedCard(card) {
+  return isMeaningfulValue(card.extra.dispatchRcStatus);
 }
 
 function buildTrackingSnapshot(card) {
   return JSON.stringify({
-    rows: getRelevantRows(card).map((row) => ({
-      transactionPurpose: row.transactionPurpose,
-      currentStatus: row.currentStatus,
-    })),
+    rows: getRelevantRows(card).map((row) => normalizeText(row.currentStatus)),
     rcPrintOrSmartCardStatus: normalizeText(card.extra.rcPrintOrSmartCardStatus),
     dispatchRcStatus: normalizeText(card.extra.dispatchRcStatus),
   });
+}
+
+function getAutoTrackUpdateChatId() {
+  return String(CONFIG.AUTO_TRACK.UPDATE_CHAT_ID || '').trim();
+}
+
+async function sendTrackedUpdate(client, item, card) {
+  const targetChatId = getAutoTrackUpdateChatId();
+  if (!targetChatId) {
+    return false;
+  }
+  const imagePath = await renderStatusImage(card, targetChatId);
+
+  try {
+    await sendFileImage(
+      client,
+      targetChatId,
+      imagePath,
+      `Vahan status: ${card.vehicleNumber || item.applicationNumber}`
+    );
+  } finally {
+    cleanupFile(imagePath);
+  }
+
+  return true;
 }
 
 function buildStatusSummaryHtml(card) {
@@ -430,6 +450,11 @@ function isSessionExpiredResponse(xmlText, fallbackApplicationNumber) {
   return !card;
 }
 
+function isCaptchaRejectedResponse(xmlText) {
+  const text = normalizeText(xmlText).toUpperCase();
+  return text.includes('VERIFICATION CODE IS MISSING') || text.includes('VERIFICATION CODE DOES NOT MATCH');
+}
+
 async function sendFileImage(client, chatId, imagePath, caption) {
   const media = MessageMedia.fromFilePath(imagePath);
   await client.sendMessage(chatId, media, { caption });
@@ -438,8 +463,10 @@ async function sendFileImage(client, chatId, imagePath, caption) {
 function getHelpText() {
   return [
     'WhatsApp commands:',
-    'track <application_number>',
-    'add track <application_number> -tag',
+    'track <application_number> [dob]',
+    'refresh track',
+    'add track',
+    'add track <application_number> [dob] -tag',
     'remove track <application_number>',
     'track rc <application_number>',
     'add track rc <application_number> -tag',
@@ -531,6 +558,7 @@ async function handleIncomingText(client, chatId, text) {
 
   try {
     let xmlText;
+    const attemptedCaptcha = session.waitingForCaptcha;
     if (session.waitingForCaptcha) {
       xmlText = await submitWithCaptcha(session, value);
     } else if (session.authenticated && /^[A-Z0-9]+$/i.test(value)) {
@@ -539,6 +567,32 @@ async function handleIncomingText(client, chatId, text) {
       await client.sendMessage(
         chatId,
         'Send another Vahan application number, `add track rc <appno> -tag`, `list track`, or `stop`.'
+      );
+      return true;
+    }
+
+    if (attemptedCaptcha && isCaptchaRejectedResponse(xmlText)) {
+      if (session.captchaRetryCount < 1) {
+        session.captchaRetryCount += 1;
+        session.waitingForCaptcha = true;
+        session.authenticated = false;
+        await downloadCaptcha(session);
+        const media = MessageMedia.fromFilePath(session.captchaPath);
+        await client.sendMessage(chatId, media, {
+          caption: [
+            'Captcha did not match. Please try once more.',
+            `Application: ${session.applicationNumber}`,
+            'Reply with only the captcha text.',
+          ].join('\n'),
+        });
+        cleanupFile(session.captchaPath);
+        return true;
+      }
+
+      await stopSession(chatId);
+      await client.sendMessage(
+        chatId,
+        'Captcha failed twice. Send `track rc <application_number>` for a fresh Vahan session.'
       );
       return true;
     }
@@ -561,6 +615,7 @@ async function handleIncomingText(client, chatId, text) {
 
     session.authenticated = true;
     session.waitingForCaptcha = false;
+    session.captchaRetryCount = 0;
     return true;
   } catch (error) {
     if (session) {
@@ -646,30 +701,74 @@ async function pollTrackedApplications() {
         },
       });
 
-      if (!isApprovedCard(card)) {
-        continue;
+      await sendTrackedUpdate(activeWhatsAppClient, item, card);
+      if (isDispatchedCard(card)) {
+        removeTrack(item.chatId, item.applicationNumber);
       }
-
-      const imagePath = await renderStatusImage(card, item.chatId);
-      await sendFileImage(
-        activeWhatsAppClient,
-        item.chatId,
-        imagePath,
-        `Vahan status: ${card.vehicleNumber || item.applicationNumber}`
-      );
-      cleanupFile(imagePath);
-      await activeWhatsAppClient.sendMessage(
-        item.chatId,
-        `Vahan application approved: ${item.tag || item.applicationNumber}`
-      );
-
-      removeTrack(item.chatId, item.applicationNumber);
     } catch (error) {
       // Keep the entry; the session may simply have expired.
     } finally {
       session.requestInFlight = false;
     }
   }
+}
+
+async function refreshTrackedApplications(chatId) {
+  if (!activeWhatsAppClient) {
+    throw new Error('WhatsApp client is not ready.');
+  }
+
+  const entries = listTrack(chatId);
+
+  for (let index = 0; index < entries.length; index += 1) {
+    const item = entries[index];
+    if (index > 0) {
+      await sleep(randomBetween(5 * 1000, 10 * 1000));
+    }
+
+    const session = getSession(chatId);
+    if (!session || !session.authenticated || session.requestInFlight) {
+      await startLookup(activeWhatsAppClient, chatId, item.applicationNumber);
+      break;
+    }
+
+    session.requestInFlight = true;
+    try {
+      const xmlText = await submitWithAuthenticatedSession(session, item.applicationNumber);
+      if (isSessionExpiredResponse(xmlText, item.applicationNumber)) {
+        sessions.delete(chatId);
+        await startLookup(activeWhatsAppClient, chatId, item.applicationNumber);
+        break;
+      }
+
+      const card = parseStatusCard(xmlText, item.applicationNumber);
+      if (!card) {
+        continue;
+      }
+      const snapshot = buildTrackingSnapshot(card);
+
+      updateEntry({
+        transport: 'whatsapp',
+        chatId,
+        applicationNumber: item.applicationNumber,
+        updates: {
+          lastSnapshot: snapshot,
+          lastCheckedAt: new Date().toISOString(),
+        },
+      });
+
+      if (snapshot !== normalizeText(item.lastSnapshot)) {
+        await sendTrackedUpdate(activeWhatsAppClient, item, card);
+        if (isDispatchedCard(card)) {
+          removeTrack(chatId, item.applicationNumber);
+        }
+      }
+    } finally {
+      session.requestInFlight = false;
+    }
+  }
+
+  return entries.length;
 }
 
 function startPolling(client) {
@@ -690,6 +789,7 @@ module.exports = {
   hasActiveSession,
   listTrack,
   removeTrack,
+  refreshTrackedApplications,
   startLookup,
   startPolling,
   stopSession,

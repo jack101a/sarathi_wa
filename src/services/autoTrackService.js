@@ -1,5 +1,6 @@
 const cron = require('node-cron');
-const { getStatusSnapshot, parseStatusDetails } = require('./statusService');
+const { getTrackingSnapshot } = require('./trackingSnapshotService');
+const { parseStatusDetails } = require('./statusService');
 const {
   readTrackedApplications,
   upsertTrackedApplication,
@@ -11,39 +12,192 @@ const CONFIG = require('../config/config');
 
 let autoTrackJob = null;
 let autoTrackRunning = false;
+const initialCheckTimers = new Map();
+
+const STAGE_ICONS = {
+  scrutiny: '\u231b',
+  approval: '\ud83d\udcdd',
+  dispatched: '\ud83d\udcec',
+  done: '\u2705',
+  pending: '\u26a0\ufe0f',
+};
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function randomBetween(minMs, maxMs) {
+  return Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
+}
+
+function escapeBold(value) {
+  return String(value || '').replace(/\*/g, '');
+}
+
+function buildTrackingSignature(snapshot) {
+  const details = snapshot.details || parseStatusDetails(snapshot.html);
+  return JSON.stringify({
+    kind: details.kind || '',
+    stage: details.stage || '',
+    message: details.message || '',
+    approvedAction: details.approvedAction || '',
+    transaction: details.transaction || '',
+    counter: details.counter || '',
+  });
+}
+
+function resolveWhatsAppNotificationTargets() {
+  const updateGroupId = String(CONFIG.AUTO_TRACK.UPDATE_CHAT_ID || '').trim();
+  return updateGroupId ? [updateGroupId] : [];
+}
+
+function deriveAutoTrackStageState(snapshot) {
+  const details = snapshot.details || parseStatusDetails(snapshot.html);
+  const statusText = [
+    details.kind,
+    details.stage,
+    details.message,
+    details.approvedAction,
+    details.transaction,
+  ].map((value) => String(value || '').toUpperCase()).join(' ');
+
+  const dispatchedDone = details.kind === 'dispatched' || statusText.includes('DISPATCH');
+  const approvalDone = dispatchedDone
+    || details.kind === 'approved'
+    || statusText.includes('PRINTING OF DL')
+    || statusText.includes('PRINTING OF LL')
+    || statusText.includes('FORM 7')
+    || statusText.includes('CARD');
+  const scrutinyDone = approvalDone
+    || (Boolean(details.stage) && !String(details.stage).toUpperCase().includes('SCRUTINY'));
+
+  return {
+    scrutinyDone,
+    approvalDone,
+    dispatchedDone,
+  };
+}
+
+function buildStatusCaption(entry, snapshot) {
+  const label = String(entry.tag || '').trim();
+  const stageState = deriveAutoTrackStageState(snapshot);
+
+  const lines = [
+    `App. No: ${entry.appNo}`,
+    '',
+    label ? `*(${escapeBold(label)})*` : null,
+    label ? '' : null,
+    `${STAGE_ICONS.scrutiny} Scrutiny  ${stageState.scrutinyDone ? STAGE_ICONS.done : STAGE_ICONS.pending}`,
+    `${STAGE_ICONS.approval}Approval ${stageState.approvalDone ? STAGE_ICONS.done : STAGE_ICONS.pending}`,
+    `${STAGE_ICONS.dispatched}Dispatched ${stageState.dispatchedDone ? STAGE_ICONS.done : STAGE_ICONS.pending}`,
+  ].filter((item) => item !== null);
+
+  return lines.join('\n').trim();
+}
 
 async function notifyTrackedApplication(entry, snapshot) {
-  const details = parseStatusDetails(snapshot.html);
-  const label = entry.tag || entry.appNo;
-  const caption =
-    details.kind === 'dispatched'
-      ? [
-          `Application ${label} is approved and dispatched.`,
-          details.dlNumber ? `DL No: ${details.dlNumber}` : null,
-          details.trackerNo ? `Tracker No: ${details.trackerNo}` : null,
-        ]
-          .filter(Boolean)
-          .join('\n')
-      : details.kind === 'approved'
-        ? [
-            `Application ${label} is approved.`,
-            details.approvedAction ? `Action: ${details.approvedAction}` : null,
-            details.approvedOn ? `Processed On: ${details.approvedOn}` : null,
-          ]
-            .filter(Boolean)
-            .join('\n')
-      : `Status update for application ${label}: ${details.stage || details.message || 'updated'}.`;
+  if (entry.transport === 'whatsapp') {
+    const targets = resolveWhatsAppNotificationTargets();
+    for (const targetChatId of targets) {
+      await sendTrackingSnapshot(entry, snapshot, targetChatId);
+    }
+    return true;
+  }
+
+  return sendTrackingSnapshot(entry, snapshot, entry.chatId);
+}
+
+async function sendTrackingSnapshot(entry, snapshot, targetChatId = entry.chatId) {
+  const caption = buildStatusCaption(entry, snapshot);
   const filename = `status_${entry.appNo}.jpg`;
 
   if (entry.transport === 'whatsapp') {
-    return sendWhatsAppImage(entry.chatId, snapshot.buffer, filename, caption);
+    return sendWhatsAppImage(targetChatId, snapshot.buffer, filename, caption);
   }
 
   if (entry.transport === 'telegram') {
-    return sendTelegramPhoto(entry.chatId, snapshot.buffer, filename, caption);
+    return sendTelegramPhoto(targetChatId, snapshot.buffer, filename, caption);
   }
 
   throw new Error(`Unsupported transport: ${entry.transport}`);
+}
+
+async function checkTrackedEntry(entry) {
+  const snapshot = await getTrackingSnapshot(entry.appNo, entry.dob, {
+    keepFile: false,
+    filename: `tracked_status_${entry.appNo}_${Date.now()}.jpg`,
+  });
+  const details = snapshot.details || parseStatusDetails(snapshot.html);
+  const signature = buildTrackingSignature(snapshot);
+  const hasChanged = signature !== String(entry.lastSnapshot || '');
+
+  if (details.kind === 'dispatched') {
+    if (hasChanged) {
+      await notifyTrackedApplication(entry, snapshot);
+    }
+    removeTrackedApplication(entry);
+    return {
+      snapshot,
+      details,
+      notified: hasChanged,
+      removed: true,
+    };
+  }
+
+  if (hasChanged) {
+    await notifyTrackedApplication(entry, snapshot);
+    updateTrackedApplication(entry, {
+      lastStage: details.stage || entry.lastStage || '',
+      lastSnapshot: signature,
+    });
+    return {
+      snapshot,
+      details,
+      notified: true,
+    };
+  }
+
+  return {
+    snapshot,
+    details,
+    notified: false,
+  };
+}
+
+function scheduleInitialCheck(entry) {
+  const key = `${entry.transport}:${entry.chatId}:${entry.appNo}`;
+  const existingTimer = initialCheckTimers.get(key);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+
+  const delayMs = randomBetween(30 * 1000, 60 * 1000);
+  const timeoutId = setTimeout(async () => {
+    initialCheckTimers.delete(key);
+    try {
+      await checkTrackedEntry(entry);
+    } catch (error) {
+      console.error(`Initial auto-track check failed for ${entry.appNo}: ${error.message}`);
+    }
+  }, delayMs);
+
+  initialCheckTimers.set(key, timeoutId);
+}
+
+async function refreshTrackedApplications(chatId) {
+  const entries = readTrackedApplications().filter(
+    (entry) => entry.transport === 'whatsapp' && entry.chatId === chatId
+  );
+
+  for (let index = 0; index < entries.length; index += 1) {
+    if (index > 0) {
+      await sleep(randomBetween(5 * 1000, 10 * 1000));
+    }
+
+    await checkTrackedEntry(entries[index]);
+  }
+
+  return entries.length;
 }
 
 async function checkTrackedApplications() {
@@ -58,29 +212,7 @@ async function checkTrackedApplications() {
 
     for (const entry of trackedApplications) {
       try {
-        const snapshot = await getStatusSnapshot(entry.appNo, {
-          keepFile: false,
-          filename: `tracked_status_${entry.appNo}_${Date.now()}.jpg`,
-        });
-        const details = parseStatusDetails(snapshot.html);
-
-        if (details.kind === 'approved' || details.kind === 'dispatched') {
-          await notifyTrackedApplication(entry, snapshot);
-          removeTrackedApplication(entry);
-          continue;
-        }
-
-        if (details.kind === 'approval-stage') {
-          if (details.stage && details.stage !== (entry.lastStage || '')) {
-            await notifyTrackedApplication(entry, snapshot);
-            updateTrackedApplication(entry, { lastStage: details.stage });
-          }
-          continue;
-        }
-
-        if (details.kind === 'pending-counter' || details.kind === 'pending') {
-          continue;
-        }
+        await checkTrackedEntry(entry);
       } catch (error) {
         console.error(`Auto-track check failed for ${entry.appNo}: ${error.message}`);
       }
@@ -91,10 +223,33 @@ async function checkTrackedApplications() {
 }
 
 function addAutoTrack(entry) {
-  return upsertTrackedApplication(entry);
+  const result = upsertTrackedApplication(entry);
+
+  if (result.created) {
+    scheduleInitialCheck({
+      ...entry,
+      appNo: String(entry.appNo || '').trim(),
+      chatId: String(entry.chatId || '').trim(),
+      transport: String(entry.transport || '').trim().toLowerCase(),
+      tag: String(entry.tag || '').trim(),
+      dob: String(entry.dob || '').trim(),
+    });
+  }
+
+  return result;
 }
 
 function removeAutoTrack(entry) {
+  const key = [
+    String(entry.transport || '').trim().toLowerCase(),
+    String(entry.chatId || '').trim(),
+    String(entry.appNo || '').trim(),
+  ].join(':');
+  const timer = initialCheckTimers.get(key);
+  if (timer) {
+    clearTimeout(timer);
+    initialCheckTimers.delete(key);
+  }
   return removeTrackedApplication(entry);
 }
 
@@ -118,4 +273,8 @@ module.exports = {
   readTrackedApplications,
   checkTrackedApplications,
   startAutoTrackScheduler,
+  buildStatusCaption,
+  buildTrackingSignature,
+  resolveWhatsAppNotificationTargets,
+  refreshTrackedApplications,
 };

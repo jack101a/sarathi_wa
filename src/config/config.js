@@ -147,6 +147,7 @@ const CONFIG = {
       process.env.AUTO_TRACK_STORE_FILE,
       'tracked_applications.json'
     ),
+    UPDATE_CHAT_ID: String(process.env.AUTO_TRACK_UPDATE_CHAT_ID || '').trim() || null,
   },
 
   VAHAN_TRACK: {
@@ -163,6 +164,7 @@ const CONFIG = {
     AUTHORIZED_GROUPS: parseCsv(process.env.AUTHORIZED_GROUPS || ''),
     AUTHORIZED_TG_USERS: parseCsv(process.env.AUTHORIZED_TG_USERS || ''),
     AUTHORIZED_TG_GROUPS: parseCsv(process.env.AUTHORIZED_TG_GROUPS || ''),
+    ADMIN_USERS: parseCsv(process.env.ADMIN_USERS || ''),
   },
 
   // Puppeteer launch options with Docker-friendly overrides.

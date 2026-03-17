@@ -26,7 +26,9 @@ function normalizeEntries(data) {
       transport: String(item.transport).trim().toLowerCase(),
       createdAt: item.createdAt || new Date().toISOString(),
       lastStage: String(item.lastStage || '').trim(),
+      lastSnapshot: String(item.lastSnapshot || '').trim(),
       tag: String(item.tag || '').trim(),
+      dob: String(item.dob || '').trim(),
     }));
 }
 
@@ -67,6 +69,7 @@ function upsertTrackedApplication(entry) {
   const chatId = String(entry.chatId || '').trim();
   const transport = String(entry.transport || '').trim().toLowerCase();
   const tag = String(entry.tag || '').trim();
+  const dob = String(entry.dob || '').trim();
 
   if (!appNo || !chatId || !transport) {
     throw new Error('Application number, chat ID, and transport are required.');
@@ -91,6 +94,7 @@ function upsertTrackedApplication(entry) {
       chatId,
       transport,
       tag,
+      dob,
       createdAt: new Date().toISOString(),
       lastStage: '',
     },
@@ -141,6 +145,12 @@ function updateTrackedApplication(entry, updates = {}) {
         tag: typeof updates.tag === 'undefined'
           ? item.tag || ''
           : String(updates.tag || '').trim(),
+        dob: typeof updates.dob === 'undefined'
+          ? item.dob || ''
+          : String(updates.dob || '').trim(),
+        lastSnapshot: typeof updates.lastSnapshot === 'undefined'
+          ? item.lastSnapshot || ''
+          : String(updates.lastSnapshot || '').trim(),
         lastStage: typeof updates.lastStage === 'undefined'
           ? item.lastStage || ''
           : String(updates.lastStage || '').trim(),

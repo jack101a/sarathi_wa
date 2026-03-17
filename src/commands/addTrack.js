@@ -1,8 +1,8 @@
 const { addAutoTrack } = require('../services/autoTrackService');
 
-async function addTrackCommand(message, transport, chatId, appNo, tag) {
+async function addTrackCommand(message, transport, chatId, appNo, tag, dob) {
   if (!appNo) {
-    await message.reply('Usage: add track <application_number> -tag');
+    await message.reply('Usage: add track <application_number> [dob] -tag');
     return;
   }
 
@@ -11,6 +11,7 @@ async function addTrackCommand(message, transport, chatId, appNo, tag) {
     transport,
     chatId,
     tag,
+    dob,
   });
 
   if (result.created) {

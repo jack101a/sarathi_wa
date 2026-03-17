@@ -5,7 +5,6 @@
 
 const fs = require('fs');
 const TelegramBot = require('node-telegram-bot-api');
-const { getVisualStatus } = require('./services/statusService');
 const { getAckPDF } = require('./services/ackService');
 const { downloadForm } = require('./services/formService');
 const { getFormset } = require('./services/formsetService');
@@ -14,6 +13,8 @@ const { addAutoTrack, removeAutoTrack } = require('./services/autoTrackService')
 const { setTelegramBot } = require('./services/chatNotifier');
 const { isTgAuthorized } = require('./core/auth');
 const CONFIG = require('./config/config');
+const { getTrackingSnapshot } = require('./services/trackingSnapshotService');
+const { normalizeDob } = require('./services/commandInputService');
 
 let activeTelegramBot = null;
 
@@ -56,8 +57,8 @@ function getTelegramConfig(config) {
 function buildHelpText() {
   return [
     'Available commands:',
-    '/track <application_number>',
-    '/addtrack <application_number>',
+    '/track <application_number> [dob]',
+    '/addtrack <application_number> [dob]',
     '/removetrack <application_number>',
     '/appl <application_number> <dob>',
     '/form1 <application_number> <dob>',
@@ -122,17 +123,22 @@ async function startTelegramBot(config) {
     const chatId = msg.chat.id;
     const args = parseArgs(match && match[1]);
     const appNo = args[0];
+    const dob = normalizeDob(args[1] || '');
     console.log(`[telegram] /track chat=${chatId}`);
 
     if (!appNo) {
-      await bot.sendMessage(chatId, 'Usage: /track <application_number>');
+      await bot.sendMessage(chatId, 'Usage: /track <application_number> [dob]');
       return;
     }
 
     let filePath;
     try {
       await bot.sendMessage(chatId, 'Fetching status...');
-      filePath = await getVisualStatus(appNo);
+      const snapshot = await getTrackingSnapshot(appNo, dob, {
+        keepFile: true,
+        filename: `Track_${appNo}.jpg`,
+      });
+      filePath = snapshot.filePath;
       await bot.sendPhoto(chatId, filePath);
     } catch (error) {
       await bot.sendMessage(chatId, 'Not Found');
@@ -187,11 +193,13 @@ async function startTelegramBot(config) {
   bot.onText(/^\/addtrack(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
     if (!isTgAuthorized(msg, CONFIG)) return;
     const chatId = msg.chat.id;
-    const appNo = parseArgs(match && match[1])[0];
+    const args = parseArgs(match && match[1]);
+    const appNo = args[0];
+    const dob = normalizeDob(args[1] || '');
     console.log(`[telegram] /addtrack chat=${chatId}`);
 
     if (!appNo) {
-      await bot.sendMessage(chatId, 'Usage: /addtrack <application_number>');
+      await bot.sendMessage(chatId, 'Usage: /addtrack <application_number> [dob]');
       return;
     }
 
@@ -199,6 +207,7 @@ async function startTelegramBot(config) {
       appNo,
       transport: 'telegram',
       chatId,
+      dob,
     });
 
     await bot.sendMessage(
