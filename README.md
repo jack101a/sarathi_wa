@@ -29,20 +29,16 @@ docs/           documentation
 ## Setup
 
 1. Copy `.env.example` to `.env`
-2. Fill in the required Sarathi values:
-   - `HOME_URL`
-   - `STATUS_URL`
-   - `FORM_URL`
-   - `ACK_URL`
-   - `STATE_ID`
-   - `STATE_CODE`
-3. Install dependencies:
+2. Copy `config.example.yml` to `data/config.yml`
+3. Fill in the core portal/runtime values in `data/config.yml`
+4. Fill in the operational frontend values in `.env`
+5. Install dependencies:
 
 ```bash
 npm install
 ```
 
-4. Start the app:
+6. Start the app:
 
 ```bash
 npm run start
@@ -63,5 +59,7 @@ npm run manual:vahan-research
 ## Notes
 
 - WhatsApp auth persists in `.wwebjs_auth/` and `.wwebjs_cache/`.
+- Core static config now lives in `data/config.yml` or the path pointed to by `CONFIG_FILE`.
+- If `CONFIG_FILE` is missing at startup, the app will auto-create it from the bundled `config.example.yml`.
 - `tests/manual/` is for helpful manual-testing utilities, not production code.
 - `trash/` contains old temporary or debug artifacts and should not be treated as active runtime code.

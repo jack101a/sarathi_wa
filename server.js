@@ -67,35 +67,43 @@ async function startServer() {
   let waClient;
   let telegramBot;
 
-  const deletedLocks = cleanupWhatsAppAuthLocks();
-  if (deletedLocks.length > 0) {
-    console.log(`[startup] Deleted ${deletedLocks.length} WhatsApp auth lock file(s).`);
-  }
-
-  try {
-    const { createBot } = require('./src/bot');
-    waClient = await createBot();
-  } catch (error) {
-    console.error('Failed to start bot.');
-    console.error(error.message);
-
-    if (process.env.APP_ENV !== 'production') {
-      console.error(error.stack);
+  if (CONFIG.WHATSAPP.ENABLED) {
+    const deletedLocks = cleanupWhatsAppAuthLocks();
+    if (deletedLocks.length > 0) {
+      console.log(`[startup] Deleted ${deletedLocks.length} WhatsApp auth lock file(s).`);
     }
 
-    throw error;
+    try {
+      const { createBot } = require('./src/bot');
+      waClient = await createBot();
+    } catch (error) {
+      console.error('Failed to start WhatsApp bot.');
+      console.error(error.message);
+
+      if (process.env.APP_ENV !== 'production') {
+        console.error(error.stack);
+      }
+
+      throw error;
+    }
+  } else {
+    console.log('WhatsApp bot is disabled. Set WHATSAPP_PHONE_NUMBER to enable it.');
   }
 
-  try {
-    const { startTelegramBot } = require('./src/telegramBot');
-    telegramBot = await startTelegramBot(CONFIG);
-  } catch (error) {
-    console.error('Telegram bot failed to start. WhatsApp bot will continue running.');
-    console.error(error.message);
+  if (CONFIG.TELEGRAM.ENABLED) {
+    try {
+      const { startTelegramBot } = require('./src/telegramBot');
+      telegramBot = await startTelegramBot(CONFIG);
+    } catch (error) {
+      console.error('Telegram bot failed to start. Other services will continue running.');
+      console.error(error.message);
 
-    if (process.env.APP_ENV !== 'production') {
-      console.error(error.stack);
+      if (process.env.APP_ENV !== 'production') {
+        console.error(error.stack);
+      }
     }
+  } else {
+    console.log('Telegram bot is disabled. Set TELEGRAM_BOT_TOKEN to enable it.');
   }
 
   try {

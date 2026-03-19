@@ -11,11 +11,11 @@ async function test() {
     waitUntil: 'networkidle2'
   });
 
-  await page.select('select.form-control.input-sm', process.env.STATE_CODE);
+    await page.select('select.form-control.input-sm', CONFIG.STATE_CODE);
 
   await page.waitForTimeout(2000);
 
-  const url = `${CONFIG.URLS.ACK}?applNum=${process.env.TEST_APP_NO}&type=ack`;
+    const url = `${CONFIG.URLS.ACK}?applNum=${process.env.TEST_APP_NO}&type=ack`;
 
   const res = await page.evaluate(async (u) => {
     const r = await fetch(u, { credentials: "include" });

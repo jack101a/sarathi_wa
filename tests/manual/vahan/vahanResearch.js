@@ -19,7 +19,7 @@ const TRACK_STORE_PATH = path.join(process.cwd(), 'vahan_tracked_applications.js
 const DEFAULT_APPLICATION_NUMBER = String(process.argv[2] || process.env.VAHAN_TEST_APP_NO || '').trim();
 const TARGET_USER = String((process.env.AUTHORIZED_USERS || '').split(',')[0] || '').trim();
 const SESSION_NAME = String(process.env.SESSION_NAME || 'default-session').trim();
-const TRACK_INTERVAL_MS = Number(process.env.VAHAN_TRACK_INTERVAL_MS || 120000);
+const TRACK_INTERVAL_MS = 120000;
 
 let activeSession = null;
 let keepAliveTimer = null;

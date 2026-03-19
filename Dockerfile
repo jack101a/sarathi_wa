@@ -19,11 +19,23 @@ ARG PORT=3000
 ENV NODE_ENV=production
 ENV APP_ENV=production
 ENV PORT=${PORT}
+ENV CONFIG_FILE=data/config.yml
+ENV AUTO_TRACK_STORE_FILE=data/tracked_applications.json
+ENV VAHAN_TRACK_STORE_FILE=data/vahan_tracked_applications.json
+ENV TEMP_DIR=data/tmp
 
 # 3. Point Puppeteer at the system Chromium installed in this image.
 ENV PUPPETEER_CACHE_DIR=/app/.cache
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_HEADLESS=true
+ENV PUPPETEER_DISABLE_SANDBOX=true
+ENV PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV VAHAN_CAPTCHA_MODEL_PATH=godmode_solver.onnx
+ENV VAHAN_CAPTCHA_AUTO_SOLVE=true
+ENV VAHAN_CAPTCHA_MAX_ATTEMPTS=8
+ENV VAHAN_CAPTCHA_RETRY_MIN_MS=3000
+ENV VAHAN_CAPTCHA_RETRY_MAX_MS=5000
 
 # 4. Install the system Chromium package plus the shared libraries Puppeteer needs.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -74,6 +86,8 @@ COPY --from=deps /app/node_modules ./node_modules
 
 # 6. Copy the rest of your app (bot.js, config.js, etc.)
 COPY . .
+
+RUN mkdir -p /app/data /app/.wwebjs_auth
 
 # 7. Protect the WhatsApp session data so it survives container restarts
 VOLUME ["/app/.wwebjs_auth"]

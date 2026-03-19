@@ -1,0 +1,39 @@
+state:
+  id: dklEcFJuUWtUd2FTYjdINVBvMDhJdz09
+  code: MH
+
+urls:
+  home: https://sarathi.parivahan.gov.in/sarathiservice/
+  status: https://sarathi.parivahan.gov.in/sarathiservice/applStatus.do
+  form: https://sarathi.parivahan.gov.in/sarathiservice/form2pdfreport.do
+  ack: https://sarathi.parivahan.gov.in/sarathiservice/printAck.do
+
+runtime:
+  user_agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36
+  timeout_ms: 60000
+  session_max_requests: 50
+  session_ttl_ms: 600000
+  temp_dir: data/tmp
+
+tracking:
+  auto_track_cron: 0 10-22/3 * * *
+  vahan_track_cron: 0 10-22/3 * * *
+
+telegram:
+  polling: true
+
+whatsapp:
+  session_name: default-session
+
+vahan:
+  captcha_auto_solve: true
+  captcha_model_path: godmode_solver.onnx
+  captcha_max_attempts: 8
+  captcha_retry_min_ms: 3000
+  captcha_retry_max_ms: 5000
+
+puppeteer:
+  headless: true
+  disable_sandbox: false
+  executable_path: ""
+  args: []

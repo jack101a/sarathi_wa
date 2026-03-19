@@ -218,6 +218,8 @@ Runtime data files:
   Vahan tracked applications
 - `data/tmp/`
   Runtime temp files for generated images and PDFs
+- `data/config.yml`
+  Mounted core app config in YAML form
 
 Important note:
 
@@ -228,10 +230,7 @@ Important note:
 
 ### Core
 
-- `STATE_ID`
-- `STATE_CODE`
-- `TIMEOUT_MS`
-- `USER_AGENT`
+- `CONFIG_FILE`
 - `SESSION_NAME`
 
 ### WhatsApp
@@ -259,6 +258,22 @@ Important note:
 - `VAHAN_CAPTCHA_MAX_ATTEMPTS`
 - `VAHAN_CAPTCHA_RETRY_MIN_MS`
 - `VAHAN_CAPTCHA_RETRY_MAX_MS`
+
+## Config Model
+
+The app uses a two-layer config model:
+
+1. `data/config.yml`
+   Holds stable portal and runtime configuration
+2. `.env`
+   Holds operational frontend credentials, access lists, notification targets, and scheduler overrides
+
+If `data/config.yml` is missing at startup, the app auto-seeds it from the bundled `config.example.yml`.
+
+At least one of these must be configured for the app to start:
+
+- `WHATSAPP_PHONE_NUMBER`
+- `TELEGRAM_BOT_TOKEN`
 
 ## Where To Edit Things
 
