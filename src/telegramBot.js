@@ -9,20 +9,51 @@ const { getAckPDF } = require('./services/ackService');
 const { downloadForm } = require('./services/formService');
 const { getFormset } = require('./services/formsetService');
 const { getRandomAliveMeme } = require('./services/aliveService');
-const { addAutoTrack, removeAutoTrack } = require('./services/autoTrackService');
+const {
+  addAutoTrack,
+  removeAutoTrack,
+} = require('./services/autoTrackService');
 const { setTelegramBot } = require('./services/chatNotifier');
 const { isTgAuthorized } = require('./core/auth');
 const CONFIG = require('./config/config');
 const { getTrackingSnapshot } = require('./services/trackingSnapshotService');
 const { normalizeDob } = require('./services/commandInputService');
+const {
+  buildTrackedItemsMessage,
+  hasTrackedItems,
+  isSarathiTrackedAnywhere,
+  isVahanTrackedAnywhere,
+  refreshAllTrackedApplications,
+  removeVahanTrackEverywhere,
+} = require('./services/trackingControlService');
+const {
+  addTrack: addVahanTrack,
+  handleIncomingText: handleVahanIncomingText,
+  hasActiveSession: hasActiveVahanSession,
+  startLookup: startVahanLookup,
+  startPolling: startVahanPolling,
+  stopSession: stopVahanSession,
+} = require('./services/vahanService');
 
 let activeTelegramBot = null;
+const vahanTelegramClient = {
+  sendImage: async (chatId, imagePath, caption) => {
+    await activeTelegramBot.sendPhoto(chatId, imagePath, { caption });
+  },
+  sendText: async (chatId, text) => {
+    await activeTelegramBot.sendMessage(chatId, text);
+  },
+};
 
 function parseArgs(raw) {
   return String(raw || '')
     .trim()
     .split(/\s+/)
     .filter(Boolean);
+}
+
+function getTelegramChatId(msg) {
+  return String(msg && msg.chat && msg.chat.id || '').trim();
 }
 
 function getFirstAuthorizedChatId(config) {
@@ -58,8 +89,14 @@ function buildHelpText() {
   return [
     'Available commands:',
     '/track <application_number> [dob]',
-    '/addtrack <application_number> [dob]',
+    '/addtrack <application_number> [dob] [-tag]',
     '/removetrack <application_number>',
+    '/listtrack',
+    '/refreshtrack',
+    '/trackrc <application_number>',
+    '/addtrackrc <application_number> [-tag]',
+    '/removetrackrc <application_number>',
+    '/stop',
     '/appl <application_number> <dob>',
     '/form1 <application_number> <dob>',
     '/form1a <application_number> <dob>',
@@ -67,12 +104,6 @@ function buildHelpText() {
     '/formset <application_number> <dob>',
     '/alive',
     '/suno',
-    '',
-    'Vahan RC captcha workflow is currently available on WhatsApp only:',
-    'track rc <application_number>',
-    'add track rc <application_number> -tag',
-    'remove track rc <application_number>',
-    'list track',
   ].join('\n');
 }
 
@@ -89,15 +120,84 @@ async function startTelegramBot(config) {
   });
   activeTelegramBot = bot;
   setTelegramBot(bot);
+  startVahanPolling(vahanTelegramClient, 'telegram');
 
   bot.on('polling_error', (error) => {
     console.error(`Telegram polling error: ${error.message}`);
   });
 
   // Authorization check: only allow authorized users and groups
-  bot.on('message', (msg) => {
+  bot.on('message', async (msg) => {
     if (!isTgAuthorized(msg, CONFIG)) {
       return; // Silently ignore unauthorized
+    }
+
+    const chatId = getTelegramChatId(msg);
+    const text = String(msg && msg.text || '').trim();
+
+    if (!text || text.startsWith('/')) {
+      return;
+    }
+
+    if (/^list\s+track$/i.test(text)) {
+      await bot.sendMessage(chatId, buildTrackedItemsMessage());
+      return;
+    }
+
+    if (/^refresh\s+track$/i.test(text)) {
+      if (!hasTrackedItems()) {
+        await bot.sendMessage(chatId, 'No applications are being tracked.');
+        return;
+      }
+
+      await refreshAllTrackedApplications();
+      return;
+    }
+
+    const trackRcMatch = text.match(/^track\s+rc\s+([A-Z0-9]+)$/i);
+    if (trackRcMatch) {
+      await bot.sendMessage(chatId, 'Fetching Vahan status...');
+      await startVahanLookup(vahanTelegramClient, chatId, trackRcMatch[1], 'telegram');
+      return;
+    }
+
+    const addTrackRcMatch = text.match(/^add\s+track\s+rc\s+([A-Z0-9]+)(?:\s*-\s*(.+))?$/i);
+    if (addTrackRcMatch) {
+      if (isVahanTrackedAnywhere(addTrackRcMatch[1])) {
+        await bot.sendMessage(chatId, `Vahan tracking already exists for ${addTrackRcMatch[1]}.`);
+        return;
+      }
+
+      const result = addVahanTrack(chatId, addTrackRcMatch[1], addTrackRcMatch[2], 'telegram');
+      await bot.sendMessage(
+        chatId,
+        result.created
+          ? `Vahan tracking added for ${addTrackRcMatch[1]}${addTrackRcMatch[2] ? ` - ${addTrackRcMatch[2].trim()}` : ''}.`
+          : `Vahan tracking already exists for ${addTrackRcMatch[1]}.`
+      );
+      return;
+    }
+
+    const removeTrackRcMatch = text.match(/^remove\s+track\s+rc\s+([A-Z0-9]+)$/i);
+    if (removeTrackRcMatch) {
+      const result = removeVahanTrackEverywhere(removeTrackRcMatch[1]);
+      await bot.sendMessage(
+        chatId,
+        result.removed
+          ? `Vahan tracking removed for ${removeTrackRcMatch[1]}.`
+          : `No Vahan tracking entry found for ${removeTrackRcMatch[1]}.`
+      );
+      return;
+    }
+
+    if (/^stop$/i.test(text) && hasActiveVahanSession(chatId, 'telegram')) {
+      await stopVahanSession(chatId, 'telegram');
+      await bot.sendMessage(chatId, 'Vahan session stopped.');
+      return;
+    }
+
+    if (hasActiveVahanSession(chatId, 'telegram')) {
+      await handleVahanIncomingText(vahanTelegramClient, chatId, text, 'telegram');
     }
   });
 
@@ -193,13 +293,21 @@ async function startTelegramBot(config) {
   bot.onText(/^\/addtrack(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
     if (!isTgAuthorized(msg, CONFIG)) return;
     const chatId = msg.chat.id;
-    const args = parseArgs(match && match[1]);
-    const appNo = args[0];
-    const dob = normalizeDob(args[1] || '');
+    const raw = String(match && match[1] || '').trim();
+    const parsed = raw.match(/^(\d+)(?:\s+(\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}))?(?:\s*-\s*(.+))?$/i);
     console.log(`[telegram] /addtrack chat=${chatId}`);
 
-    if (!appNo) {
-      await bot.sendMessage(chatId, 'Usage: /addtrack <application_number> [dob]');
+    if (!parsed) {
+      await bot.sendMessage(chatId, 'Usage: /addtrack <application_number> [dob] [-tag]');
+      return;
+    }
+
+    const appNo = parsed[1];
+    const dob = normalizeDob(parsed[2] || '');
+    const tag = String(parsed[3] || '').trim();
+
+    if (isSarathiTrackedAnywhere(appNo)) {
+      await bot.sendMessage(chatId, `Application ${appNo} is already being tracked.`);
       return;
     }
 
@@ -208,14 +316,103 @@ async function startTelegramBot(config) {
       transport: 'telegram',
       chatId,
       dob,
+      tag,
     });
 
     await bot.sendMessage(
       chatId,
       result.created
-        ? `Auto-tracking started for ${appNo}. I will notify you when it is approved.`
+        ? `Auto-tracking started for ${appNo}${tag ? ` - ${tag}` : ''}. I will notify you when it is approved.`
         : `Application ${appNo} is already being tracked here.`
     );
+  });
+
+  bot.onText(/^\/listtrack(?:@[^\s]+)?(?:\s+.*)?$/i, async (msg) => {
+    if (!isTgAuthorized(msg, CONFIG)) return;
+    const chatId = getTelegramChatId(msg);
+    await bot.sendMessage(chatId, buildTrackedItemsMessage());
+  });
+
+  bot.onText(/^\/refreshtrack(?:@[^\s]+)?(?:\s+.*)?$/i, async (msg) => {
+    if (!isTgAuthorized(msg, CONFIG)) return;
+    const chatId = getTelegramChatId(msg);
+    if (!hasTrackedItems()) {
+      await bot.sendMessage(chatId, 'No applications are being tracked.');
+      return;
+    }
+
+    await refreshAllTrackedApplications();
+  });
+
+  bot.onText(/^\/trackrc(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
+    if (!isTgAuthorized(msg, CONFIG)) return;
+    const chatId = getTelegramChatId(msg);
+    const appNo = parseArgs(match && match[1])[0];
+
+    if (!appNo) {
+      await bot.sendMessage(chatId, 'Usage: /trackrc <application_number>');
+      return;
+    }
+
+    await bot.sendMessage(chatId, 'Fetching Vahan status...');
+    await startVahanLookup(vahanTelegramClient, chatId, appNo, 'telegram');
+  });
+
+  bot.onText(/^\/addtrackrc(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
+    if (!isTgAuthorized(msg, CONFIG)) return;
+    const chatId = getTelegramChatId(msg);
+    const raw = String(match && match[1] || '').trim();
+    const parsed = raw.match(/^([A-Z0-9]+)(?:\s*-\s*(.+))?$/i);
+
+    if (!parsed) {
+      await bot.sendMessage(chatId, 'Usage: /addtrackrc <application_number> [-tag]');
+      return;
+    }
+
+    if (isVahanTrackedAnywhere(parsed[1])) {
+      await bot.sendMessage(chatId, `Vahan tracking already exists for ${parsed[1]}.`);
+      return;
+    }
+
+    const result = addVahanTrack(chatId, parsed[1], parsed[2], 'telegram');
+    await bot.sendMessage(
+      chatId,
+      result.created
+        ? `Vahan tracking added for ${parsed[1]}${parsed[2] ? ` - ${parsed[2].trim()}` : ''}.`
+        : `Vahan tracking already exists for ${parsed[1]}.`
+    );
+  });
+
+  bot.onText(/^\/removetrackrc(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
+    if (!isTgAuthorized(msg, CONFIG)) return;
+    const chatId = getTelegramChatId(msg);
+    const appNo = parseArgs(match && match[1])[0];
+
+    if (!appNo) {
+      await bot.sendMessage(chatId, 'Usage: /removetrackrc <application_number>');
+      return;
+    }
+
+    const result = removeVahanTrackEverywhere(appNo);
+    await bot.sendMessage(
+      chatId,
+      result.removed
+        ? `Vahan tracking removed for ${appNo}.`
+        : `No Vahan tracking entry found for ${appNo}.`
+    );
+  });
+
+  bot.onText(/^\/stop(?:@[^\s]+)?(?:\s+.*)?$/i, async (msg) => {
+    if (!isTgAuthorized(msg, CONFIG)) return;
+    const chatId = getTelegramChatId(msg);
+
+    if (!hasActiveVahanSession(chatId, 'telegram')) {
+      await bot.sendMessage(chatId, 'No active Vahan session is running.');
+      return;
+    }
+
+    await stopVahanSession(chatId, 'telegram');
+    await bot.sendMessage(chatId, 'Vahan session stopped.');
   });
 
   bot.onText(/^\/removetrack(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {

@@ -10,17 +10,10 @@ const { isAuthorized } = require('./core/auth');
 const { broadcastPairingCode, formatPairingCode } = require('./services/pairingCodeNotifier');
 const { setWhatsAppClient } = require('./services/chatNotifier');
 const {
-  readTrackedApplications,
-  refreshTrackedApplications: refreshSarathiTrackedApplications,
-} = require('./services/autoTrackService');
-const {
   addTrack: addVahanTrack,
   getHelpText,
   handleIncomingText: handleVahanIncomingText,
   hasActiveSession: hasActiveVahanSession,
-  listTrack: listVahanTrack,
-  removeTrack: removeVahanTrack,
-  refreshTrackedApplications: refreshVahanTrackedApplications,
   startLookup: startVahanLookup,
   startPolling: startVahanPolling,
   stopSession: stopVahanSession,
@@ -40,10 +33,28 @@ const {
   decodeAppNoAndDobFromImage,
   normalizeDob,
 } = require('./services/commandInputService');
+const {
+  buildTrackedItemsMessage,
+  hasTrackedItems,
+  isVahanTrackedAnywhere,
+  refreshAllTrackedApplications,
+  removeVahanTrackEverywhere,
+} = require('./services/trackingControlService');
 
 const TRACK_DOB_TIMEOUT_MS = 120 * 1000;
 const pendingDobRequests = new Map();
 const interactiveAddTrackFlows = new Map();
+let activeWhatsAppClient = null;
+
+const vahanWhatsAppClient = {
+  sendImage: async (chatId, imagePath, caption) => {
+    const media = MessageMedia.fromFilePath(imagePath);
+    await activeWhatsAppClient.sendMessage(chatId, media, { caption });
+  },
+  sendText: async (chatId, text) => {
+    await activeWhatsAppClient.sendMessage(chatId, text);
+  },
+};
 
 function normalizePhoneNumber(phoneNumber) {
   return String(phoneNumber || '').replace(/\D/g, '');
@@ -153,7 +164,7 @@ async function handleInteractiveAddTrackFlow(message) {
     clearInteractiveAddTrackFlow(message.from);
 
     if (flow.data.serviceType === 'rc') {
-      const result = addVahanTrack(message.from, flow.data.appNo, tag);
+      const result = addVahanTrack(message.from, flow.data.appNo, tag, 'whatsapp');
       await message.reply(
         result.created
           ? `Vahan tracking added for ${flow.data.appNo}${tag ? ` - ${tag}` : ''}.`
@@ -292,6 +303,7 @@ async function createBot() {
       args: [...new Set(puppeteerArgs)],
     },
   });
+  activeWhatsAppClient = client;
   setWhatsAppClient(client);
   let lastPairingCode = null;
 
@@ -335,7 +347,7 @@ async function createBot() {
     console.log('WhatsApp bot is online.');
   });
 
-  startVahanPolling(client);
+  startVahanPolling(vahanWhatsAppClient, 'whatsapp');
 
   async function handleMessage(message, eventName = 'message') {
     const normalizedBody = String(message.body || '').trim();
@@ -386,50 +398,27 @@ async function createBot() {
       }
 
       if (/^list\s+track$/i.test(normalizedBody)) {
-        const sarathiTracked = readTrackedApplications().filter(
-          (item) => item.transport === 'whatsapp' && item.chatId === message.from
-        );
-        const tracked = listVahanTrack(message.from);
-        await message.reply(
-          !sarathiTracked.length && !tracked.length
-            ? 'No applications are being tracked.'
-            : [
-                'Sarathi:',
-                sarathiTracked.length
-                  ? sarathiTracked
-                      .map((item, index) => `${index + 1}. ${item.appNo}${item.tag ? ` - ${item.tag}` : ''}`)
-                      .join('\n')
-                  : 'None',
-                '-----',
-                'Vahan:',
-                tracked.length
-                  ? tracked
-                      .map((item, index) => `${index + 1}. ${item.applicationNumber}${item.tag ? ` - ${item.tag}` : ''}`)
-                      .join('\n')
-                  : 'None',
-              ].join('\n')
-        );
+        await message.reply(buildTrackedItemsMessage());
         return;
       }
 
       if (/^refresh\s+track$/i.test(normalizedBody)) {
-        const sarathiCount = readTrackedApplications().filter(
-          (item) => item.transport === 'whatsapp' && item.chatId === message.from
-        ).length;
-        const vahanCount = listVahanTrack(message.from).length;
-
-        if (!sarathiCount && !vahanCount) {
+        if (!hasTrackedItems()) {
           await message.reply('No applications are being tracked.');
           return;
         }
 
-        await refreshSarathiTrackedApplications(message.from);
-        await refreshVahanTrackedApplications(message.from);
+        await refreshAllTrackedApplications();
         return;
       }
 
       if (addTrackRcMatch) {
-        const result = addVahanTrack(message.from, addTrackRcMatch[1], addTrackRcMatch[2]);
+        if (isVahanTrackedAnywhere(addTrackRcMatch[1])) {
+          await message.reply(`Vahan tracking already exists for ${addTrackRcMatch[1]}.`);
+          return;
+        }
+
+        const result = addVahanTrack(message.from, addTrackRcMatch[1], addTrackRcMatch[2], 'whatsapp');
         await message.reply(
           result.created
             ? `Vahan tracking added for ${addTrackRcMatch[1]}${addTrackRcMatch[2] ? ` - ${addTrackRcMatch[2].trim()}` : ''}.`
@@ -439,7 +428,7 @@ async function createBot() {
       }
 
       if (removeTrackRcMatch) {
-        const result = removeVahanTrack(message.from, removeTrackRcMatch[1]);
+        const result = removeVahanTrackEverywhere(removeTrackRcMatch[1]);
         await message.reply(
           result.removed
             ? `Vahan tracking removed for ${removeTrackRcMatch[1]}.`
@@ -450,12 +439,12 @@ async function createBot() {
 
       if (trackRcMatch) {
         await message.reply('Fetching Vahan status...');
-        await startVahanLookup(client, message.from, trackRcMatch[1]);
+        await startVahanLookup(vahanWhatsAppClient, message.from, trackRcMatch[1], 'whatsapp');
         return;
       }
 
-      if (/^stop$/i.test(normalizedBody) && hasActiveVahanSession(message.from)) {
-        await stopVahanSession(message.from);
+      if (/^stop$/i.test(normalizedBody) && hasActiveVahanSession(message.from, 'whatsapp')) {
+        await stopVahanSession(message.from, 'whatsapp');
         await message.reply('Vahan session stopped.');
         return;
       }
@@ -532,8 +521,8 @@ async function createBot() {
           await formsetCommand(client, message);
           break;
         default:
-          if (hasActiveVahanSession(message.from)) {
-            await handleVahanIncomingText(client, message.from, normalizedBody);
+          if (hasActiveVahanSession(message.from, 'whatsapp')) {
+            await handleVahanIncomingText(vahanWhatsAppClient, message.from, normalizedBody, 'whatsapp');
           }
           break;
       }

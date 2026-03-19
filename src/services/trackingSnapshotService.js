@@ -1,8 +1,8 @@
 const fs = require('fs');
-const path = require('path');
 const { getAckSnapshot } = require('./ackService');
 const { getStatusSnapshot, parseStatusDetails } = require('./statusService');
 const { renderHTML } = require('../core/puppeteerEngine');
+const { getTempFilePath } = require('../core/tempFiles');
 
 function toDataUrl(buffer, mimeType = 'image/jpeg') {
   return `data:${mimeType};base64,${Buffer.from(buffer).toString('base64')}`;
@@ -138,7 +138,7 @@ async function getTrackingSnapshot(appNo, dob, options = {}) {
     keepFile: false,
     filename: `ack_${appNo}_${Date.now()}.jpg`,
   });
-  const filePath = path.join(process.cwd(), filename);
+  const filePath = getTempFilePath(filename);
 
   if (fs.existsSync(filePath)) {
     fs.unlinkSync(filePath);

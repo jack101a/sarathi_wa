@@ -178,4 +178,5 @@ module.exports = {
   readEntries,
   removeEntry,
   updateEntry,
+  writeEntries,
 };

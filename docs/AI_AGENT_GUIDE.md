@@ -98,9 +98,15 @@ Important command families:
 
 ### Telegram
 
-`src/telegramBot.js` supports Sarathi lookups and Sarathi auto-tracking.
+`src/telegramBot.js` supports Sarathi and Vahan command flows.
 
-Telegram does not run the interactive Vahan captcha solving flow. However, Telegram can now receive fallback captcha notifications when Vahan auto-solve fails repeatedly.
+Telegram now supports:
+
+- Sarathi lookups
+- Sarathi tracking commands
+- Vahan RC lookup
+- Vahan captcha reply flow
+- Vahan tracking commands
 
 ## Sarathi Workflow
 
@@ -150,8 +156,8 @@ How it works:
 2. Bot bootstraps the Vahan page and captcha state
 3. If auto-solve is enabled, solver tries the captcha first
 4. If auto-solve succeeds, status card is rendered and sent
-5. If auto-solve fails repeatedly, captcha is sent to WhatsApp and Telegram
-6. User replies in WhatsApp with captcha text
+5. If auto-solve fails repeatedly, captcha is sent to the active transport chat
+6. User replies in that same chat with captcha text
 7. Authenticated session can then be reused for later app numbers
 
 ### Auto-solve policy
@@ -210,6 +216,8 @@ Runtime data files:
   Sarathi tracked applications
 - `data/vahan_tracked_applications.json`
   Vahan tracked applications
+- `data/tmp/`
+  Runtime temp files for generated images and PDFs
 
 Important note:
 
@@ -303,7 +311,6 @@ Manual helpers:
 
 ## Known Oddities
 
-- Telegram still does not host the interactive Vahan solve flow; it only receives fallback notifications.
 - `tests/manual/vahan/vahanResearch.js` is intentionally not part of runtime and may lag behind production implementation details.
 - The repo mostly uses Node scripts instead of a formal test runner like Jest or Vitest.
 - There is no enforced formatter/linter config yet, so consistency is maintained manually.

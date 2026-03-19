@@ -1,4 +1,4 @@
-const { removeAutoTrack } = require('../services/autoTrackService');
+const { removeSarathiTrackEverywhere } = require('../services/trackingControlService');
 
 async function removeTrackCommand(message, transport, chatId, appNo) {
   if (!appNo) {
@@ -6,11 +6,7 @@ async function removeTrackCommand(message, transport, chatId, appNo) {
     return;
   }
 
-  const result = removeAutoTrack({
-    appNo,
-    transport,
-    chatId,
-  });
+  const result = removeSarathiTrackEverywhere(appNo);
 
   if (result.removed) {
     await message.reply(`Auto-tracking removed for ${appNo}.`);

@@ -7,9 +7,9 @@ const CONFIG = require('../config/config');
 const httpClient = require('../core/httpClient');
 const { getSessionCookie } = require('../core/sessionManager');
 const { renderHTML } = require('../core/puppeteerEngine');
+const { getTempFilePath } = require('../core/tempFiles');
 const cheerio = require('cheerio');
 const fs = require('fs');
-const path = require('path');
 
 function normalizeText(value) {
   return String(value || '')
@@ -103,7 +103,7 @@ async function fetchStatusMarkup(appNo) {
 async function getStatusSnapshot(appNo, options = {}) {
   const { keepFile = false, filename = `Status_${appNo}.jpg` } = options;
   const { extractedHTML, wrappedHTML } = await fetchStatusMarkup(appNo);
-  const filePath = path.join(process.cwd(), filename);
+  const filePath = getTempFilePath(filename);
 
   if (fs.existsSync(filePath)) {
     fs.unlinkSync(filePath);

@@ -184,9 +184,11 @@ function scheduleInitialCheck(entry) {
   initialCheckTimers.set(key, timeoutId);
 }
 
-async function refreshTrackedApplications(chatId) {
+async function refreshTrackedApplications(chatId, transport = 'whatsapp') {
   const entries = readTrackedApplications().filter(
-    (entry) => entry.transport === 'whatsapp' && entry.chatId === chatId
+    (entry) =>
+      entry.transport === String(transport || 'whatsapp').trim().toLowerCase() &&
+      String(entry.chatId) === String(chatId)
   );
 
   for (let index = 0; index < entries.length; index += 1) {

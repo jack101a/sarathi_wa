@@ -171,6 +171,10 @@ const CONFIG = {
     CAPTCHA_RETRY_MAX_MS: asNumber(process.env.VAHAN_CAPTCHA_RETRY_MAX_MS, 5 * 1000),
   },
 
+  TEMP: {
+    DIR: resolveProjectPath(process.env.TEMP_DIR, 'tmp'),
+  },
+
   // Security settings for authorization checks
   SECURITY: {
     AUTHORIZED_USERS: parseCsv(process.env.AUTHORIZED_USERS || ''),

@@ -5,6 +5,7 @@
 
 const CONFIG = require('../config/config');
 const { getBrowser } = require('../core/puppeteerEngine');
+const { getTempFilePath } = require('../core/tempFiles');
 const fs = require('fs');
 const path = require('path');
 const cheerio = require('cheerio');
@@ -66,7 +67,7 @@ async function getAckPDF(appNo, dob) {
 
     const firstName = getFirstName(receipt.nameText);
     const filename = `${firstName}_${appNo}.pdf`;
-    const outputPath = path.join(process.cwd(), filename);
+    const outputPath = getTempFilePath(filename);
 
     if (fs.existsSync(outputPath)) {
       fs.unlinkSync(outputPath);
@@ -287,7 +288,7 @@ async function getAckSnapshot(appNo, dob, options = {}) {
       throw new Error('Acknowledgement content was not found.');
     }
 
-    const outputPath = path.join(process.cwd(), filename);
+    const outputPath = getTempFilePath(filename);
     if (fs.existsSync(outputPath)) {
       fs.unlinkSync(outputPath);
     }

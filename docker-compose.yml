@@ -25,6 +25,7 @@ services:
       - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
       - USER_AGENT=${USER_AGENT:-Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36}
       - TIMEOUT_MS=${TIMEOUT_MS:-60000}
+      - TEMP_DIR=${TEMP_DIR:-data/tmp}
       - HOME_URL=${HOME_URL}
       - STATUS_URL=${STATUS_URL}
       - FORM_URL=${FORM_URL}

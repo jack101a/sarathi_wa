@@ -9,6 +9,17 @@ const {
   stopSession,
 } = require('../src/services/vahanService');
 
+function createTestClient(log) {
+  return {
+    sendImage: async (...args) => {
+      log.push(['image', ...args]);
+    },
+    sendText: async (...args) => {
+      log.push(['text', ...args]);
+    },
+  };
+}
+
 function buildInitialFormHtml() {
   return `
     <html>
@@ -64,19 +75,16 @@ async function testStartLookupReportsBootstrapFailures() {
 
   try {
     await startLookup(
-      {
-        sendMessage: async (...args) => {
-          messages.push(args);
-        },
-      },
+      createTestClient(messages),
       'test-vahan-chat',
       'MH260310V7505731'
     );
 
     assert.strictEqual(messages.length, 1, 'Expected one failure message to be sent.');
-    assert.strictEqual(messages[0][0], 'test-vahan-chat');
+    assert.strictEqual(messages[0][0], 'text');
+    assert.strictEqual(messages[0][1], 'test-vahan-chat');
     assert.match(
-      messages[0][1],
+      messages[0][2],
       /Vahan request failed: Could not reach the Vahan service right now/i
     );
   } finally {
@@ -128,11 +136,7 @@ async function testStartLookupFallsBackToManualCaptchaAfterEightSolverFailures()
 
   try {
     await startLookup(
-      {
-        sendMessage: async (...args) => {
-          whatsappMessages.push(args);
-        },
-      },
+      createTestClient(whatsappMessages),
       'wa-fallback-chat',
       'MH260310V7505731'
     );
@@ -140,10 +144,11 @@ async function testStartLookupFallsBackToManualCaptchaAfterEightSolverFailures()
     assert.strictEqual(solverAttempts, 8, 'Expected eight automatic captcha solve attempts.');
     assert.ok(getCalls >= 9, 'Expected captcha bootstrap and retries to fetch captcha images.');
     assert.strictEqual(whatsappMessages.length, 1, 'Expected one WhatsApp captcha fallback message.');
+    assert.strictEqual(whatsappMessages[0][0], 'image');
     assert.strictEqual(telegramPhotos.length, 1, 'Expected one Telegram captcha photo fallback.');
     assert.strictEqual(telegramTexts.length, 1, 'Expected one Telegram instruction message.');
     assert.match(
-      whatsappMessages[0][2].caption,
+      whatsappMessages[0][3],
       /Automatic captcha solving failed\. Please solve it manually\./i
     );
   } finally {

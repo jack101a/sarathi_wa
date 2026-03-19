@@ -5,9 +5,9 @@ const cheerio = require('cheerio');
 const cron = require('node-cron');
 const { wrapper } = require('axios-cookiejar-support');
 const { CookieJar } = require('tough-cookie');
-const { MessageMedia } = require('whatsapp-web.js');
 const CONFIG = require('../config/config');
 const { renderHTML } = require('../core/puppeteerEngine');
+const { getTempFilePath } = require('../core/tempFiles');
 const { solveCaptcha } = require('./vahanCaptchaSolver');
 const {
   getTelegramNotificationTargets,
@@ -34,7 +34,7 @@ const DEFAULT_CAPTCHA_RETRY_MIN_MS = 3 * 1000;
 const DEFAULT_CAPTCHA_RETRY_MAX_MS = 5 * 1000;
 const sessions = new Map();
 let pollJob = null;
-let activeWhatsAppClient = null;
+const activeClients = new Map();
 let captchaSolver = solveCaptcha;
 let httpClientFactory = createHttpClient;
 let sleepFn = sleep;
@@ -51,6 +51,18 @@ function normalizeText(value) {
   return String(value || '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function normalizeTransport(value) {
+  return normalizeText(value || 'whatsapp').toLowerCase() || 'whatsapp';
+}
+
+function getSessionKey(chatId, transport = 'whatsapp') {
+  return `${normalizeTransport(transport)}:${normalizeText(chatId)}`;
+}
+
+function getActiveClient(transport = 'whatsapp') {
+  return activeClients.get(normalizeTransport(transport)) || null;
 }
 
 function createHttpClient() {
@@ -109,6 +121,22 @@ function getUserFacingLookupError(error) {
     : 'Could not complete the Vahan request right now.';
 }
 
+async function sendTextMessage(client, chatId, text) {
+  if (!client || typeof client.sendText !== 'function') {
+    throw new Error('Transport client is not ready.');
+  }
+
+  await client.sendText(chatId, text);
+}
+
+async function sendImageFile(client, chatId, imagePath, caption) {
+  if (!client || typeof client.sendImage !== 'function') {
+    throw new Error('Transport client is not ready.');
+  }
+
+  await client.sendImage(chatId, imagePath, caption);
+}
+
 function getCaptchaAttemptCount() {
   return Math.max(1, Number(CONFIG.VAHAN_TRACK.CAPTCHA_MAX_ATTEMPTS) || 8);
 }
@@ -122,7 +150,7 @@ function getCaptchaRetryRangeMs() {
 
 function createFilePath(chatId, suffix) {
   const safeChatId = String(chatId || 'unknown').replace(/[^a-z0-9_-]/gi, '_');
-  return path.join(process.cwd(), `.tmp_vahan_${safeChatId}_${suffix}`);
+  return getTempFilePath(`vahan_${safeChatId}_${suffix}`);
 }
 
 function cleanupFile(filePath) {
@@ -186,8 +214,10 @@ async function downloadCaptcha(session) {
   return filePath;
 }
 
-async function initializeSession(chatId, applicationNumber) {
-  const existing = sessions.get(chatId);
+async function initializeSession(chatId, applicationNumber, transport = 'whatsapp') {
+  transport = normalizeTransport(transport);
+  const sessionKey = getSessionKey(chatId, transport);
+  const existing = sessions.get(sessionKey);
   if (existing) {
     cleanupFile(existing.captchaPath);
   }
@@ -196,6 +226,7 @@ async function initializeSession(chatId, applicationNumber) {
   const response = await retryVahanHttpRequest(() => httpClient.get(FORM_URL));
   const initialState = extractInitialState(response.data);
   const session = {
+    transport,
     chatId,
     httpClient,
     applicationNumber: normalizeText(applicationNumber),
@@ -210,7 +241,7 @@ async function initializeSession(chatId, applicationNumber) {
   };
 
   await downloadCaptcha(session);
-  sessions.set(chatId, session);
+  sessions.set(sessionKey, session);
   return session;
 }
 
@@ -416,7 +447,11 @@ function getVahanUpdateChatId() {
 }
 
 async function sendTrackedUpdate(item, card) {
-  const targetChatId = getVahanUpdateChatId();
+  const transport = normalizeTransport(item.transport);
+  const targetChatId =
+    transport === 'whatsapp'
+      ? getVahanUpdateChatId()
+      : normalizeText(item.chatId);
   if (!targetChatId) {
     return false;
   }
@@ -424,12 +459,21 @@ async function sendTrackedUpdate(item, card) {
 
   try {
     const buffer = fs.readFileSync(imagePath);
-    await sendWhatsAppImage(
-      targetChatId,
-      buffer,
-      path.basename(imagePath),
-      `Vahan status: ${card.vehicleNumber || item.applicationNumber}`
-    );
+    if (transport === 'telegram') {
+      await sendTelegramPhoto(
+        targetChatId,
+        buffer,
+        path.basename(imagePath),
+        `Vahan status: ${card.vehicleNumber || item.applicationNumber}`
+      );
+    } else {
+      await sendWhatsAppImage(
+        targetChatId,
+        buffer,
+        path.basename(imagePath),
+        `Vahan status: ${card.vehicleNumber || item.applicationNumber}`
+      );
+    }
   } finally {
     cleanupFile(imagePath);
   }
@@ -527,14 +571,9 @@ function isCaptchaRejectedResponse(xmlText) {
   return text.includes('VERIFICATION CODE IS MISSING') || text.includes('VERIFICATION CODE DOES NOT MATCH');
 }
 
-async function sendFileImage(client, chatId, imagePath, caption) {
-  const media = MessageMedia.fromFilePath(imagePath);
-  await client.sendMessage(chatId, media, { caption });
-}
-
 function getHelpText() {
   return [
-    'WhatsApp commands:',
+    'Available Vahan commands:',
     'track <application_number> [dob]',
     'refresh track',
     'add track',
@@ -557,11 +596,15 @@ function getHelpText() {
 }
 
 function getSession(chatId) {
-  return sessions.get(chatId) || null;
+  return getSessionByTransport(chatId);
 }
 
-function hasActiveSession(chatId) {
-  return Boolean(getSession(chatId));
+function getSessionByTransport(chatId, transport = 'whatsapp') {
+  return sessions.get(getSessionKey(chatId, transport)) || null;
+}
+
+function hasActiveSession(chatId, transport = 'whatsapp') {
+  return Boolean(getSessionByTransport(chatId, transport));
 }
 
 async function solveAndSubmitCaptcha(session) {
@@ -611,6 +654,14 @@ async function sendTelegramCaptchaFallback(session, caption) {
   }
 }
 
+async function sendMirrorTelegramCaptchaFallback(session, caption) {
+  if (session.transport !== 'whatsapp') {
+    return;
+  }
+
+  await sendTelegramCaptchaFallback(session, caption);
+}
+
 async function sendManualCaptchaFallback(client, session, reasonText) {
   session.waitingForCaptcha = true;
   session.authenticated = false;
@@ -627,9 +678,8 @@ async function sendManualCaptchaFallback(client, session, reasonText) {
   ].join('\n');
 
   try {
-    const media = MessageMedia.fromFilePath(session.captchaPath);
-    await client.sendMessage(session.chatId, media, { caption });
-    await sendTelegramCaptchaFallback(session, caption);
+    await sendImageFile(client, session.chatId, session.captchaPath, caption);
+    await sendMirrorTelegramCaptchaFallback(session, caption);
   } finally {
     cleanupFile(session.captchaPath);
     session.captchaPath = '';
@@ -654,12 +704,7 @@ async function attemptAutomatedLookup(client, session) {
         }
 
         const imagePath = await renderStatusImage(card, session.chatId);
-        await sendFileImage(
-          client,
-          session.chatId,
-          imagePath,
-          `Vahan status: ${card.vehicleNumber || card.applicationNumber}`
-        );
+        await sendImageFile(client, session.chatId, imagePath, `Vahan status: ${card.vehicleNumber || card.applicationNumber}`);
         cleanupFile(imagePath);
 
         session.authenticated = true;
@@ -683,20 +728,16 @@ async function attemptAutomatedLookup(client, session) {
   return false;
 }
 
-async function startLookup(client, chatId, applicationNumber) {
-  const existing = getSession(chatId);
+async function startLookup(client, chatId, applicationNumber, transport = 'whatsapp') {
+  transport = normalizeTransport(transport);
+  const existing = getSessionByTransport(chatId, transport);
   if (existing && existing.authenticated) {
     try {
       const xmlText = await submitWithAuthenticatedSession(existing, applicationNumber);
       if (!isSessionExpiredResponse(xmlText, applicationNumber)) {
         const card = parseStatusCard(xmlText, applicationNumber);
         const imagePath = await renderStatusImage(card, chatId);
-        await sendFileImage(
-          client,
-          chatId,
-          imagePath,
-          `Vahan status: ${card.vehicleNumber || card.applicationNumber}`
-        );
+        await sendImageFile(client, chatId, imagePath, `Vahan status: ${card.vehicleNumber || card.applicationNumber}`);
         cleanupFile(imagePath);
         return;
       }
@@ -707,9 +748,9 @@ async function startLookup(client, chatId, applicationNumber) {
 
   let session;
   try {
-    session = await initializeSession(chatId, applicationNumber);
+    session = await initializeSession(chatId, applicationNumber, transport);
   } catch (error) {
-    await client.sendMessage(chatId, `Vahan request failed: ${getUserFacingLookupError(error)}`);
+    await sendTextMessage(client, chatId, `Vahan request failed: ${getUserFacingLookupError(error)}`);
     return;
   }
   if (CONFIG.VAHAN_TRACK.CAPTCHA_AUTO_SOLVE) {
@@ -733,31 +774,34 @@ async function startLookup(client, chatId, applicationNumber) {
   );
 }
 
-async function stopSession(chatId) {
-  const session = getSession(chatId);
+async function stopSession(chatId, transport = 'whatsapp') {
+  transport = normalizeTransport(transport);
+  const sessionKey = getSessionKey(chatId, transport);
+  const session = sessions.get(sessionKey);
   if (!session) {
     return false;
   }
 
   cleanupFile(session.captchaPath);
-  sessions.delete(chatId);
+  sessions.delete(sessionKey);
   return true;
 }
 
-async function handleIncomingText(client, chatId, text) {
-  const session = getSession(chatId);
+async function handleIncomingText(client, chatId, text, transport = 'whatsapp') {
+  transport = normalizeTransport(transport);
+  const session = getSessionByTransport(chatId, transport);
   if (!session) {
     return false;
   }
 
   const value = normalizeText(text);
   if (!value) {
-    await client.sendMessage(chatId, 'Send the captcha text or another Vahan application number.');
+    await sendTextMessage(client, chatId, 'Send the captcha text or another Vahan application number.');
     return true;
   }
 
   if (session.requestInFlight) {
-    await client.sendMessage(chatId, 'One Vahan request is already running. Please wait a moment.');
+    await sendTextMessage(client, chatId, 'One Vahan request is already running. Please wait a moment.');
     return true;
   }
 
@@ -771,10 +815,7 @@ async function handleIncomingText(client, chatId, text) {
     } else if (session.authenticated && /^[A-Z0-9]+$/i.test(value)) {
       xmlText = await submitWithAuthenticatedSession(session, value);
     } else {
-      await client.sendMessage(
-        chatId,
-        'Send another Vahan application number, `add track rc <appno> -tag`, `list track`, or `stop`.'
-      );
+      await sendTextMessage(client, chatId, 'Send another Vahan application number, `add track rc <appno> -tag`, `list track`, or `stop`.');
       return true;
     }
 
@@ -784,40 +825,34 @@ async function handleIncomingText(client, chatId, text) {
         session.waitingForCaptcha = true;
         session.authenticated = false;
         await downloadCaptcha(session);
-        const media = MessageMedia.fromFilePath(session.captchaPath);
-        await client.sendMessage(chatId, media, {
-          caption: [
+        await sendImageFile(
+          client,
+          chatId,
+          session.captchaPath,
+          [
             'Captcha did not match. Please try once more.',
             `Application: ${session.applicationNumber}`,
             'Reply with only the captcha text.',
-          ].join('\n'),
-        });
+          ].join('\n')
+        );
         cleanupFile(session.captchaPath);
         return true;
       }
 
-      await stopSession(chatId);
-      await client.sendMessage(
-        chatId,
-        'Captcha failed twice. Send `track rc <application_number>` for a fresh Vahan session.'
-      );
+      await stopSession(chatId, transport);
+      await sendTextMessage(client, chatId, 'Captcha failed twice. Send `track rc <application_number>` for a fresh Vahan session.');
       return true;
     }
 
     const card = parseStatusCard(xmlText, session.applicationNumber);
     if (!card) {
-      await stopSession(chatId);
-      await client.sendMessage(chatId, 'The Vahan captcha session looks expired. Send `track rc <application_number>` again for a fresh captcha.');
+      await stopSession(chatId, transport);
+      await sendTextMessage(client, chatId, 'The Vahan captcha session looks expired. Send `track rc <application_number>` again for a fresh captcha.');
       return true;
     }
 
     const imagePath = await renderStatusImage(card, chatId);
-    await sendFileImage(
-      client,
-      chatId,
-      imagePath,
-      `Vahan status: ${card.vehicleNumber || card.applicationNumber}`
-    );
+    await sendImageFile(client, chatId, imagePath, `Vahan status: ${card.vehicleNumber || card.applicationNumber}`);
     cleanupFile(imagePath);
 
     session.authenticated = true;
@@ -828,40 +863,40 @@ async function handleIncomingText(client, chatId, text) {
     if (session) {
       session.waitingForCaptcha = !session.authenticated;
     }
-    await client.sendMessage(chatId, `Vahan request failed: ${error.message}`);
+    await sendTextMessage(client, chatId, `Vahan request failed: ${error.message}`);
     return true;
   } finally {
     session.requestInFlight = false;
   }
 }
 
-function addTrack(chatId, applicationNumber, tag) {
+function addTrack(chatId, applicationNumber, tag, transport = 'whatsapp') {
   return addEntry({
-    transport: 'whatsapp',
+    transport: normalizeTransport(transport),
     chatId,
     applicationNumber,
     tag,
   });
 }
 
-function removeTrack(chatId, applicationNumber) {
+function removeTrack(chatId, applicationNumber, transport = 'whatsapp') {
   return removeEntry({
-    transport: 'whatsapp',
+    transport: normalizeTransport(transport),
     chatId,
     applicationNumber,
   });
 }
 
-function listTrack(chatId) {
-  return listEntries('whatsapp', chatId);
+function listTrack(chatId, transport = 'whatsapp') {
+  return listEntries(normalizeTransport(transport), chatId);
 }
 
 async function pollTrackedApplications() {
-  if (!activeWhatsAppClient) {
+  if (activeClients.size === 0) {
     return;
   }
 
-  const entries = readEntries().filter((item) => item.transport === 'whatsapp');
+  const entries = readEntries();
   for (const item of entries) {
     const lastCheckedAtMs = item.lastCheckedAt ? Date.parse(item.lastCheckedAt) : 0;
     const now = Date.now();
@@ -869,7 +904,7 @@ async function pollTrackedApplications() {
       continue;
     }
 
-    const session = getSession(item.chatId);
+    const session = getSessionByTransport(item.chatId, item.transport);
     if (!session || !session.authenticated || session.requestInFlight) {
       continue;
     }
@@ -878,7 +913,7 @@ async function pollTrackedApplications() {
     try {
       const xmlText = await submitWithAuthenticatedSession(session, item.applicationNumber);
       if (isSessionExpiredResponse(xmlText, item.applicationNumber)) {
-        sessions.delete(item.chatId);
+        sessions.delete(getSessionKey(item.chatId, item.transport));
         continue;
       }
 
@@ -889,17 +924,17 @@ async function pollTrackedApplications() {
 
       const snapshot = buildTrackingSnapshot(card);
       if (snapshot === normalizeText(item.lastSnapshot)) {
-        updateEntry({
-          transport: 'whatsapp',
-          chatId: item.chatId,
-          applicationNumber: item.applicationNumber,
-          updates: { lastCheckedAt: new Date().toISOString() },
+      updateEntry({
+        transport: item.transport,
+        chatId: item.chatId,
+        applicationNumber: item.applicationNumber,
+        updates: { lastCheckedAt: new Date().toISOString() },
         });
         continue;
       }
 
       updateEntry({
-        transport: 'whatsapp',
+        transport: item.transport,
         chatId: item.chatId,
         applicationNumber: item.applicationNumber,
         updates: {
@@ -910,7 +945,7 @@ async function pollTrackedApplications() {
 
       await sendTrackedUpdate(item, card);
       if (isDispatchedCard(card)) {
-        removeTrack(item.chatId, item.applicationNumber);
+        removeTrack(item.chatId, item.applicationNumber, item.transport);
       }
     } catch (error) {
       // Keep the entry; the session may simply have expired.
@@ -920,12 +955,14 @@ async function pollTrackedApplications() {
   }
 }
 
-async function refreshTrackedApplications(chatId) {
-  if (!activeWhatsAppClient) {
-    throw new Error('WhatsApp client is not ready.');
+async function refreshTrackedApplications(chatId, transport = 'whatsapp') {
+  transport = normalizeTransport(transport);
+  const activeClient = getActiveClient(transport);
+  if (!activeClient) {
+    throw new Error(`${transport} client is not ready.`);
   }
 
-  const entries = listTrack(chatId);
+  const entries = listTrack(chatId, transport);
 
   for (let index = 0; index < entries.length; index += 1) {
     const item = entries[index];
@@ -933,9 +970,9 @@ async function refreshTrackedApplications(chatId) {
       await sleepFn(randomBetween(5 * 1000, 10 * 1000));
     }
 
-    const session = getSession(chatId);
+    const session = getSessionByTransport(chatId, transport);
     if (!session || !session.authenticated || session.requestInFlight) {
-      await startLookup(activeWhatsAppClient, chatId, item.applicationNumber);
+      await startLookup(activeClient, chatId, item.applicationNumber, transport);
       break;
     }
 
@@ -943,8 +980,8 @@ async function refreshTrackedApplications(chatId) {
     try {
       const xmlText = await submitWithAuthenticatedSession(session, item.applicationNumber);
       if (isSessionExpiredResponse(xmlText, item.applicationNumber)) {
-        sessions.delete(chatId);
-        await startLookup(activeWhatsAppClient, chatId, item.applicationNumber);
+        sessions.delete(getSessionKey(chatId, transport));
+        await startLookup(activeClient, chatId, item.applicationNumber, transport);
         break;
       }
 
@@ -955,7 +992,7 @@ async function refreshTrackedApplications(chatId) {
       const snapshot = buildTrackingSnapshot(card);
 
       updateEntry({
-        transport: 'whatsapp',
+        transport,
         chatId,
         applicationNumber: item.applicationNumber,
         updates: {
@@ -967,7 +1004,7 @@ async function refreshTrackedApplications(chatId) {
       if (snapshot !== normalizeText(item.lastSnapshot)) {
         await sendTrackedUpdate(item, card);
         if (isDispatchedCard(card)) {
-          removeTrack(chatId, item.applicationNumber);
+          removeTrack(chatId, item.applicationNumber, transport);
         }
       }
     } finally {
@@ -978,8 +1015,8 @@ async function refreshTrackedApplications(chatId) {
   return entries.length;
 }
 
-function startPolling(client) {
-  activeWhatsAppClient = client;
+function startPolling(client, transport = 'whatsapp') {
+  activeClients.set(normalizeTransport(transport), client);
   if (pollJob) {
     return pollJob;
   }

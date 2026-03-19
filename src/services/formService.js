@@ -6,8 +6,8 @@
 const CONFIG = require('../config/config');
 const httpClient = require('../core/httpClient');
 const { getSessionCookie } = require('../core/sessionManager');
+const { getTempFilePath } = require('../core/tempFiles');
 const fs = require('fs');
-const path = require('path');
 
 function cleanBase64(input) {
   return String(input || '')
@@ -60,7 +60,7 @@ async function downloadForm(appNo, dob, formName) {
     }
 
     const filename = `${formName}_${appNo}.pdf`;
-    const outputPath = path.join(process.cwd(), filename);
+    const outputPath = getTempFilePath(filename);
 
     if (fs.existsSync(outputPath)) {
       fs.unlinkSync(outputPath);
