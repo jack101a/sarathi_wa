@@ -5,6 +5,15 @@
     "applicationNumber": "MH260310V7505731",
     "tag": "ganesh ahire",
     "createdAt": "2026-03-14T08:03:24.752Z",
+    "lastSnapshot": "{\"rows\":[\"ONLINE TRANSACTION SUCCESS ON 10-Mar-2026 14:08:29 BUT NOT INWARDED AT R.T.O.BORIVALI (MH-47)\",\"ONLINE TRANSACTION SUCCESS ON 10-Mar-2026 14:08:29 BUT NOT INWARDED AT R.T.O.BORIVALI (MH-47)\"],\"rcPrintOrSmartCardStatus\":\"Not Available\",\"dispatchRcStatus\":\"Not Available\"}",
+    "lastCheckedAt": "2026-03-19T06:09:19.837Z"
+  },
+  {
+    "transport": "whatsapp",
+    "chatId": "debug-refresh",
+    "applicationNumber": "MH260310V7505731",
+    "tag": "test",
+    "createdAt": "2026-03-19T05:50:37.891Z",
     "lastSnapshot": "",
     "lastCheckedAt": ""
   }

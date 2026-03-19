@@ -2,23 +2,65 @@ version: '3.8'
 
 services:
   sarathi-bot:
-    # Pulling the isolated 'docker' tag
-    image: ghcr.io/jack101a/sarathiwa_bot:docker
-    container_name: sarathi_bot_app
+    image: ghcr.io/jack101a/sarathiwa_bot:docker-16
+    container_name: sarathi_bot
     restart: always
-    
-    shm_size: '1gb'
-    
-    env_file:
-      - .env
-      
-    volumes:
-      - ./auth_data:/app/.wwebjs_auth
-      - ./data:/app/data   # <--- ADD THIS LINE
+    init: true
+    stop_grace_period: 60s
 
-      
+    environment:
+      - APP_ENV=production
+      - DEBUG=${DEBUG:-false}
+      - PORT=3000
+      - SESSION_NAME=${SESSION_NAME}
+      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER}
+      - AUTHORIZED_USERS=${AUTHORIZED_USERS}
+      - AUTHORIZED_GROUPS=${AUTHORIZED_GROUPS}
+      - AUTHORIZED_TG_USERS=${AUTHORIZED_TG_USERS}
+      - AUTHORIZED_TG_GROUPS=${AUTHORIZED_TG_GROUPS}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_NOTIFY_CHAT_IDS=${TELEGRAM_NOTIFY_CHAT_IDS:-}
+      - AUTO_TRACK_UPDATE_CHAT_ID=${AUTO_TRACK_UPDATE_CHAT_ID}
+      - VAHAN_TRACK_UPDATE_CHAT_ID=${VAHAN_TRACK_UPDATE_CHAT_ID:-}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - USER_AGENT=${USER_AGENT:-Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36}
+      - TIMEOUT_MS=${TIMEOUT_MS:-60000}
+      - HOME_URL=${HOME_URL}
+      - STATUS_URL=${STATUS_URL}
+      - FORM_URL=${FORM_URL}
+      - ACK_URL=${ACK_URL}
+      - STATE_CODE=${STATE_CODE}
+      - STATE_ID=${STATE_ID}
+      - SESSION_MAX_REQUESTS=${SESSION_MAX_REQUESTS:-50}
+      - SESSION_TTL_MS=${SESSION_TTL_MS:-600000}
+      - AUTO_TRACK_CRON=${AUTO_TRACK_CRON:-0 10-22/3 * * *}
+      - AUTO_TRACK_STORE_FILE=data/tracked_applications.json
+      - VAHAN_TRACK_CRON=${VAHAN_TRACK_CRON:-0 10-22/3 * * *}
+      - VAHAN_TRACK_STORE_FILE=data/vahan_tracked_applications.json
+      - VAHAN_CAPTCHA_AUTO_SOLVE=${VAHAN_CAPTCHA_AUTO_SOLVE:-true}
+      - VAHAN_CAPTCHA_MODEL_PATH=${VAHAN_CAPTCHA_MODEL_PATH:-godmode_solver.onnx}
+      - VAHAN_CAPTCHA_MAX_ATTEMPTS=${VAHAN_CAPTCHA_MAX_ATTEMPTS:-8}
+      - VAHAN_CAPTCHA_RETRY_MIN_MS=${VAHAN_CAPTCHA_RETRY_MIN_MS:-3000}
+      - VAHAN_CAPTCHA_RETRY_MAX_MS=${VAHAN_CAPTCHA_RETRY_MAX_MS:-5000}
+      - PUPPETEER_HEADLESS=true
+      - PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage
+      - PUPPETEER_DISABLE_SANDBOX=true
+
+    command: ["node", "server.js"]
+
+    shm_size: "1024m"
+
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+    volumes:
+      - ${CONFIG_PATH}/sarathi/auth_data:/app/.wwebjs_auth
+      - ${CONFIG_PATH}/sarathi/data:/app/data
+
     stdin_open: true
     tty: true
-    
+
     security_opt:
       - seccomp:unconfined

@@ -4,7 +4,9 @@
     "chatId": "919660930674@c.us",
     "transport": "whatsapp",
     "createdAt": "2026-03-14T08:04:52.731Z",
-    "lastStage": "",
-    "tag": ""
+    "lastStage": "DL DISPATCH BY POST",
+    "lastSnapshot": "{\"kind\":\"approved\",\"stage\":\"DL DISPATCH BY POST\",\"message\":\"\",\"approvedAction\":\"APPROVAL OF ENDORSEMENTS ON DL\",\"transaction\":\"RENEWAL OF DL\",\"counter\":\"RTOAUTH1\"}",
+    "tag": "",
+    "dob": ""
   }
 ]

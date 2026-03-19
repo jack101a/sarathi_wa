@@ -139,6 +139,7 @@ const CONFIG = {
   TELEGRAM: {
     TOKEN: String(process.env.TELEGRAM_BOT_TOKEN || '').trim() || null,
     POLLING: true,
+    NOTIFY_CHAT_IDS: parseCsv(process.env.TELEGRAM_NOTIFY_CHAT_IDS || ''),
   },
 
   AUTO_TRACK: {
@@ -151,11 +152,23 @@ const CONFIG = {
   },
 
   VAHAN_TRACK: {
+    CRON: String(process.env.VAHAN_TRACK_CRON || process.env.AUTO_TRACK_CRON || '0 10-22/3 * * *').trim(),
     STORE_PATH: resolveProjectPath(
       process.env.VAHAN_TRACK_STORE_FILE,
       'vahan_tracked_applications.json'
     ),
-    POLL_INTERVAL_MS: asNumber(process.env.VAHAN_TRACK_INTERVAL_MS, 2 * 60 * 1000),
+    UPDATE_CHAT_ID:
+      String(process.env.VAHAN_TRACK_UPDATE_CHAT_ID || process.env.AUTO_TRACK_UPDATE_CHAT_ID || '').trim() || null,
+    CAPTCHA_MODEL_PATH: path.isAbsolute(String(process.env.VAHAN_CAPTCHA_MODEL_PATH || '').trim())
+      ? String(process.env.VAHAN_CAPTCHA_MODEL_PATH || '').trim()
+      : path.join(
+          PROJECT_ROOT,
+          String(process.env.VAHAN_CAPTCHA_MODEL_PATH || 'godmode_solver.onnx').trim()
+        ),
+    CAPTCHA_AUTO_SOLVE: asBoolean(process.env.VAHAN_CAPTCHA_AUTO_SOLVE, true),
+    CAPTCHA_MAX_ATTEMPTS: asNumber(process.env.VAHAN_CAPTCHA_MAX_ATTEMPTS, 8),
+    CAPTCHA_RETRY_MIN_MS: asNumber(process.env.VAHAN_CAPTCHA_RETRY_MIN_MS, 3 * 1000),
+    CAPTCHA_RETRY_MAX_MS: asNumber(process.env.VAHAN_CAPTCHA_RETRY_MAX_MS, 5 * 1000),
   },
 
   // Security settings for authorization checks

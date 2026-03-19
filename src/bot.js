@@ -449,7 +449,7 @@ async function createBot() {
       }
 
       if (trackRcMatch) {
-        await message.reply('Fetching Vahan captcha...');
+        await message.reply('Fetching Vahan status...');
         await startVahanLookup(client, message.from, trackRcMatch[1]);
         return;
       }

@@ -2,11 +2,19 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const cheerio = require('cheerio');
+const cron = require('node-cron');
 const { wrapper } = require('axios-cookiejar-support');
 const { CookieJar } = require('tough-cookie');
 const { MessageMedia } = require('whatsapp-web.js');
 const CONFIG = require('../config/config');
 const { renderHTML } = require('../core/puppeteerEngine');
+const { solveCaptcha } = require('./vahanCaptchaSolver');
+const {
+  getTelegramNotificationTargets,
+  sendTelegramMessage,
+  sendTelegramPhoto,
+  sendWhatsAppImage,
+} = require('./chatNotifier');
 const {
   addEntry,
   listEntries,
@@ -17,10 +25,19 @@ const {
 
 const FORM_URL =
   'https://vahan.parivahan.gov.in/vahanservice/vahan/ui/appl_status/form_Know_Appl_Status.xhtml';
+const CAPTCHA_URL =
+  'https://vahan.parivahan.gov.in/vahanservice/DispplayCaptcha?txtp_cd=2&bkgp_cd=0&noise_cd=0&gimp_cd=0&txtp_length=1&pfdrid_c=false?-863369176&pfdrid_c=true';
 const VAHAN_TRACK_REFRESH_MS = 3 * 60 * 60 * 1000;
+const VAHAN_HTTP_MAX_ATTEMPTS = 3;
+const VAHAN_HTTP_RETRY_DELAY_MS = 1200;
+const DEFAULT_CAPTCHA_RETRY_MIN_MS = 3 * 1000;
+const DEFAULT_CAPTCHA_RETRY_MAX_MS = 5 * 1000;
 const sessions = new Map();
-let pollTimer = null;
+let pollJob = null;
 let activeWhatsAppClient = null;
+let captchaSolver = solveCaptcha;
+let httpClientFactory = createHttpClient;
+let sleepFn = sleep;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -53,8 +70,54 @@ function createHttpClient() {
   );
 }
 
-function resolveUrl(baseUrl, maybeRelativeUrl) {
-  return new URL(maybeRelativeUrl, baseUrl).toString();
+function isRetryableNetworkError(error) {
+  const code = normalizeText(error && error.code).toUpperCase();
+  const status = Number(error && error.response && error.response.status);
+
+  return (
+    ['ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND'].includes(code) ||
+    [408, 429, 500, 502, 503, 504].includes(status)
+  );
+}
+
+async function retryVahanHttpRequest(action) {
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= VAHAN_HTTP_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await action();
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableNetworkError(error) || attempt >= VAHAN_HTTP_MAX_ATTEMPTS) {
+        throw error;
+      }
+
+      await sleepFn(VAHAN_HTTP_RETRY_DELAY_MS * attempt);
+    }
+  }
+
+  throw lastError;
+}
+
+function getUserFacingLookupError(error) {
+  if (isRetryableNetworkError(error)) {
+    return 'Could not reach the Vahan service right now. Please try again in a minute.';
+  }
+
+  return error && error.message
+    ? error.message
+    : 'Could not complete the Vahan request right now.';
+}
+
+function getCaptchaAttemptCount() {
+  return Math.max(1, Number(CONFIG.VAHAN_TRACK.CAPTCHA_MAX_ATTEMPTS) || 8);
+}
+
+function getCaptchaRetryRangeMs() {
+  const minMs = Math.max(250, Number(CONFIG.VAHAN_TRACK.CAPTCHA_RETRY_MIN_MS) || DEFAULT_CAPTCHA_RETRY_MIN_MS);
+  const maxMs = Math.max(minMs, Number(CONFIG.VAHAN_TRACK.CAPTCHA_RETRY_MAX_MS) || DEFAULT_CAPTCHA_RETRY_MAX_MS);
+
+  return { minMs, maxMs };
 }
 
 function createFilePath(chatId, suffix) {
@@ -84,13 +147,7 @@ function extractInitialState(html) {
     $('input[type="radio"][value="applno"]').attr('name') ||
     'j_idt394';
 
-  const captchaImage =
-    $('img[id*="CaptchaImage"]').attr('src') ||
-    $('img[id*="captcha"][src]').attr('src') ||
-    $('img[src*="Captcha"]').attr('src') ||
-    $('img[src*="captcha"]').attr('src');
-
-  if (!viewState || !captchaImage) {
+  if (!viewState) {
     throw new Error('Could not prepare the Vahan session right now.');
   }
 
@@ -98,21 +155,30 @@ function extractInitialState(html) {
     viewState,
     captchaInputName,
     radioFieldName,
-    captchaImageUrl: resolveUrl(FORM_URL, captchaImage),
   };
 }
 
 async function downloadCaptcha(session) {
-  const response = await session.httpClient.get(session.captchaImageUrl, {
-    responseType: 'arraybuffer',
-    headers: {
-      Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-      'Accept-Language': 'en-GB,en;q=0.8',
-      'Cache-Control': 'no-cache',
-      Pragma: 'no-cache',
-      Referer: FORM_URL,
-    },
-  });
+  const response = await retryVahanHttpRequest(() =>
+    session.httpClient.get(CAPTCHA_URL, {
+      responseType: 'arraybuffer',
+      headers: {
+        Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+        'Accept-Language': 'en-GB,en;q=0.9',
+        Connection: 'keep-alive',
+        Referer: FORM_URL,
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-origin',
+        'Sec-GPC': '1',
+        'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Brave";v="146"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
+      },
+    })
+  );
 
   const filePath = createFilePath(session.chatId, 'captcha.png');
   fs.writeFileSync(filePath, Buffer.from(response.data));
@@ -126,8 +192,8 @@ async function initializeSession(chatId, applicationNumber) {
     cleanupFile(existing.captchaPath);
   }
 
-  const httpClient = createHttpClient();
-  const response = await httpClient.get(FORM_URL);
+  const httpClient = httpClientFactory();
+  const response = await retryVahanHttpRequest(() => httpClient.get(FORM_URL));
   const initialState = extractInitialState(response.data);
   const session = {
     chatId,
@@ -136,7 +202,6 @@ async function initializeSession(chatId, applicationNumber) {
     viewState: initialState.viewState,
     captchaInputName: initialState.captchaInputName,
     radioFieldName: initialState.radioFieldName,
-    captchaImageUrl: initialState.captchaImageUrl,
     waitingForCaptcha: true,
     authenticated: false,
     lastCaptchaText: '',
@@ -171,17 +236,19 @@ async function blurCaptcha(session, captchaText) {
     'javax.faces.partial.ajax': 'true',
   });
 
-  const response = await session.httpClient.post(FORM_URL, body.toString(), {
-    headers: {
-      Accept: '*/*',
-      'Accept-Language': 'en-GB,en;q=0.8',
-      'Cache-Control': 'no-cache',
-      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-      'Faces-Request': 'partial/ajax',
-      Pragma: 'no-cache',
-      Referer: FORM_URL,
-    },
-  });
+  const response = await retryVahanHttpRequest(() =>
+    session.httpClient.post(FORM_URL, body.toString(), {
+      headers: {
+        Accept: '*/*',
+        'Accept-Language': 'en-GB,en;q=0.8',
+        'Cache-Control': 'no-cache',
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        'Faces-Request': 'partial/ajax',
+        Pragma: 'no-cache',
+        Referer: FORM_URL,
+      },
+    })
+  );
 
   session.viewState = extractViewStateFromXml(String(response.data), session.viewState);
 }
@@ -202,18 +269,20 @@ async function submitWithCaptcha(session, captchaText) {
     'javax.faces.ViewState': session.viewState,
   });
 
-  const response = await session.httpClient.post(FORM_URL, body.toString(), {
-    headers: {
-      Accept: 'application/xml, text/xml, */*; q=0.01',
-      'Accept-Language': 'en-GB,en;q=0.8',
-      'Cache-Control': 'no-cache',
-      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-      'Faces-Request': 'partial/ajax',
-      Pragma: 'no-cache',
-      'X-Requested-With': 'XMLHttpRequest',
-      Referer: FORM_URL,
-    },
-  });
+  const response = await retryVahanHttpRequest(() =>
+    session.httpClient.post(FORM_URL, body.toString(), {
+      headers: {
+        Accept: 'application/xml, text/xml, */*; q=0.01',
+        'Accept-Language': 'en-GB,en;q=0.8',
+        'Cache-Control': 'no-cache',
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'Faces-Request': 'partial/ajax',
+        Pragma: 'no-cache',
+        'X-Requested-With': 'XMLHttpRequest',
+        Referer: FORM_URL,
+      },
+    })
+  );
 
   session.authenticated = true;
   session.waitingForCaptcha = false;
@@ -238,18 +307,20 @@ async function submitWithAuthenticatedSession(session, applicationNumber) {
     'javax.faces.ViewState': session.viewState,
   });
 
-  const response = await session.httpClient.post(FORM_URL, body.toString(), {
-    headers: {
-      Accept: 'application/xml, text/xml, */*; q=0.01',
-      'Accept-Language': 'en-GB,en;q=0.8',
-      'Cache-Control': 'no-cache',
-      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-      'Faces-Request': 'partial/ajax',
-      Pragma: 'no-cache',
-      'X-Requested-With': 'XMLHttpRequest',
-      Referer: FORM_URL,
-    },
-  });
+  const response = await retryVahanHttpRequest(() =>
+    session.httpClient.post(FORM_URL, body.toString(), {
+      headers: {
+        Accept: 'application/xml, text/xml, */*; q=0.01',
+        'Accept-Language': 'en-GB,en;q=0.8',
+        'Cache-Control': 'no-cache',
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'Faces-Request': 'partial/ajax',
+        Pragma: 'no-cache',
+        'X-Requested-With': 'XMLHttpRequest',
+        Referer: FORM_URL,
+      },
+    })
+  );
 
   session.viewState = extractViewStateFromXml(String(response.data), session.viewState);
   return String(response.data);
@@ -340,22 +411,23 @@ function buildTrackingSnapshot(card) {
   });
 }
 
-function getAutoTrackUpdateChatId() {
-  return String(CONFIG.AUTO_TRACK.UPDATE_CHAT_ID || '').trim();
+function getVahanUpdateChatId() {
+  return String(CONFIG.VAHAN_TRACK.UPDATE_CHAT_ID || '').trim();
 }
 
-async function sendTrackedUpdate(client, item, card) {
-  const targetChatId = getAutoTrackUpdateChatId();
+async function sendTrackedUpdate(item, card) {
+  const targetChatId = getVahanUpdateChatId();
   if (!targetChatId) {
     return false;
   }
   const imagePath = await renderStatusImage(card, targetChatId);
 
   try {
-    await sendFileImage(
-      client,
+    const buffer = fs.readFileSync(imagePath);
+    await sendWhatsAppImage(
       targetChatId,
-      imagePath,
+      buffer,
+      path.basename(imagePath),
       `Vahan status: ${card.vehicleNumber || item.applicationNumber}`
     );
   } finally {
@@ -492,6 +564,125 @@ function hasActiveSession(chatId) {
   return Boolean(getSession(chatId));
 }
 
+async function solveAndSubmitCaptcha(session) {
+  if (!session.captchaPath || !fs.existsSync(session.captchaPath)) {
+    await downloadCaptcha(session);
+  }
+
+  try {
+    const captchaBuffer = fs.readFileSync(session.captchaPath);
+    const captchaText = await captchaSolver(captchaBuffer);
+    const xmlText = await submitWithCaptcha(session, captchaText);
+    return {
+      captchaText,
+      xmlText,
+    };
+  } finally {
+    cleanupFile(session.captchaPath);
+    session.captchaPath = '';
+  }
+}
+
+async function sendTelegramCaptchaFallback(session, caption) {
+  const targets = getTelegramNotificationTargets();
+  if (targets.length === 0) {
+    return;
+  }
+
+  const buffer = fs.readFileSync(session.captchaPath);
+  const filename = path.basename(session.captchaPath);
+  const outcomes = await Promise.allSettled(
+    targets.map(async (chatId) => {
+      await sendTelegramPhoto(chatId, buffer, filename, caption, 'image/png');
+      await sendTelegramMessage(
+        chatId,
+        [
+          'Reply in WhatsApp with only the captcha text.',
+          `Application: ${session.applicationNumber}`,
+        ].join('\n')
+      );
+    })
+  );
+
+  for (const result of outcomes) {
+    if (result.status === 'rejected') {
+      console.error(`Telegram captcha fallback failed: ${result.reason.message}`);
+    }
+  }
+}
+
+async function sendManualCaptchaFallback(client, session, reasonText) {
+  session.waitingForCaptcha = true;
+  session.authenticated = false;
+  session.captchaRetryCount = 0;
+
+  if (!session.captchaPath || !fs.existsSync(session.captchaPath)) {
+    await downloadCaptcha(session);
+  }
+
+  const caption = [
+    reasonText,
+    `Application: ${session.applicationNumber}`,
+    'Reply with only the captcha text.',
+  ].join('\n');
+
+  try {
+    const media = MessageMedia.fromFilePath(session.captchaPath);
+    await client.sendMessage(session.chatId, media, { caption });
+    await sendTelegramCaptchaFallback(session, caption);
+  } finally {
+    cleanupFile(session.captchaPath);
+    session.captchaPath = '';
+  }
+}
+
+async function attemptAutomatedLookup(client, session) {
+  const maxAttempts = getCaptchaAttemptCount();
+  const retryRange = getCaptchaRetryRangeMs();
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const { xmlText } = await solveAndSubmitCaptcha(session);
+      if (isCaptchaRejectedResponse(xmlText)) {
+        session.waitingForCaptcha = true;
+        session.authenticated = false;
+        session.captchaRetryCount = attempt;
+      } else {
+        const card = parseStatusCard(xmlText, session.applicationNumber);
+        if (!card) {
+          throw new Error('The Vahan response did not contain a status card.');
+        }
+
+        const imagePath = await renderStatusImage(card, session.chatId);
+        await sendFileImage(
+          client,
+          session.chatId,
+          imagePath,
+          `Vahan status: ${card.vehicleNumber || card.applicationNumber}`
+        );
+        cleanupFile(imagePath);
+
+        session.authenticated = true;
+        session.waitingForCaptcha = false;
+        session.captchaRetryCount = 0;
+        return true;
+      }
+    } catch (error) {
+      cleanupFile(session.captchaPath);
+      session.captchaPath = '';
+      if (attempt >= maxAttempts) {
+        throw error;
+      }
+    }
+
+    if (attempt < maxAttempts) {
+      await sleepFn(randomBetween(retryRange.minMs, retryRange.maxMs));
+    }
+  }
+
+  return false;
+}
+
 async function startLookup(client, chatId, applicationNumber) {
   const existing = getSession(chatId);
   if (existing && existing.authenticated) {
@@ -514,16 +705,32 @@ async function startLookup(client, chatId, applicationNumber) {
     }
   }
 
-  const session = await initializeSession(chatId, applicationNumber);
-  const media = MessageMedia.fromFilePath(session.captchaPath);
-  await client.sendMessage(chatId, media, {
-    caption: [
-      'Vahan captcha fetched.',
-      `Application: ${session.applicationNumber}`,
-      'Reply with only the captcha text.',
-    ].join('\n'),
-  });
-  cleanupFile(session.captchaPath);
+  let session;
+  try {
+    session = await initializeSession(chatId, applicationNumber);
+  } catch (error) {
+    await client.sendMessage(chatId, `Vahan request failed: ${getUserFacingLookupError(error)}`);
+    return;
+  }
+  if (CONFIG.VAHAN_TRACK.CAPTCHA_AUTO_SOLVE) {
+    try {
+      const solved = await attemptAutomatedLookup(client, session);
+      if (solved) {
+        return;
+      }
+    } catch (error) {
+      session.waitingForCaptcha = true;
+      session.authenticated = false;
+    }
+  }
+
+  await sendManualCaptchaFallback(
+    client,
+    session,
+    CONFIG.VAHAN_TRACK.CAPTCHA_AUTO_SOLVE
+      ? 'Automatic captcha solving failed. Please solve it manually.'
+      : 'Vahan captcha fetched.'
+  );
 }
 
 async function stopSession(chatId) {
@@ -560,7 +767,7 @@ async function handleIncomingText(client, chatId, text) {
     let xmlText;
     const attemptedCaptcha = session.waitingForCaptcha;
     if (session.waitingForCaptcha) {
-      xmlText = await submitWithCaptcha(session, value);
+      xmlText = await submitWithCaptcha(session, value.toLowerCase());
     } else if (session.authenticated && /^[A-Z0-9]+$/i.test(value)) {
       xmlText = await submitWithAuthenticatedSession(session, value);
     } else {
@@ -701,7 +908,7 @@ async function pollTrackedApplications() {
         },
       });
 
-      await sendTrackedUpdate(activeWhatsAppClient, item, card);
+      await sendTrackedUpdate(item, card);
       if (isDispatchedCard(card)) {
         removeTrack(item.chatId, item.applicationNumber);
       }
@@ -723,7 +930,7 @@ async function refreshTrackedApplications(chatId) {
   for (let index = 0; index < entries.length; index += 1) {
     const item = entries[index];
     if (index > 0) {
-      await sleep(randomBetween(5 * 1000, 10 * 1000));
+      await sleepFn(randomBetween(5 * 1000, 10 * 1000));
     }
 
     const session = getSession(chatId);
@@ -758,7 +965,7 @@ async function refreshTrackedApplications(chatId) {
       });
 
       if (snapshot !== normalizeText(item.lastSnapshot)) {
-        await sendTrackedUpdate(activeWhatsAppClient, item, card);
+        await sendTrackedUpdate(item, card);
         if (isDispatchedCard(card)) {
           removeTrack(chatId, item.applicationNumber);
         }
@@ -773,16 +980,43 @@ async function refreshTrackedApplications(chatId) {
 
 function startPolling(client) {
   activeWhatsAppClient = client;
-  if (pollTimer) {
-    return;
+  if (pollJob) {
+    return pollJob;
   }
 
-  pollTimer = setInterval(() => {
+  pollJob = cron.schedule(CONFIG.VAHAN_TRACK.CRON, () => {
     pollTrackedApplications().catch(() => {});
-  }, CONFIG.VAHAN_TRACK.POLL_INTERVAL_MS);
+  });
+
+  return pollJob;
 }
 
 module.exports = {
+  __private: {
+    getCaptchaAttemptCount,
+    getCaptchaRetryRangeMs,
+    getUserFacingLookupError,
+    isRetryableNetworkError,
+    retryVahanHttpRequest,
+    resetCaptchaSolverForTests: () => {
+      captchaSolver = solveCaptcha;
+    },
+    resetHttpClientFactoryForTests: () => {
+      httpClientFactory = createHttpClient;
+    },
+    resetSleepFnForTests: () => {
+      sleepFn = sleep;
+    },
+    setCaptchaSolverForTests: (solver) => {
+      captchaSolver = solver;
+    },
+    setHttpClientFactoryForTests: (factory) => {
+      httpClientFactory = factory;
+    },
+    setSleepFnForTests: (fn) => {
+      sleepFn = fn;
+    },
+  },
   addTrack,
   getHelpText,
   handleIncomingText,

@@ -19,6 +19,24 @@ function ensureStoreDir() {
   }
 }
 
+function normalizeEntries(data) {
+  if (!Array.isArray(data)) {
+    return [];
+  }
+
+  return data
+    .filter((item) => item && item.chatId && item.applicationNumber)
+    .map((item) => ({
+      transport: normalizeText(item.transport || 'whatsapp'),
+      chatId: normalizeText(item.chatId),
+      applicationNumber: normalizeText(item.applicationNumber),
+      tag: normalizeText(item.tag),
+      createdAt: item.createdAt || new Date().toISOString(),
+      lastSnapshot: normalizeText(item.lastSnapshot),
+      lastCheckedAt: item.lastCheckedAt || '',
+    }));
+}
+
 function readEntries() {
   try {
     const storePath = getStorePath();
@@ -31,20 +49,7 @@ function readEntries() {
       return [];
     }
 
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed.map((item) => ({
-      transport: normalizeText(item.transport || 'whatsapp'),
-      chatId: normalizeText(item.chatId),
-      applicationNumber: normalizeText(item.applicationNumber),
-      tag: normalizeText(item.tag),
-      createdAt: item.createdAt || new Date().toISOString(),
-      lastSnapshot: normalizeText(item.lastSnapshot),
-      lastCheckedAt: item.lastCheckedAt || '',
-    }));
+    return normalizeEntries(JSON.parse(raw));
   } catch (error) {
     return [];
   }
@@ -54,15 +59,7 @@ function writeEntries(entries) {
   const storePath = getStorePath();
   ensureStoreDir();
 
-  const safeEntries = entries.map((item) => ({
-    transport: normalizeText(item.transport || 'whatsapp'),
-    chatId: normalizeText(item.chatId),
-    applicationNumber: normalizeText(item.applicationNumber),
-    tag: normalizeText(item.tag),
-    createdAt: item.createdAt || new Date().toISOString(),
-    lastSnapshot: normalizeText(item.lastSnapshot),
-    lastCheckedAt: item.lastCheckedAt || '',
-  }));
+  const safeEntries = normalizeEntries(entries);
 
   const tempPath = `${storePath}.tmp`;
   fs.writeFileSync(tempPath, JSON.stringify(safeEntries, null, 2), 'utf8');
@@ -101,10 +98,10 @@ function addEntry({ transport, chatId, applicationNumber, tag }) {
     chatId: normalizedChatId,
     applicationNumber: normalizedApplicationNumber,
     tag: normalizedTag,
-      createdAt: new Date().toISOString(),
-      lastSnapshot: '',
-      lastCheckedAt: '',
-    };
+    createdAt: new Date().toISOString(),
+    lastSnapshot: '',
+    lastCheckedAt: '',
+  };
 
   writeEntries([...entries, entry]);
   return { created: true, entry };
