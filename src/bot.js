@@ -522,6 +522,10 @@ async function createBot() {
           break;
         default:
           if (hasActiveVahanSession(message.from, 'whatsapp')) {
+            if (!normalizedBody && message.hasMedia) {
+              break;
+            }
+
             await handleVahanIncomingText(vahanWhatsAppClient, message.from, normalizedBody, 'whatsapp');
           }
           break;

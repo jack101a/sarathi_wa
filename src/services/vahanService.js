@@ -796,6 +796,10 @@ async function handleIncomingText(client, chatId, text, transport = 'whatsapp') 
 
   const value = normalizeText(text);
   if (!value) {
+    if (session.authenticated) {
+      return true;
+    }
+
     await sendTextMessage(client, chatId, 'Send the captcha text or another Vahan application number.');
     return true;
   }
