@@ -819,6 +819,11 @@ async function handleIncomingText(client, chatId, text, transport = 'whatsapp') 
     } else if (session.authenticated && /^[A-Z0-9]+$/i.test(value)) {
       xmlText = await submitWithAuthenticatedSession(session, value);
     } else {
+      if (session.authenticated) {
+        // Ignore unrelated chat messages once a Vahan session is authenticated.
+        return true;
+      }
+
       await sendTextMessage(client, chatId, 'Send another Vahan application number, `add track rc <appno> -tag`, `list track`, or `stop`.');
       return true;
     }
