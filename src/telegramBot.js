@@ -61,7 +61,12 @@ function getFirstAuthorizedChatId(config) {
   const users = Array.isArray(security.AUTHORIZED_TG_USERS) ? security.AUTHORIZED_TG_USERS : [];
   const groups = Array.isArray(security.AUTHORIZED_TG_GROUPS) ? security.AUTHORIZED_TG_GROUPS : [];
 
-  return users[0] || groups[0] || null;
+  const { readStore } = require('./services/authorizationStore');
+  const store = readStore();
+  const storeUsers = store.telegram.users || [];
+  const storeGroups = store.telegram.groups || [];
+
+  return users[0] || storeUsers[0] || groups[0] || storeGroups[0] || null;
 }
 
 function cleanupFile(filePath) {
@@ -134,6 +139,22 @@ async function startTelegramBot(config) {
 
     const chatId = getTelegramChatId(msg);
     const text = String(msg && msg.text || '').trim();
+
+    if (/^\/?auth\b/i.test(text)) {
+      const { isAdminTelegram } = require('./services/authorizationService');
+      const { handleAuthCommand } = require('./commands/authAdmin');
+
+      if (!isAdminTelegram(msg, CONFIG)) {
+        await bot.sendMessage(chatId, 'Access denied. Admin only.');
+        return;
+      }
+
+      const reply = await handleAuthCommand(text, chatId);
+      if (reply) {
+        await bot.sendMessage(chatId, reply);
+        return;
+      }
+    }
 
     if (!text || text.startsWith('/')) {
       return;

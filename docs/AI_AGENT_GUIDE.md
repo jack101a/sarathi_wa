@@ -208,23 +208,23 @@ Telegram fallback notifications are sent to:
 1. `TELEGRAM_NOTIFY_CHAT_IDS` if configured
 2. Otherwise `AUTHORIZED_TG_USERS + AUTHORIZED_TG_GROUPS`
 
-## Data Files
+## Dynamic Authorization
 
-Runtime data files:
+The app uses a dynamic authorization system allowing admins to manage access allowlists at runtime.
 
-- `data/tracked_applications.json`
-  Sarathi tracked applications
-- `data/vahan_tracked_applications.json`
-  Vahan tracked applications
-- `data/tmp/`
-  Runtime temp files for generated images and PDFs
-- `data/config.yml`
-  Mounted core app config in YAML form
+### Data Storage
 
-Important note:
+- `data/authorized_entities.json`
+  Stores the dynamic allowlist. Schema contains `whatsapp` and `telegram` arrays for `users`, `groups`, and `admins`.
 
-- Session/auth cache lives in `.wwebjs_auth/` and `.wwebjs_cache/`
-- Those are runtime assets, not trash
+### Admin Commands
+
+Both WhatsApp and Telegram support the `auth` admin command:
+
+- `auth help`
+- `auth list`
+- `auth add wa/tg user/group/admin <id>`
+- `auth remove wa/tg user/group/admin <id>`
 
 ## Environment Variables You Usually Care About
 

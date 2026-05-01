@@ -59,6 +59,9 @@ npm run manual:vahan-research
 ## Notes
 
 - WhatsApp auth persists in `.wwebjs_auth/` and `.wwebjs_cache/`.
+- Dynamic authorization can be managed via the `auth` admin command.
+- Available auth commands: `auth list`, `auth add wa/tg user/group <id>`, and `auth remove wa/tg user/group <id>`.
+
 - Core static config now lives in `data/config.yml` or the path pointed to by `CONFIG_FILE`.
 - If `CONFIG_FILE` is missing at startup, the app will auto-create it from the bundled `config.example.yml`.
 - `tests/manual/` is for helpful manual-testing utilities, not production code.

@@ -65,6 +65,28 @@ function getActiveClient(transport = 'whatsapp') {
   return activeClients.get(normalizeTransport(transport)) || null;
 }
 
+function normalizeVehicleNo(value) {
+  return normalizeText(value).replace(/[^A-Z0-9]/gi, '').toUpperCase();
+}
+
+function buildVehicleValidationMessage(expectedVehicleNo, actualVehicleNo) {
+  const expected = normalizeVehicleNo(expectedVehicleNo);
+  if (!expected) {
+    return '';
+  }
+
+  const actual = normalizeVehicleNo(actualVehicleNo);
+  if (!actual) {
+    return `Could not validate vehicle number. Expected: ${expectedVehicleNo}.`;
+  }
+
+  if (actual === expected) {
+    return `Vehicle number validated: ${actualVehicleNo}.`;
+  }
+
+  return `Vehicle mismatch. Receipt vehicle: ${expectedVehicleNo}, Vahan returned: ${actualVehicleNo}.`;
+}
+
 function createHttpClient() {
   return wrapper(
     axios.create({
@@ -214,7 +236,7 @@ async function downloadCaptcha(session) {
   return filePath;
 }
 
-async function initializeSession(chatId, applicationNumber, transport = 'whatsapp') {
+async function initializeSession(chatId, applicationNumber, transport = 'whatsapp', options = {}) {
   transport = normalizeTransport(transport);
   const sessionKey = getSessionKey(chatId, transport);
   const existing = sessions.get(sessionKey);
@@ -238,6 +260,7 @@ async function initializeSession(chatId, applicationNumber, transport = 'whatsap
     lastCaptchaText: '',
     captchaRetryCount: 0,
     requestInFlight: false,
+    expectedVehicleNo: normalizeText(options.expectedVehicleNo || ''),
   };
 
   await downloadCaptcha(session);
@@ -706,6 +729,13 @@ async function attemptAutomatedLookup(client, session) {
         const imagePath = await renderStatusImage(card, session.chatId);
         await sendImageFile(client, session.chatId, imagePath, `Vahan status: ${card.vehicleNumber || card.applicationNumber}`);
         cleanupFile(imagePath);
+        const vehicleValidationMessage = buildVehicleValidationMessage(
+          session.expectedVehicleNo,
+          card.vehicleNumber
+        );
+        if (vehicleValidationMessage) {
+          await sendTextMessage(client, session.chatId, vehicleValidationMessage);
+        }
 
         session.authenticated = true;
         session.waitingForCaptcha = false;
@@ -728,17 +758,23 @@ async function attemptAutomatedLookup(client, session) {
   return false;
 }
 
-async function startLookup(client, chatId, applicationNumber, transport = 'whatsapp') {
+async function startLookup(client, chatId, applicationNumber, transport = 'whatsapp', options = {}) {
   transport = normalizeTransport(transport);
   const existing = getSessionByTransport(chatId, transport);
+  const expectedVehicleNo = normalizeText(options.expectedVehicleNo || '');
   if (existing && existing.authenticated) {
     try {
+      existing.expectedVehicleNo = expectedVehicleNo;
       const xmlText = await submitWithAuthenticatedSession(existing, applicationNumber);
       if (!isSessionExpiredResponse(xmlText, applicationNumber)) {
         const card = parseStatusCard(xmlText, applicationNumber);
         const imagePath = await renderStatusImage(card, chatId);
         await sendImageFile(client, chatId, imagePath, `Vahan status: ${card.vehicleNumber || card.applicationNumber}`);
         cleanupFile(imagePath);
+        const vehicleValidationMessage = buildVehicleValidationMessage(expectedVehicleNo, card.vehicleNumber);
+        if (vehicleValidationMessage) {
+          await sendTextMessage(client, chatId, vehicleValidationMessage);
+        }
         return;
       }
     } catch (error) {
@@ -748,7 +784,9 @@ async function startLookup(client, chatId, applicationNumber, transport = 'whats
 
   let session;
   try {
-    session = await initializeSession(chatId, applicationNumber, transport);
+    session = await initializeSession(chatId, applicationNumber, transport, {
+      expectedVehicleNo,
+    });
   } catch (error) {
     await sendTextMessage(client, chatId, `Vahan request failed: ${getUserFacingLookupError(error)}`);
     return;
@@ -817,6 +855,7 @@ async function handleIncomingText(client, chatId, text, transport = 'whatsapp') 
     if (session.waitingForCaptcha) {
       xmlText = await submitWithCaptcha(session, value.toLowerCase());
     } else if (session.authenticated && /^[A-Z0-9]+$/i.test(value)) {
+      session.expectedVehicleNo = '';
       xmlText = await submitWithAuthenticatedSession(session, value);
     } else {
       if (session.authenticated) {
@@ -863,6 +902,13 @@ async function handleIncomingText(client, chatId, text, transport = 'whatsapp') 
     const imagePath = await renderStatusImage(card, chatId);
     await sendImageFile(client, chatId, imagePath, `Vahan status: ${card.vehicleNumber || card.applicationNumber}`);
     cleanupFile(imagePath);
+    const vehicleValidationMessage = buildVehicleValidationMessage(
+      session.expectedVehicleNo,
+      card.vehicleNumber
+    );
+    if (vehicleValidationMessage) {
+      await sendTextMessage(client, chatId, vehicleValidationMessage);
+    }
 
     session.authenticated = true;
     session.waitingForCaptcha = false;

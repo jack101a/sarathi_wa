@@ -34,6 +34,16 @@ const {
   normalizeDob,
 } = require('./services/commandInputService');
 const {
+  clearRcReceiptTrackingCandidate,
+  clearReceiptTrackingCandidate,
+  extractRcReceiptTrackingCandidate,
+  extractReceiptTrackingCandidate,
+  getRcReceiptTrackingCandidate,
+  getReceiptTrackingCandidate,
+  setRcReceiptTrackingCandidate,
+  setReceiptTrackingCandidate,
+} = require('./services/receiptInputService');
+const {
   buildTrackedItemsMessage,
   hasTrackedItems,
   isVahanTrackedAnywhere,
@@ -58,6 +68,12 @@ const vahanWhatsAppClient = {
 
 function normalizePhoneNumber(phoneNumber) {
   return String(phoneNumber || '').replace(/\D/g, '');
+}
+
+function normalizeText(value) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function getChatIdReplyText(message) {
@@ -216,6 +232,17 @@ async function extractTrackInputFromMessage(message, fallbackCommandText = '') {
 
   const ownMedia = await downloadMediaInput(message);
   if (ownMedia) {
+    const receiptCandidate = await extractReceiptTrackingCandidate(ownMedia.buffer, ownMedia.mimeType);
+    if (receiptCandidate && receiptCandidate.appNo) {
+      return {
+        appNo: receiptCandidate.appNo,
+        dob: receiptCandidate.dob || '',
+        sourceText: 'media receipt',
+        rawValue: receiptCandidate.rawValue || 'media-receipt',
+        name: receiptCandidate.name || '',
+      };
+    }
+
     const decodedOwnMedia = await decodeAppNoAndDobFromImage(ownMedia.buffer, ownMedia.mimeType);
     if (decodedOwnMedia.appNo) {
       return decodedOwnMedia;
@@ -232,6 +259,20 @@ async function extractTrackInputFromMessage(message, fallbackCommandText = '') {
 
       const quotedMedia = await downloadMediaInput(quotedMessage);
       if (quotedMedia) {
+        const quotedReceiptCandidate = await extractReceiptTrackingCandidate(
+          quotedMedia.buffer,
+          quotedMedia.mimeType
+        );
+        if (quotedReceiptCandidate && quotedReceiptCandidate.appNo) {
+          return {
+            appNo: quotedReceiptCandidate.appNo,
+            dob: quotedReceiptCandidate.dob || '',
+            sourceText: 'quoted media receipt',
+            rawValue: quotedReceiptCandidate.rawValue || 'quoted-media-receipt',
+            name: quotedReceiptCandidate.name || '',
+          };
+        }
+
         const decodedQuotedMedia = await decodeAppNoAndDobFromImage(
           quotedMedia.buffer,
           quotedMedia.mimeType
@@ -243,10 +284,92 @@ async function extractTrackInputFromMessage(message, fallbackCommandText = '') {
     }
   }
 
+  const cachedCandidate = getReceiptTrackingCandidate(message.from);
+  if (cachedCandidate && cachedCandidate.appNo) {
+    return {
+      appNo: cachedCandidate.appNo,
+      dob: cachedCandidate.dob || '',
+      sourceText: 'cached receipt',
+      rawValue: 'cached-receipt',
+      fromReceiptCache: true,
+      name: cachedCandidate.name || '',
+    };
+  }
+
   return {
     appNo: '',
     dob: '',
     sourceText: '',
+  };
+}
+
+async function extractRcTrackInputFromMessage(message, fallbackCommandText = '') {
+  const fallbackMatch = normalizeText(fallbackCommandText).match(/\b([A-Z]{2}[A-Z0-9]{8,22})\b/i);
+  if (fallbackMatch) {
+    return {
+      appNo: fallbackMatch[1].toUpperCase(),
+      vehicleNo: '',
+    };
+  }
+
+  const ownTextMatch = normalizeText(message.body || '').match(/\b([A-Z]{2}[A-Z0-9]{8,22})\b/i);
+  if (ownTextMatch) {
+    return {
+      appNo: ownTextMatch[1].toUpperCase(),
+      vehicleNo: '',
+    };
+  }
+
+  const ownMedia = await downloadMediaInput(message);
+  if (ownMedia) {
+    const ownCandidate = await extractRcReceiptTrackingCandidate(ownMedia.buffer, ownMedia.mimeType);
+    if (ownCandidate && ownCandidate.appNo) {
+      return {
+        appNo: ownCandidate.appNo,
+        vehicleNo: ownCandidate.vehicleNo || '',
+      };
+    }
+  }
+
+  if (message.hasQuotedMsg && typeof message.getQuotedMessage === 'function') {
+    const quotedMessage = await message.getQuotedMessage();
+    if (quotedMessage) {
+      const quotedTextMatch = normalizeText(quotedMessage.body || '').match(/\b([A-Z]{2}[A-Z0-9]{8,22})\b/i);
+      if (quotedTextMatch) {
+        return {
+          appNo: quotedTextMatch[1].toUpperCase(),
+          vehicleNo: '',
+        };
+      }
+
+      const quotedMedia = await downloadMediaInput(quotedMessage);
+      if (quotedMedia) {
+        const quotedCandidate = await extractRcReceiptTrackingCandidate(
+          quotedMedia.buffer,
+          quotedMedia.mimeType
+        );
+        if (quotedCandidate && quotedCandidate.appNo) {
+          return {
+            appNo: quotedCandidate.appNo,
+            vehicleNo: quotedCandidate.vehicleNo || '',
+          };
+        }
+      }
+    }
+  }
+
+  const cached = getRcReceiptTrackingCandidate(message.from);
+  if (cached && cached.appNo) {
+    return {
+      appNo: cached.appNo,
+      vehicleNo: cached.vehicleNo || '',
+      fromReceiptCache: true,
+    };
+  }
+
+  return {
+    appNo: '',
+    vehicleNo: '',
   };
 }
 
@@ -352,23 +475,53 @@ async function createBot() {
   async function handleMessage(message, eventName = 'message') {
     const normalizedBody = String(message.body || '').trim();
 
+    console.log(`[whatsapp] Message received from ${message.from} in event '${eventName}': "${normalizedBody}"`);
+
     if (isChatIdCommand(normalizedBody)) {
       await message.reply(getChatIdReplyText(message));
       return;
     }
 
+    if (/^auth\s+\d+\s+[a-z0-9]{6}$/i.test(normalizedBody)) {
+      const { consumeVerificationMessage } = require('./services/waVerificationService');
+      const { extractIdentityFromMessage } = require('./services/authorizationNormalizer');
+      const idContext = extractIdentityFromMessage(message);
+      const ok = consumeVerificationMessage(normalizedBody, idContext);
+      if (ok) {
+        await message.reply('Verification successful! You are now authorized.');
+        return;
+      }
+    }
+
     // Authorization check: only allow authorized users and groups
     if (!isAuthorized(message, CONFIG)) {
+      console.log(`[whatsapp] Unauthorized message from ${message.from} blocked.`);
       return; // Silently ignore unauthorized
+    }
+
+    if (/^\/?auth\b/i.test(normalizedBody)) {
+      const { isAdminWhatsApp } = require('./services/authorizationService');
+      const { handleAuthCommand } = require('./commands/authAdmin');
+
+      if (!isAdminWhatsApp(message, CONFIG)) {
+        await message.reply('Access denied. Admin only.');
+        return;
+      }
+
+      const reply = await handleAuthCommand(normalizedBody, message.from, client);
+      if (reply) {
+        await message.reply(reply);
+        return;
+      }
     }
 
     const parts = (message.body || '').trim().split(/\s+/);
     const command = (parts[0] || '').toLowerCase();
     const addTrackMatch = normalizedBody.match(/^add\s+track(?:\s+(\d+))?(?:\s+(\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}))?(?:\s*-\s*(.+))?$/i);
     const removeTrackMatch = normalizedBody.match(/^remove\s+track\s+(\d+)$/i);
-    const addTrackRcMatch = normalizedBody.match(/^add\s+track\s+rc\s+([A-Z0-9]+)(?:\s*-\s*(.+))?$/i);
+    const addTrackRcMatch = normalizedBody.match(/^add\s+track\s+rc(?:\s+([A-Z0-9]+))?(?:\s*-\s*(.+))?$/i);
     const removeTrackRcMatch = normalizedBody.match(/^remove\s+track\s+rc\s+([A-Z0-9]+)$/i);
-    const trackRcMatch = normalizedBody.match(/^track\s+rc\s+([A-Z0-9]+)$/i);
+    const trackRcMatch = normalizedBody.match(/^track\s+rc(?:\s+([A-Z0-9]+))?$/i);
 
     try {
       if (CONFIG.AUTO_TRACK.UPDATE_CHAT_ID && message.from === CONFIG.AUTO_TRACK.UPDATE_CHAT_ID) {
@@ -389,6 +542,18 @@ async function createBot() {
             dob: suppliedDob,
           });
           return;
+        }
+      }
+
+      if (message.hasMedia) {
+        const mediaInput = await downloadMediaInput(message);
+        if (mediaInput && /^image\//i.test(mediaInput.mimeType)) {
+          const [dlCandidate, rcCandidate] = await Promise.all([
+            extractReceiptTrackingCandidate(mediaInput.buffer, mediaInput.mimeType),
+            extractRcReceiptTrackingCandidate(mediaInput.buffer, mediaInput.mimeType),
+          ]);
+          setReceiptTrackingCandidate(message.from, dlCandidate);
+          setRcReceiptTrackingCandidate(message.from, rcCandidate);
         }
       }
 
@@ -413,17 +578,29 @@ async function createBot() {
       }
 
       if (addTrackRcMatch) {
-        if (isVahanTrackedAnywhere(addTrackRcMatch[1])) {
-          await message.reply(`Vahan tracking already exists for ${addTrackRcMatch[1]}.`);
+        const extractedRc = await extractRcTrackInputFromMessage(message, addTrackRcMatch[1] || '');
+        const rcAppNo = (addTrackRcMatch[1] || '').toUpperCase() || extractedRc.appNo || '';
+        const tagValue = addTrackRcMatch[2];
+
+        if (!rcAppNo) {
+          await message.reply('Usage: add track rc <application_number> -tag');
           return;
         }
 
-        const result = addVahanTrack(message.from, addTrackRcMatch[1], addTrackRcMatch[2], 'whatsapp');
+        if (isVahanTrackedAnywhere(rcAppNo)) {
+          await message.reply(`Vahan tracking already exists for ${rcAppNo}.`);
+          return;
+        }
+
+        const result = addVahanTrack(message.from, rcAppNo, tagValue, 'whatsapp');
         await message.reply(
           result.created
-            ? `Vahan tracking added for ${addTrackRcMatch[1]}${addTrackRcMatch[2] ? ` - ${addTrackRcMatch[2].trim()}` : ''}.`
-            : `Vahan tracking already exists for ${addTrackRcMatch[1]}.`
+            ? `Vahan tracking added for ${rcAppNo}${tagValue ? ` - ${tagValue.trim()}` : ''}.`
+            : `Vahan tracking already exists for ${rcAppNo}.`
         );
+        if (!addTrackRcMatch[1] || extractedRc.fromReceiptCache) {
+          clearRcReceiptTrackingCandidate(message.from);
+        }
         return;
       }
 
@@ -438,8 +615,20 @@ async function createBot() {
       }
 
       if (trackRcMatch) {
+        const extractedRc = await extractRcTrackInputFromMessage(message, trackRcMatch[1] || '');
+        const rcAppNo = (trackRcMatch[1] || '').toUpperCase() || extractedRc.appNo || '';
+        if (!rcAppNo) {
+          await message.reply('Usage: track rc <application_number>');
+          return;
+        }
+
         await message.reply('Fetching Vahan status...');
-        await startVahanLookup(vahanWhatsAppClient, message.from, trackRcMatch[1], 'whatsapp');
+        await startVahanLookup(vahanWhatsAppClient, message.from, rcAppNo, 'whatsapp', {
+          expectedVehicleNo: extractedRc.vehicleNo || '',
+        });
+        if (!trackRcMatch[1] || extractedRc.fromReceiptCache) {
+          clearRcReceiptTrackingCandidate(message.from);
+        }
         return;
       }
 
@@ -450,6 +639,23 @@ async function createBot() {
       }
 
       if (/^add\s+track$/i.test(normalizedBody)) {
+        const extracted = await extractTrackInputFromMessage(message);
+        if (extracted.appNo) {
+          if (extracted.fromReceiptCache) {
+            clearReceiptTrackingCandidate(message.from);
+          }
+
+          await addTrackCommand(
+            message,
+            'whatsapp',
+            message.from,
+            extracted.appNo,
+            '',
+            extracted.dob || ''
+          );
+          return;
+        }
+
         await startInteractiveAddTrackFlow(message);
         return;
       }
@@ -462,9 +668,15 @@ async function createBot() {
         let resolvedDob = explicitDob;
 
         if (!resolvedAppNo) {
-          const extracted = await extractTrackInputFromMessage(message, normalizedBody.replace(/^add\s+track/i, '').trim());
+          const extracted = await extractTrackInputFromMessage(
+            message,
+            normalizedBody.replace(/^add\s+track/i, '').trim()
+          );
           resolvedAppNo = extracted.appNo;
           resolvedDob = resolvedDob || extracted.dob;
+          if (extracted.fromReceiptCache) {
+            clearReceiptTrackingCandidate(message.from);
+          }
         }
 
         await addTrackCommand(message, 'whatsapp', message.from, resolvedAppNo, tag, resolvedDob);
@@ -499,6 +711,9 @@ async function createBot() {
             }
 
             clearPendingDobRequest(message.from);
+            if (resolvedInput.fromReceiptCache) {
+              clearReceiptTrackingCandidate(message.from);
+            }
             await trackCommand(client, message, MessageMedia, {
               appNo: resolvedInput.appNo,
               dob: resolvedInput.dob,
@@ -535,12 +750,24 @@ async function createBot() {
     }
   }
 
-  client.on('message', async (message) => {
-    await handleMessage(message, 'message');
-  });
+  const sentMessageIds = new Set();
+
+  const originalSendMessage = client.sendMessage.bind(client);
+  client.sendMessage = async function(chatId, content, options) {
+    const result = await originalSendMessage(chatId, content, options);
+    if (result && result.id && result.id.id) {
+      sentMessageIds.add(result.id.id);
+    }
+    return result;
+  };
 
   client.on('message_create', async (message) => {
-    if (!message || !message.fromMe) {
+    if (!message) {
+      return;
+    }
+
+    if (message.id && message.id.id && sentMessageIds.has(message.id.id)) {
+      sentMessageIds.delete(message.id.id);
       return;
     }
 

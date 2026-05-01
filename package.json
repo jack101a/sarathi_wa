@@ -13,6 +13,8 @@
     "puppeteer": "^24.37.3",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
+    "sqlite3": "^6.0.1",
+    "tesseract.js": "^5.1.1",
     "tough-cookie": "^6.0.1",
     "whatsapp-web.js": "^1.34.1",
     "yaml": "^2.8.2"
@@ -25,6 +27,7 @@
     "start:dev": "cross-env APP_ENV=development node server.js",
     "test:status": "node tests/testStatus.js",
     "test:ack": "node tests/testAck.js",
+    "test:receipt": "node tests/testReceiptInput.js",
     "test:vahan": "node tests/testVahanService.js",
     "chatid:helper": "node tests/manual/whatsapp/chatIdHelper.js",
     "chatids": "node tests/manual/whatsapp/listWhatsAppChats.js",

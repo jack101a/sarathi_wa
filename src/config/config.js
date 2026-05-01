@@ -289,6 +289,7 @@ const CONFIG = {
     AUTHORIZED_TG_USERS: parseCsv(process.env.AUTHORIZED_TG_USERS || ''),
     AUTHORIZED_TG_GROUPS: parseCsv(process.env.AUTHORIZED_TG_GROUPS || ''),
     ADMIN_USERS: parseCsv(process.env.ADMIN_USERS || ''),
+    AUTHORIZED_TG_ADMINS: parseCsv(process.env.AUTHORIZED_TG_ADMINS || ''),
   },
 
   PUPPETEER: {
