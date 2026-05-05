@@ -10,6 +10,7 @@
     "node-telegram-bot-api": "^0.67.0",
     "onnxruntime-node": "^1.24.3",
     "pdf-lib": "^1.17.1",
+    "playwright": "^1.59.1",
     "puppeteer": "^24.37.3",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",

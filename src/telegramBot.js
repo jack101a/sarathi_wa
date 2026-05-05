@@ -34,8 +34,10 @@ const {
   startPolling: startVahanPolling,
   stopSession: stopVahanSession,
 } = require('./services/vahanService');
+const { startLLPrintFlow, submitLLPrintOTP } = require('./services/llPrintService');
 
 let activeTelegramBot = null;
+const activeLLPrintFlows = new Map();
 const vahanTelegramClient = {
   sendImage: async (chatId, imagePath, caption) => {
     await activeTelegramBot.sendPhoto(chatId, imagePath, { caption });
@@ -158,6 +160,28 @@ async function startTelegramBot(config) {
 
     if (!text || text.startsWith('/')) {
       return;
+    }
+
+    if (activeLLPrintFlows.has(chatId) && !text.startsWith('/llprint')) {
+      const flow = activeLLPrintFlows.get(chatId);
+      const otpCode = text.trim();
+      if (otpCode.length > 0 && otpCode.length <= 8) {
+        activeLLPrintFlows.delete(chatId);
+        // await bot.sendMessage(chatId, 'Submitting OTP and fetching Learner Licence...');
+        try {
+          const pdfPath = await submitLLPrintOTP(flow.context, flow.page, otpCode, flow.appNo, flow.dob);
+          await bot.sendDocument(chatId, pdfPath);
+          if (fs.existsSync(pdfPath)) {
+            fs.unlinkSync(pdfPath);
+          }
+        } catch (error) {
+          await bot.sendMessage(chatId, 'Failed to download Learner Licence or OTP was incorrect.');
+          if (flow.context) {
+            await flow.context.close().catch(() => {});
+          }
+        }
+        return;
+      }
     }
 
     if (/^list\s+track$/i.test(text)) {
@@ -575,6 +599,49 @@ async function startTelegramBot(config) {
         chatId,
         'Failed to build formset PDF. Check the application number and DOB.'
       );
+    }
+  });
+
+  bot.onText(/^\/llprint(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
+    if (!isTgAuthorized(msg, CONFIG)) return;
+    const chatId = msg.chat.id;
+    const args = parseArgs(match && match[1]);
+    const appNo = args[0];
+    const dob = normalizeDob(args[1] || '');
+    const mobile = args[2];
+
+    if (!appNo || !dob || !mobile || mobile.length < 10) {
+      await bot.sendMessage(chatId, 'Usage: /llprint <application_number> <dob> <10_digit_mobile>');
+      return;
+    }
+
+    const cleanMobile = mobile.length > 10 ? mobile.slice(-10) : mobile;
+
+    if (activeLLPrintFlows.has(chatId)) {
+      const oldFlow = activeLLPrintFlows.get(chatId);
+      if (oldFlow.context) await oldFlow.context.close().catch(() => {});
+      activeLLPrintFlows.delete(chatId);
+    }
+
+    // await bot.sendMessage(chatId, `Starting LL Print for App No: ${appNo}, DOB: ${dob}, Mobile: ${cleanMobile}...\nPlease wait...`);
+
+    try {
+      const { context, page } = await startLLPrintFlow(appNo, dob, cleanMobile);
+      activeLLPrintFlows.set(chatId, { context, page, appNo, dob });
+      await bot.sendMessage(chatId, '💬 Check your phone. Enter the OTP:');
+      
+      setTimeout(async () => {
+         if (activeLLPrintFlows.has(chatId)) {
+             const flow = activeLLPrintFlows.get(chatId);
+             if (flow.appNo === appNo) {
+                 activeLLPrintFlows.delete(chatId);
+                 if (flow.context) await flow.context.close().catch(() => {});
+                 await bot.sendMessage(chatId, 'LL Print request timed out waiting for OTP.');
+             }
+         }
+      }, 300000); // 5 minutes timeout
+    } catch (error) {
+      await bot.sendMessage(chatId, 'Failed to start LL print flow. Could not trigger OTP.');
     }
   });
 
