@@ -925,7 +925,13 @@ async function handleIncomingText(client, chatId, text, transport = 'whatsapp') 
   }
 }
 
-function addTrack(chatId, applicationNumber, tag, transport = 'whatsapp') {
+async function addTrack(chatId, applicationNumber, tag, transport = 'whatsapp') {
+  const { enforceTrackingLimit } = require('./trackingControlService');
+  const hasSpace = await enforceTrackingLimit(chatId);
+  if (!hasSpace) {
+    return { created: false, error: 'LIMIT_REACHED' };
+  }
+
   return addEntry({
     transport: normalizeTransport(transport),
     chatId,

@@ -183,7 +183,11 @@ async function handleInteractiveAddTrackFlow(message) {
     clearInteractiveAddTrackFlow(message.from);
 
     if (flow.data.serviceType === 'rc') {
-      const result = addVahanTrack(message.from, flow.data.appNo, tag, 'whatsapp');
+      const result = await addVahanTrack(message.from, flow.data.appNo, tag, 'whatsapp');
+      if (result.error === 'LIMIT_REACHED') {
+        await message.reply('You have reached the maximum tracking limit (10). Unable to add new application as none could be safely removed.');
+        return true;
+      }
       await message.reply(
         result.created
           ? `Vahan tracking added for ${flow.data.appNo}${tag ? ` - ${tag}` : ''}.`
@@ -634,6 +638,23 @@ async function createBot() {
         return;
       }
 
+      if (/^track\s+status$/i.test(normalizedBody)) {
+        await message.reply('Generating your application status report...');
+        try {
+          const { generateStatusImage } = require('./services/imageGeneratorService');
+          const imagePath = await generateStatusImage(message.from);
+          const media = MessageMedia.fromFilePath(imagePath);
+          await client.sendMessage(message.from, media);
+          if (fs.existsSync(imagePath)) {
+            fs.unlinkSync(imagePath);
+          }
+        } catch (error) {
+          console.error('Failed to generate status image:', error);
+          await message.reply('Failed to generate status report. Please try again later.');
+        }
+        return;
+      }
+
       if (/^refresh\s+track$/i.test(normalizedBody)) {
         if (!hasTrackedItems()) {
           await message.reply('No applications are being tracked.');
@@ -659,7 +680,11 @@ async function createBot() {
           return;
         }
 
-        const result = addVahanTrack(message.from, rcAppNo, tagValue, 'whatsapp');
+        const result = await addVahanTrack(message.from, rcAppNo, tagValue, 'whatsapp');
+        if (result.error === 'LIMIT_REACHED') {
+          await message.reply('You have reached the maximum tracking limit (10). Unable to add new application as none could be safely removed.');
+          return;
+        }
         await message.reply(
           result.created
             ? `Vahan tracking added for ${rcAppNo}${tagValue ? ` - ${tagValue.trim()}` : ''}.`

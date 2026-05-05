@@ -12,6 +12,13 @@ async function addTrackCommand(message, transport, chatId, appNo, tag, dob) {
     return;
   }
 
+  const { enforceTrackingLimit } = require('../services/trackingControlService');
+  const hasSpace = await enforceTrackingLimit(chatId);
+  if (!hasSpace) {
+    await message.reply('You have reached the maximum tracking limit (10). Unable to add new application as none could be safely removed.');
+    return;
+  }
+
   const result = addAutoTrack({
     appNo,
     transport,

@@ -108,9 +108,11 @@ async function startServer() {
 
   try {
     const { startAutoTrackScheduler } = require('./src/services/autoTrackService');
+    const { startDailyNotificationScheduler } = require('./src/services/dailyNotificationService');
     startAutoTrackScheduler();
+    startDailyNotificationScheduler();
   } catch (error) {
-    console.error('Auto-track scheduler failed to start.');
+    console.error('Schedulers failed to start.');
     console.error(error.message);
 
     if (process.env.APP_ENV !== 'production') {

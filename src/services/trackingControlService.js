@@ -136,6 +136,45 @@ async function refreshAllTrackedApplications() {
   }
 }
 
+async function enforceTrackingLimit(chatId) {
+  const { sarathiTracked, vahanTracked } = getAllTrackedItems();
+  const userSarathi = sarathiTracked.filter(i => normalizeText(i.chatId) === normalizeText(chatId));
+  const userVahan = vahanTracked.filter(i => normalizeText(i.chatId) === normalizeText(chatId));
+  
+  if (userSarathi.length + userVahan.length < 10) {
+    return true;
+  }
+
+  const { deriveSarathiStatus, deriveVahanStatus } = require('./imageGeneratorService');
+  let candidates = [];
+  
+  userSarathi.forEach(item => {
+    let stat = deriveSarathiStatus(item.lastSnapshot);
+    candidates.push({ type: 'sarathi', item, dispatched: stat.dispatched.includes('✅'), approval: stat.approval.includes('✅') });
+  });
+  
+  userVahan.forEach(item => {
+    let stat = deriveVahanStatus(item.lastSnapshot);
+    candidates.push({ type: 'vahan', item, dispatched: stat.dispatched.includes('✅'), approval: stat.approval.includes('✅') });
+  });
+  
+  let toEvict = candidates.find(c => c.dispatched);
+  if (!toEvict) {
+    toEvict = candidates.find(c => c.approval);
+  }
+  
+  if (toEvict) {
+    if (toEvict.type === 'sarathi') {
+       removeSarathiTrackEverywhere(toEvict.item.appNo);
+    } else {
+       removeVahanTrackEverywhere(toEvict.item.applicationNumber);
+    }
+    return true;
+  }
+  
+  return false;
+}
+
 module.exports = {
   buildTrackedItemsMessage,
   getAllTrackedItems,
@@ -145,4 +184,5 @@ module.exports = {
   refreshAllTrackedApplications,
   removeSarathiTrackEverywhere,
   removeVahanTrackEverywhere,
+  enforceTrackingLimit,
 };
