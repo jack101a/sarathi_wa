@@ -50,13 +50,13 @@ const {
   refreshAllTrackedApplications,
   removeVahanTrackEverywhere,
 } = require('./services/trackingControlService');
-const { startLLPrintFlow, submitLLPrintOTP } = require('./services/llPrintService');
+const { submitLLPrintOTP } = require('./services/llPrintService');
+const { getLlprintSessions } = require('./workers/browserWorker');
 const fs = require('fs');
 
 const TRACK_DOB_TIMEOUT_MS = 120 * 1000;
 const pendingDobRequests = new Map();
 const interactiveAddTrackFlows = new Map();
-const activeLLPrintFlows = new Map();
 let activeWhatsAppClient = null;
 
 const vahanWhatsAppClient = {
@@ -481,6 +481,18 @@ async function createBot() {
 
   async function handleMessage(message, eventName = 'message') {
     const normalizedBody = String(message.body || '').trim();
+    const llprintSessions = getLlprintSessions();
+
+    async function enqueueOrReply(messageObj, transport, commandInfo) {
+      const { processRequest } = require('./core/requestPipeline');
+      const result = await processRequest(messageObj, transport, commandInfo);
+      if (result.blocked) {
+        await messageObj.reply(`? ${result.message}`);
+        return false;
+      }
+      await messageObj.reply('? Processing...');
+      return true;
+    }
 
     console.log(`[whatsapp] Message received from ${message.from} in event '${eventName}': "${normalizedBody}"`);
 
@@ -493,28 +505,25 @@ async function createBot() {
       const { consumeVerificationMessage } = require('./services/waVerificationService');
       const { extractIdentityFromMessage } = require('./services/authorizationNormalizer');
       const idContext = extractIdentityFromMessage(message);
-      const ok = consumeVerificationMessage(normalizedBody, idContext);
+      const ok = await consumeVerificationMessage(normalizedBody, idContext);
       if (ok) {
         await message.reply('Verification successful! You are now authorized.');
         return;
       }
     }
 
-    // Authorization check: only allow authorized users and groups
-    if (!isAuthorized(message, CONFIG)) {
+    if (!(await isAuthorized(message, CONFIG))) {
       console.log(`[whatsapp] Unauthorized message from ${message.from} blocked.`);
-      return; // Silently ignore unauthorized
+      return;
     }
 
     if (/^\/?auth\b/i.test(normalizedBody)) {
       const { isAdminWhatsApp } = require('./services/authorizationService');
       const { handleAuthCommand } = require('./commands/authAdmin');
-
       if (!isAdminWhatsApp(message, CONFIG)) {
         await message.reply('Access denied. Admin only.');
         return;
       }
-
       const reply = await handleAuthCommand(normalizedBody, message.from, client);
       if (reply) {
         await message.reply(reply);
@@ -539,24 +548,19 @@ async function createBot() {
         return;
       }
 
-      if (activeLLPrintFlows.has(message.from) && !normalizedBody.startsWith('/llprint')) {
-        const flow = activeLLPrintFlows.get(message.from);
+      if (llprintSessions.has(message.from) && !normalizedBody.startsWith('/llprint')) {
+        const flow = llprintSessions.get(message.from);
         const otpCode = normalizedBody.trim();
         if (otpCode.length > 0 && otpCode.length <= 8) {
-          activeLLPrintFlows.delete(message.from);
-          // await message.reply('Submitting OTP and fetching Learner Licence...');
+          llprintSessions.delete(message.from);
           try {
             const pdfPath = await submitLLPrintOTP(flow.context, flow.page, otpCode, flow.appNo, flow.dob);
             const media = MessageMedia.fromFilePath(pdfPath);
             await client.sendMessage(message.from, media);
-            if (fs.existsSync(pdfPath)) {
-              fs.unlinkSync(pdfPath);
-            }
+            if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath);
           } catch (error) {
             await message.reply('Failed to download Learner Licence or OTP was incorrect.');
-            if (flow.context) {
-              await flow.context.close().catch(() => {});
-            }
+            if (flow.context) await flow.context.close().catch(() => {});
           }
           return;
         }
@@ -567,10 +571,7 @@ async function createBot() {
         const suppliedDob = normalizeDob(normalizedBody);
         if (suppliedDob) {
           clearPendingDobRequest(message.from);
-          await trackCommand(client, message, MessageMedia, {
-            appNo: pendingDob.appNo,
-            dob: suppliedDob,
-          });
+          await enqueueOrReply(message, 'whatsapp', { command: 'track', payload: { appNo: pendingDob.appNo, dob: suppliedDob }, chatId: message.from });
           return;
         }
       }
@@ -600,109 +601,42 @@ async function createBot() {
           await message.reply('Usage: /llprint <application_number> <dob>');
           return;
         }
-
         const senderPhone = (message.from || '').split('@')[0];
         const mobile = senderPhone.length > 10 ? senderPhone.slice(-10) : senderPhone;
-
-        if (activeLLPrintFlows.has(message.from)) {
-          const oldFlow = activeLLPrintFlows.get(message.from);
-          if (oldFlow.context) await oldFlow.context.close().catch(() => {});
-          activeLLPrintFlows.delete(message.from);
-        }
-
-        // await message.reply(`Starting LL Print for App No: ${appNo}, DOB: ${dob}, Mobile: ${mobile}...\nPlease wait...`);
-
-        try {
-          const { context, page } = await startLLPrintFlow(appNo, dob, mobile);
-          activeLLPrintFlows.set(message.from, { context, page, appNo, dob });
-          await message.reply('💬 Check your phone. Enter the OTP:');
-          
-          setTimeout(async () => {
-             if (activeLLPrintFlows.has(message.from)) {
-                 const flow = activeLLPrintFlows.get(message.from);
-                 if (flow.appNo === appNo) {
-                     activeLLPrintFlows.delete(message.from);
-                     if (flow.context) await flow.context.close().catch(() => {});
-                     await client.sendMessage(message.from, 'LL Print request timed out waiting for OTP.');
-                 }
-             }
-          }, 300000); // 5 minutes timeout
-        } catch (error) {
-          await message.reply('Failed to start LL print flow. Could not trigger OTP.');
-        }
+        await enqueueOrReply(message, 'whatsapp', { command: 'llprint_start', payload: { appNo, dob, mobile }, chatId: message.from });
         return;
       }
 
       if (/^list\s+track$/i.test(normalizedBody)) {
-        await message.reply(buildTrackedItemsMessage());
+        await enqueueOrReply(message, 'whatsapp', { command: 'list_track', payload: {}, chatId: message.from });
         return;
       }
 
       if (/^track\s+status$/i.test(normalizedBody)) {
-        await message.reply('Generating your application status report...');
-        try {
-          const { generateStatusImage } = require('./services/imageGeneratorService');
-          const imagePath = await generateStatusImage(message.from);
-          const media = MessageMedia.fromFilePath(imagePath);
-          await client.sendMessage(message.from, media);
-          if (fs.existsSync(imagePath)) {
-            fs.unlinkSync(imagePath);
-          }
-        } catch (error) {
-          console.error('Failed to generate status image:', error);
-          await message.reply('Failed to generate status report. Please try again later.');
-        }
+        await enqueueOrReply(message, 'whatsapp', { command: 'track_status', payload: {}, chatId: message.from });
         return;
       }
 
       if (/^refresh\s+track$/i.test(normalizedBody)) {
-        if (!hasTrackedItems()) {
-          await message.reply('No applications are being tracked.');
-          return;
-        }
-
-        await refreshAllTrackedApplications();
+        await enqueueOrReply(message, 'whatsapp', { command: 'refresh_track', payload: {}, chatId: message.from });
         return;
       }
 
       if (addTrackRcMatch) {
         const extractedRc = await extractRcTrackInputFromMessage(message, addTrackRcMatch[1] || '');
         const rcAppNo = (addTrackRcMatch[1] || '').toUpperCase() || extractedRc.appNo || '';
-        const tagValue = addTrackRcMatch[2];
-
+        const tagValue = addTrackRcMatch[2] || '';
         if (!rcAppNo) {
           await message.reply('Usage: add track rc <application_number> -tag');
           return;
         }
-
-        if (isVahanTrackedAnywhere(rcAppNo)) {
-          await message.reply(`Vahan tracking already exists for ${rcAppNo}.`);
-          return;
-        }
-
-        const result = await addVahanTrack(message.from, rcAppNo, tagValue, 'whatsapp');
-        if (result.error === 'LIMIT_REACHED') {
-          await message.reply('You have reached the maximum tracking limit (10). Unable to add new application as none could be safely removed.');
-          return;
-        }
-        await message.reply(
-          result.created
-            ? `Vahan tracking added for ${rcAppNo}${tagValue ? ` - ${tagValue.trim()}` : ''}.`
-            : `Vahan tracking already exists for ${rcAppNo}.`
-        );
-        if (!addTrackRcMatch[1] || extractedRc.fromReceiptCache) {
-          clearRcReceiptTrackingCandidate(message.from);
-        }
+        if (!addTrackRcMatch[1] || extractedRc.fromReceiptCache) clearRcReceiptTrackingCandidate(message.from);
+        await enqueueOrReply(message, 'whatsapp', { command: 'add_track_rc', payload: { appNo: rcAppNo, tag: tagValue }, chatId: message.from });
         return;
       }
 
       if (removeTrackRcMatch) {
-        const result = removeVahanTrackEverywhere(removeTrackRcMatch[1]);
-        await message.reply(
-          result.removed
-            ? `Vahan tracking removed for ${removeTrackRcMatch[1]}.`
-            : `No Vahan tracking entry found for ${removeTrackRcMatch[1]}.`
-        );
+        await enqueueOrReply(message, 'whatsapp', { command: 'remove_track_rc', payload: { appNo: removeTrackRcMatch[1] }, chatId: message.from });
         return;
       }
 
@@ -713,14 +647,8 @@ async function createBot() {
           await message.reply('Usage: track rc <application_number>');
           return;
         }
-
-        await message.reply('Fetching Vahan status...');
-        await startVahanLookup(vahanWhatsAppClient, message.from, rcAppNo, 'whatsapp', {
-          expectedVehicleNo: extractedRc.vehicleNo || '',
-        });
-        if (!trackRcMatch[1] || extractedRc.fromReceiptCache) {
-          clearRcReceiptTrackingCandidate(message.from);
-        }
+        if (!trackRcMatch[1] || extractedRc.fromReceiptCache) clearRcReceiptTrackingCandidate(message.from);
+        await enqueueOrReply(message, 'whatsapp', { command: 'track_rc', payload: { appNo: rcAppNo, vehicleNo: extractedRc.vehicleNo || '' }, chatId: message.from });
         return;
       }
 
@@ -733,21 +661,10 @@ async function createBot() {
       if (/^add\s+track$/i.test(normalizedBody)) {
         const extracted = await extractTrackInputFromMessage(message);
         if (extracted.appNo) {
-          if (extracted.fromReceiptCache) {
-            clearReceiptTrackingCandidate(message.from);
-          }
-
-          await addTrackCommand(
-            message,
-            'whatsapp',
-            message.from,
-            extracted.appNo,
-            '',
-            extracted.dob || ''
-          );
+          if (extracted.fromReceiptCache) clearReceiptTrackingCandidate(message.from);
+          await enqueueOrReply(message, 'whatsapp', { command: 'add_track', payload: { appNo: extracted.appNo, dob: extracted.dob || '', tag: '' }, chatId: message.from });
           return;
         }
-
         await startInteractiveAddTrackFlow(message);
         return;
       }
@@ -755,28 +672,25 @@ async function createBot() {
       if (addTrackMatch) {
         const explicitAppNo = addTrackMatch[1] || '';
         const explicitDob = normalizeDob(addTrackMatch[2] || '');
-        const tag = addTrackMatch[3];
+        const tag = addTrackMatch[3] || '';
         let resolvedAppNo = explicitAppNo;
         let resolvedDob = explicitDob;
-
         if (!resolvedAppNo) {
-          const extracted = await extractTrackInputFromMessage(
-            message,
-            normalizedBody.replace(/^add\s+track/i, '').trim()
-          );
+          const extracted = await extractTrackInputFromMessage(message, normalizedBody.replace(/^add\s+track/i, '').trim());
           resolvedAppNo = extracted.appNo;
           resolvedDob = resolvedDob || extracted.dob;
-          if (extracted.fromReceiptCache) {
-            clearReceiptTrackingCandidate(message.from);
-          }
+          if (extracted.fromReceiptCache) clearReceiptTrackingCandidate(message.from);
         }
-
-        await addTrackCommand(message, 'whatsapp', message.from, resolvedAppNo, tag, resolvedDob);
+        if (!resolvedAppNo) {
+          await message.reply('Could not determine application number.');
+          return;
+        }
+        await enqueueOrReply(message, 'whatsapp', { command: 'add_track', payload: { appNo: resolvedAppNo, dob: resolvedDob, tag }, chatId: message.from });
         return;
       }
 
       if (removeTrackMatch) {
-        await removeTrackCommand(message, 'whatsapp', message.from, removeTrackMatch[1]);
+        await enqueueOrReply(message, 'whatsapp', { command: 'remove_track', payload: { appNo: removeTrackMatch[1] }, chatId: message.from });
         return;
       }
 
@@ -785,54 +699,51 @@ async function createBot() {
         case 'alive':
           await aliveCommand(client, message, MessageMedia);
           break;
-        case 'track':
-          {
-            const inlineInput = extractAppNoAndDob(parts.slice(1).join(' '));
-            const resolvedInput = inlineInput.appNo
-              ? inlineInput
-              : await extractTrackInputFromMessage(message, parts.slice(1).join(' '));
-
-            if (!resolvedInput.appNo) {
-              await message.reply('Usage: track <application_number> [dob]');
-              break;
-            }
-
-            if (!resolvedInput.dob && !inlineInput.appNo && resolvedInput.rawValue) {
-              await startPendingDobFlow(client, message, MessageMedia, resolvedInput.appNo);
-              break;
-            }
-
-            clearPendingDobRequest(message.from);
-            if (resolvedInput.fromReceiptCache) {
-              clearReceiptTrackingCandidate(message.from);
-            }
-            await trackCommand(client, message, MessageMedia, {
-              appNo: resolvedInput.appNo,
-              dob: resolvedInput.dob,
-            });
+        case 'track': {
+          const inlineInput = extractAppNoAndDob(parts.slice(1).join(' '));
+          const resolvedInput = inlineInput.appNo ? inlineInput : await extractTrackInputFromMessage(message, parts.slice(1).join(' '));
+          if (!resolvedInput.appNo) {
+            await message.reply('Usage: track <application_number> [dob]');
+            break;
           }
+          if (!resolvedInput.dob && !inlineInput.appNo && resolvedInput.rawValue) {
+            await startPendingDobFlow(client, message, MessageMedia, resolvedInput.appNo);
+            break;
+          }
+          clearPendingDobRequest(message.from);
+          if (resolvedInput.fromReceiptCache) clearReceiptTrackingCandidate(message.from);
+          await enqueueOrReply(message, 'whatsapp', { command: 'track', payload: { appNo: resolvedInput.appNo, dob: resolvedInput.dob || '' }, chatId: message.from });
           break;
-        case 'appl':
-          await applCommand(client, message, MessageMedia);
+        }
+        case 'appl': {
+          const args = parts.slice(1);
+          const appNo = args[0] || '';
+          const dob = normalizeDob(args[1] || '');
+          if (!appNo || !dob) { await message.reply('Usage: appl <application_number> <dob>'); break; }
+          await enqueueOrReply(message, 'whatsapp', { command: 'appl_image', payload: { appNo, dob }, chatId: message.from });
           break;
+        }
         case 'form1':
-          await form1Command(client, message, MessageMedia);
-          break;
         case 'form1a':
-          await form1aCommand(client, message, MessageMedia);
+        case 'form2': {
+          const args = parts.slice(1);
+          const appNo = args[0] || '';
+          const dob = normalizeDob(args[1] || '');
+          if (!appNo || !dob) { await message.reply(`Usage: ${command} <application_number> <dob>`); break; }
+          await enqueueOrReply(message, 'whatsapp', { command, payload: { appNo, dob }, chatId: message.from });
           break;
-        case 'form2':
-          await form2Command(client, message, MessageMedia);
+        }
+        case 'formset': {
+          const args = parts.slice(1);
+          const appNo = args[0] || '';
+          const dob = normalizeDob(args[1] || '');
+          if (!appNo || !dob) { await message.reply('Usage: formset <application_number> <dob>'); break; }
+          await enqueueOrReply(message, 'whatsapp', { command: 'formset', payload: { appNo, dob }, chatId: message.from });
           break;
-        case 'formset':
-          await formsetCommand(client, message);
-          break;
+        }
         default:
           if (hasActiveVahanSession(message.from, 'whatsapp')) {
-            if (!normalizedBody && message.hasMedia) {
-              break;
-            }
-
+            if (!normalizedBody && message.hasMedia) break;
             await handleVahanIncomingText(vahanWhatsAppClient, message.from, normalizedBody, 'whatsapp');
           }
           break;
@@ -840,9 +751,7 @@ async function createBot() {
     } catch (error) {
       await message.reply('Something went wrong. Please try again later.');
     }
-  }
-
-  const sentMessageIds = new Set();
+  }  const sentMessageIds = new Set();
 
   const originalSendMessage = client.sendMessage.bind(client);
   client.sendMessage = async function(chatId, content, options) {
@@ -874,3 +783,6 @@ async function createBot() {
 module.exports = {
   createBot,
 };
+
+
+

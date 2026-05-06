@@ -308,7 +308,21 @@ const CONFIG = {
     ),
   },
 
+  RATE_LIMITS: {
+    free: { perMinute: 5, perDay: 100, perMonth: 50, maxConcurrent: 2 },
+    premium: { perMinute: 15, perDay: 300, perMonth: 500, maxConcurrent: 5 },
+  },
+
+  QUEUE: {
+    API_CONCURRENCY: asNumber(process.env.API_CONCURRENCY, 5),
+    BROWSER_CONCURRENCY: asNumber(process.env.BROWSER_CONCURRENCY, 1),
+    BROWSER_DELAY_MS: asNumber(process.env.BROWSER_DELAY_MS, 3000),
+    BROWSER_MAX_RETRIES: asNumber(process.env.BROWSER_MAX_RETRIES, 2),
+    BROWSER_BACKOFF_MS: asNumber(process.env.BROWSER_BACKOFF_MS, 5000),
+  },
+
   DEBUG: asBoolean(process.env.DEBUG, false),
 };
 
 module.exports = CONFIG;
+

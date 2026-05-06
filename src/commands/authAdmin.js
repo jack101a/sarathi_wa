@@ -1,117 +1,100 @@
-const {
-  startVerification,
-  resendVerification,
-  cancelVerification,
-  getStatus
-} = require('../services/waVerificationService');
+const { startVerification, resendVerification, cancelVerification, getStatus } = require('../services/waVerificationService');
 const repo = require('../services/authorizationRepository');
+const authService = require('../services/authorizationService');
 const { normalizePhone } = require('../services/authorizationNormalizer');
 
 async function handleAuthCommand(text, fromChatId, client) {
   const parts = String(text || '').trim().split(/\s+/);
-  if (parts[0].toLowerCase() !== 'auth' && parts[0].toLowerCase() !== '/auth') {
-    return null;
-  }
-
+  if (!/^\/?auth$/i.test(parts[0] || '')) return null;
   const sub = String(parts[1] || '').toLowerCase().trim();
 
-  // auth help
-  if (sub === 'help' || parts.length === 1) {
-    return `Available auth commands:
-- auth help
-- auth list wa users
-- auth add wa user <phone>
-- auth resend wa user <phone>
-- auth cancel wa user <phone>
-- auth status wa user <phone>
-- auth remove wa user <phone>
-- auth list wa groups
-- auth add wa group <group_id>
-- auth remove wa group <group_id>`;
+  if (sub === 'help' || parts.length === 1) return `Available auth commands:\n- auth add user <phone> [name] [plan] [monthly_limit] [expiry_YYYY-MM-DD]\n- auth edit user <phone> [name=X] [plan=X] [limit=N] [expiry=YYYY-MM-DD] [status=active|inactive]\n- auth delete user <phone>\n- auth list users\n- auth user <phone>\n- auth reset usage <phone>\n- auth add wa user <phone>\n- auth remove wa user <phone>\n- auth add wa group <group_id>\n- auth remove wa group <group_id>`;
+
+  if (sub === 'list' && String(parts[2] || '').toLowerCase() === 'users') {
+    const users = await authService.listUsers();
+    if (!users.length) return 'No active users.';
+    return 'Active users:\n' + users.map((u) => `- ${u.canonical_phone} | ${u.name || '-'} | ${u.subscription_plan || 'free'} | ${u.used_count || 0}/${u.monthly_limit || 0} | ${u.expiry_date || '-'} | ${Number(u.is_active) === 1 ? 'active' : 'inactive'}`).join('\n');
   }
 
-  // auth list wa users/groups
+  if (sub === 'user') {
+    const phone = normalizePhone(parts[2] || '');
+    if (!phone) return 'Invalid phone number.';
+    const u = await authService.getUserDetails(phone);
+    if (!u) return `User ${phone} not found.`;
+    return `Phone: ${u.canonical_phone}\nName: ${u.name || '-'}\nPlan: ${u.subscription_plan || 'free'}\nUsage: ${u.used_count || 0}/${u.monthly_limit || 0}\nDaily: ${u.daily_count || 0}\nExpiry: ${u.expiry_date || '-'}\nStatus: ${Number(u.is_active) === 1 ? 'active' : 'inactive'}`;
+  }
+
+  if (sub === 'add' && String(parts[2] || '').toLowerCase() === 'user') {
+    const phone = normalizePhone(parts[3] || '');
+    if (!phone) return 'Invalid phone number.';
+    await authService.addAuthorizedEntry('wa', 'user', phone, { name: parts[4] || '', plan: parts[5] || 'free', monthly_limit: Number(parts[6] || 50), expiry_date: parts[7] || '' });
+    return `User ${phone} added/updated.`;
+  }
+
+  if (sub === 'edit' && String(parts[2] || '').toLowerCase() === 'user') {
+    const phone = normalizePhone(parts[3] || '');
+    if (!phone) return 'Invalid phone number.';
+    const updates = {};
+    for (const token of parts.slice(4)) {
+      const [k, ...rest] = token.split('=');
+      const v = rest.join('=');
+      if (!v) continue;
+      if (k === 'name') updates.name = v;
+      if (k === 'plan') updates.subscription_plan = v;
+      if (k === 'limit') updates.monthly_limit = Number(v) || 0;
+      if (k === 'expiry') updates.expiry_date = v;
+      if (k === 'status') updates.is_active = v.toLowerCase() === 'active';
+    }
+    const u = await authService.editUser(phone, updates);
+    return u ? `User ${phone} updated.` : `User ${phone} not found.`;
+  }
+
+  if (sub === 'delete' && String(parts[2] || '').toLowerCase() === 'user') {
+    const phone = normalizePhone(parts[3] || '');
+    if (!phone) return 'Invalid phone number.';
+    const ok = await authService.deleteUser(phone);
+    return ok ? `User ${phone} deactivated.` : `User ${phone} not found.`;
+  }
+
+  if (sub === 'reset' && String(parts[2] || '').toLowerCase() === 'usage') {
+    const phone = normalizePhone(parts[3] || '');
+    if (!phone) return 'Invalid phone number.';
+    const u = await authService.getUserDetails(phone);
+    if (!u) return `User ${phone} not found.`;
+    await repo.resetMonthlyUsage(u.id);
+    return `Usage reset for ${phone}.`;
+  }
+
+  // Backward-compatible legacy auth commands
   if (sub === 'list') {
     const channel = String(parts[2] || '').toLowerCase().trim();
     const type = String(parts[3] || '').toLowerCase().trim();
-
     if (channel === 'wa' && type === 'users') {
-      const users = repo.querySync('SELECT * FROM auth_users WHERE channel = "wa" AND is_active = 1');
-      if (!users.length) return 'No active WA users.';
-      return 'Active WA users:\n' + users.map(u => `- ${u.canonical_phone}`).join('\n');
+      const users = await repo.query('SELECT * FROM auth_users WHERE channel = "wa" AND is_active = 1');
+      return users.length ? 'Active WA users:\n' + users.map((u) => `- ${u.canonical_phone}`).join('\n') : 'No active WA users.';
     }
     if (channel === 'wa' && type === 'groups') {
-      const groups = repo.getAuthorizedGroups('wa');
-      if (!groups.length) return 'No active WA groups.';
-      return 'Active WA groups:\n' + groups.map(g => `- ${g.group_id}`).join('\n');
+      const groups = await repo.getAuthorizedGroups('wa');
+      return groups.length ? 'Active WA groups:\n' + groups.map((g) => `- ${g.group_id}`).join('\n') : 'No active WA groups.';
     }
-    return `Invalid list format. Use 'auth help' to see usage.`;
   }
 
-  // auth add/resend/cancel/status/remove
-  if (sub === 'add' || sub === 'resend' || sub === 'cancel' || sub === 'status' || sub === 'remove') {
+  if (['add', 'resend', 'cancel', 'status', 'remove'].includes(sub)) {
     const channel = String(parts[2] || '').toLowerCase().trim();
     const type = String(parts[3] || '').toLowerCase().trim();
     const id = parts.slice(4).join(' ');
-
     if (channel === 'wa' && type === 'user') {
       const phone = normalizePhone(id);
       if (!phone) return 'Invalid phone number.';
-
-      if (sub === 'add') {
-        const verif = startVerification(phone, 'admin', 'wa');
-        if (verif) {
-          const verificationText = `AUTH ${phone} ${verif.code}`;
-          if (client) {
-            try {
-              await client.sendMessage(phone + '@c.us', verificationText);
-            } catch (e) {}
-          }
-          return `Verification initiated for ${phone}.\nCopy and send this exact text from target number:\n${verificationText}`;
-        }
-        return `Failed to initiate verification for ${phone}.`;
-      }
-
-      if (sub === 'resend') {
-        const verif = resendVerification(phone);
-        if (verif) {
-          const verificationText = `AUTH ${phone} ${verif.code}`;
-          if (client) {
-            try {
-              await client.sendMessage(phone + '@c.us', verificationText);
-            } catch (e) {}
-          }
-          return `Verification resent for ${phone}.\nCopy and send this exact text from target number:\n${verificationText}`;
-        }
-        return `Failed to resend verification for ${phone}.`;
-      }
-
-      if (sub === 'cancel') {
-        const ok = cancelVerification(phone);
-        return ok ? `Verification cancelled for ${phone}.` : `No pending verification found for ${phone}.`;
-      }
-
-      if (sub === 'status') {
-        const status = getStatus(phone);
-        if (!status) return `No verification found for ${phone}.`;
-        return `Verification status for ${phone}: ${status.status} (Expires: ${status.expires_at})`;
-      }
-
-      if (sub === 'remove') {
-        const ok = repo.deactivateUser(phone);
-        return ok ? `User ${phone} removed completely.` : `User ${phone} not found.`;
-      }
+      if (sub === 'add') { const verif = await startVerification(phone, 'admin', 'wa'); if (!verif) return `Failed to initiate verification for ${phone}.`; const verificationText = `AUTH ${phone} ${verif.code}`; if (client) { try { await client.sendMessage(`${phone}@c.us`, verificationText); } catch (_) {} } return `Verification initiated for ${phone}.\nCopy and send this exact text from target number:\n${verificationText}`; }
+      if (sub === 'resend') { const verif = await resendVerification(phone); if (!verif) return `Failed to resend verification for ${phone}.`; const verificationText = `AUTH ${phone} ${verif.code}`; if (client) { try { await client.sendMessage(`${phone}@c.us`, verificationText); } catch (_) {} } return `Verification resent for ${phone}.\nCopy and send this exact text from target number:\n${verificationText}`; }
+      if (sub === 'cancel') return (await cancelVerification(phone)) ? `Verification cancelled for ${phone}.` : `No pending verification found for ${phone}.`;
+      if (sub === 'status') { const status = await getStatus(phone); return status ? `Verification status for ${phone}: ${status.status} (Expires: ${status.expires_at})` : `No verification found for ${phone}.`; }
+      if (sub === 'remove') return (await repo.deactivateUser(phone)) ? `User ${phone} removed completely.` : `User ${phone} not found.`;
     }
-
     if (channel === 'wa' && type === 'group') {
-      if (sub === 'add') {
-        repo.addAuthorizedGroup(id, 'wa');
-        return `Group ${id} added successfully.`;
-      }
-      if (sub === 'remove') {
-        repo.removeAuthorizedGroup(id, 'wa');
-        return `Group ${id} removed successfully.`;
-      }
+      if (sub === 'add') { await repo.addAuthorizedGroup(id, 'wa'); return `Group ${id} added successfully.`; }
+      if (sub === 'remove') { await repo.removeAuthorizedGroup(id, 'wa'); return `Group ${id} removed successfully.`; }
     }
   }
 
