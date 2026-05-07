@@ -138,40 +138,57 @@ async function refreshAllTrackedApplications() {
 
 async function enforceTrackingLimit(chatId) {
   const { sarathiTracked, vahanTracked } = getAllTrackedItems();
-  const userSarathi = sarathiTracked.filter(i => normalizeText(i.chatId) === normalizeText(chatId));
-  const userVahan = vahanTracked.filter(i => normalizeText(i.chatId) === normalizeText(chatId));
-  
+  const userSarathi = sarathiTracked.filter((i) => normalizeText(i.chatId) === normalizeText(chatId));
+  const userVahan = vahanTracked.filter((i) => normalizeText(i.chatId) === normalizeText(chatId));
+
   if (userSarathi.length + userVahan.length < 10) {
     return true;
   }
 
   const { deriveSarathiStatus, deriveVahanStatus } = require('./imageGeneratorService');
-  let candidates = [];
-  
-  userSarathi.forEach(item => {
-    let stat = deriveSarathiStatus(item.lastSnapshot);
-    candidates.push({ type: 'sarathi', item, dispatched: stat.dispatched.includes('✅'), approval: stat.approval.includes('✅') });
+  const candidates = [];
+
+  userSarathi.forEach((item) => {
+    const stat = deriveSarathiStatus(item.lastSnapshot);
+    candidates.push({
+      type: 'sarathi',
+      item,
+      createdAtMs: Date.parse(item.createdAt || '') || 0,
+      dispatched: stat.dispatched.includes('?'),
+      approval: stat.approval.includes('?'),
+    });
   });
-  
-  userVahan.forEach(item => {
-    let stat = deriveVahanStatus(item.lastSnapshot);
-    candidates.push({ type: 'vahan', item, dispatched: stat.dispatched.includes('✅'), approval: stat.approval.includes('✅') });
+
+  userVahan.forEach((item) => {
+    const stat = deriveVahanStatus(item.lastSnapshot);
+    candidates.push({
+      type: 'vahan',
+      item,
+      createdAtMs: Date.parse(item.createdAt || '') || 0,
+      dispatched: stat.dispatched.includes('?'),
+      approval: stat.approval.includes('?'),
+    });
   });
-  
-  let toEvict = candidates.find(c => c.dispatched);
-  if (!toEvict) {
-    toEvict = candidates.find(c => c.approval);
+
+  const dispatchedCandidates = candidates.filter((c) => c.dispatched);
+  const approvedCandidates = candidates.filter((c) => !c.dispatched && c.approval);
+
+  let toEvict = null;
+  if (dispatchedCandidates.length > 0) {
+    toEvict = dispatchedCandidates.sort((a, b) => a.createdAtMs - b.createdAtMs)[0];
+  } else if (approvedCandidates.length > 0) {
+    toEvict = approvedCandidates.sort((a, b) => a.createdAtMs - b.createdAtMs)[0];
   }
-  
+
   if (toEvict) {
     if (toEvict.type === 'sarathi') {
-       removeSarathiTrackEverywhere(toEvict.item.appNo);
+      removeSarathiTrackEverywhere(toEvict.item.appNo);
     } else {
-       removeVahanTrackEverywhere(toEvict.item.applicationNumber);
+      removeVahanTrackEverywhere(toEvict.item.applicationNumber);
     }
     return true;
   }
-  
+
   return false;
 }
 

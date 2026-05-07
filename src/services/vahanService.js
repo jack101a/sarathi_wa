@@ -69,6 +69,17 @@ function normalizeVehicleNo(value) {
   return normalizeText(value).replace(/[^A-Z0-9]/gi, '').toUpperCase();
 }
 
+function extractDate(value) {
+  const text = normalizeText(value);
+  const m1 = text.match(/(\d{1,2})-([A-Za-z]{3})-(\d{4})/);
+  if (m1) {
+    const mm = { JAN: '01', FEB: '02', MAR: '03', APR: '04', MAY: '05', JUN: '06', JUL: '07', AUG: '08', SEP: '09', OCT: '10', NOV: '11', DEC: '12' };
+    return `${String(Number(m1[1])).padStart(2, '0')}-${mm[m1[2].toUpperCase()] || '01'}-${m1[3]}`;
+  }
+  const m2 = text.match(/(\d{2})[-/](\d{2})[-/](\d{4})/);
+  return m2 ? `${m2[1]}-${m2[2]}-${m2[3]}` : '';
+}
+
 function buildVehicleValidationMessage(expectedVehicleNo, actualVehicleNo) {
   const expected = normalizeVehicleNo(expectedVehicleNo);
   if (!expected) {
@@ -437,7 +448,9 @@ function parseStatusCard(xmlText, fallbackApplicationNumber) {
 
 function isIgnoredTransaction(transactionPurpose) {
   const text = normalizeText(transactionPurpose).toUpperCase();
-  return text.includes('POSTAL FEE') || text.includes('SMART CARD FEE') || text.includes('MV TAX');
+  return /(^|\s|\/)(POSTAL\s+)?FEE(\s|\/|$)/.test(text)
+    || text.includes('SMART CARD FEE')
+    || /\b(MV\s*)?TAX\b/.test(text);
 }
 
 function getRelevantRows(card) {
@@ -453,15 +466,100 @@ function isMeaningfulValue(value) {
   return Boolean(text) && text !== 'NOT AVAILABLE';
 }
 
+function isDispatchRcGenerated(value) {
+  return normalizeText(value).toUpperCase().includes('DISPATCH RC GENERATED');
+}
+
+function classifyVahanStatus(value) {
+  const text = normalizeText(value).toUpperCase();
+  if (!text) {
+    return { status: '', date: '' };
+  }
+
+  const date = extractDate(text);
+  if (text.includes('PENDING')) {
+    return { status: 'Pending', date };
+  }
+  if (text.includes('SCRUTINY')) {
+    return { status: 'Scrutiny', date };
+  }
+  if (text.includes('APPROVED')) {
+    return { status: 'Approved', date };
+  }
+  if (text.includes('COMPLETED') || text.includes('SUCCESS')) {
+    return { status: 'Completed', date };
+  }
+
+  return { status: '', date };
+}
+
 function isDispatchedCard(card) {
-  return isMeaningfulValue(card.extra.dispatchRcStatus);
+  return isDispatchRcGenerated(card && card.extra && card.extra.dispatchRcStatus);
 }
 
 function buildTrackingSnapshot(card) {
   return JSON.stringify({
-    rows: getRelevantRows(card).map((row) => normalizeText(row.currentStatus)),
+    rows: getRelevantRows(card).map((row) => ({
+      transactionPurpose: normalizeText(row.transactionPurpose),
+      currentStatus: normalizeText(row.currentStatus),
+    })),
     rcPrintOrSmartCardStatus: normalizeText(card.extra.rcPrintOrSmartCardStatus),
     dispatchRcStatus: normalizeText(card.extra.dispatchRcStatus),
+  });
+}
+
+function deriveVahanTimeline(card) {
+  const relevantRows = getRelevantRows(card);
+  const serviceNames = relevantRows
+    .map((r) => normalizeText(r.transactionPurpose))
+    .filter((name) => {
+      const t = name.toUpperCase();
+      return t && !isIgnoredTransaction(t);
+    });
+
+  const statusDates = relevantRows
+    .map((r) => extractDate(r.currentStatus))
+    .filter(Boolean);
+  const parsedStatuses = relevantRows.map((r) => classifyVahanStatus(r.currentStatus));
+  const approvedStatusDate = relevantRows
+    .map((r, index) => ({ row: r, parsed: parsedStatuses[index] }))
+    .filter(({ parsed }) => parsed.status === 'Completed' || parsed.status === 'Approved')
+    .map(({ parsed }) => parsed.date)
+    .find(Boolean) || '';
+  const firstStatusDate = statusDates[0] || '';
+  const rcPrintDate = isMeaningfulValue(card.extra.rcPrintOrSmartCardStatus)
+    ? extractDate(card.extra.rcPrintOrSmartCardStatus)
+    : '';
+  const approvalDate = approvedStatusDate || rcPrintDate;
+  const dispatchDate = isDispatchRcGenerated(card.extra.dispatchRcStatus)
+    ? extractDate(card.extra.dispatchRcStatus)
+    : '';
+
+  return {
+    serviceName: serviceNames.join(', '),
+    applicationDate: normalizeText(card.applicationDate),
+    vehicleNo: normalizeText(card.vehicleNumber),
+    scrutinyAt: firstStatusDate || approvalDate,
+    approvalAt: approvalDate,
+    dispatchedAt: dispatchDate,
+  };
+}
+
+function updateTrackedCardMetadata(chatId, transport, card) {
+  if (!card || !card.applicationNumber) {
+    return { updated: false };
+  }
+
+  const snapshot = buildTrackingSnapshot(card);
+  return updateEntry({
+    transport: normalizeTransport(transport),
+    chatId,
+    applicationNumber: card.applicationNumber,
+    updates: {
+      lastSnapshot: snapshot,
+      lastCheckedAt: new Date().toISOString(),
+      ...deriveVahanTimeline(card),
+    },
   });
 }
 
@@ -729,6 +827,7 @@ async function attemptAutomatedLookup(client, session) {
         const imagePath = await renderStatusImage(card, session.chatId);
         await sendImageFile(client, session.chatId, imagePath, `Vahan status: ${card.vehicleNumber || card.applicationNumber}`);
         cleanupFile(imagePath);
+        updateTrackedCardMetadata(session.chatId, session.transport, card);
         const vehicleValidationMessage = buildVehicleValidationMessage(
           session.expectedVehicleNo,
           card.vehicleNumber
@@ -771,6 +870,7 @@ async function startLookup(client, chatId, applicationNumber, transport = 'whats
         const imagePath = await renderStatusImage(card, chatId);
         await sendImageFile(client, chatId, imagePath, `Vahan status: ${card.vehicleNumber || card.applicationNumber}`);
         cleanupFile(imagePath);
+        updateTrackedCardMetadata(chatId, transport, card);
         const vehicleValidationMessage = buildVehicleValidationMessage(expectedVehicleNo, card.vehicleNumber);
         if (vehicleValidationMessage) {
           await sendTextMessage(client, chatId, vehicleValidationMessage);
@@ -902,6 +1002,7 @@ async function handleIncomingText(client, chatId, text, transport = 'whatsapp') 
     const imagePath = await renderStatusImage(card, chatId);
     await sendImageFile(client, chatId, imagePath, `Vahan status: ${card.vehicleNumber || card.applicationNumber}`);
     cleanupFile(imagePath);
+    updateTrackedCardMetadata(chatId, transport, card);
     const vehicleValidationMessage = buildVehicleValidationMessage(
       session.expectedVehicleNo,
       card.vehicleNumber
@@ -925,7 +1026,7 @@ async function handleIncomingText(client, chatId, text, transport = 'whatsapp') 
   }
 }
 
-async function addTrack(chatId, applicationNumber, tag, transport = 'whatsapp') {
+async function addTrack(chatId, applicationNumber, tag, transport = 'whatsapp', options = {}) {
   const { enforceTrackingLimit } = require('./trackingControlService');
   const hasSpace = await enforceTrackingLimit(chatId);
   if (!hasSpace) {
@@ -937,6 +1038,8 @@ async function addTrack(chatId, applicationNumber, tag, transport = 'whatsapp') 
     chatId,
     applicationNumber,
     tag,
+    vehicleNo: options.vehicleNo || '',
+    applicantName: options.applicantName || tag || '',
   });
 }
 
@@ -1001,6 +1104,8 @@ async function pollTrackedApplications() {
         updates: {
           lastSnapshot: snapshot,
           lastCheckedAt: new Date().toISOString(),
+          applicantName: normalizeText(item.tag || item.applicantName || ''),
+          ...deriveVahanTimeline(card),
         },
       });
 
@@ -1059,6 +1164,8 @@ async function refreshTrackedApplications(chatId, transport = 'whatsapp') {
         updates: {
           lastSnapshot: snapshot,
           lastCheckedAt: new Date().toISOString(),
+          applicantName: normalizeText(item.tag || item.applicantName || ''),
+          ...deriveVahanTimeline(card),
         },
       });
 
@@ -1114,6 +1221,12 @@ module.exports = {
     setSleepFnForTests: (fn) => {
       sleepFn = fn;
     },
+    parseStatusCard,
+    buildTrackingSnapshot,
+    deriveVahanTimeline,
+    isIgnoredTransaction,
+    isDispatchRcGenerated,
+    classifyVahanStatus,
   },
   addTrack,
   getHelpText,

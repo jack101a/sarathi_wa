@@ -4,264 +4,235 @@ const path = require('path');
 const { readTrackedApplications } = require('./autoTrackStore');
 const { readEntries: readVahanStore } = require('./vahanTrackStore');
 
-function extractDate(text) {
-  const match = String(text || '').match(/(\d{2})[-/A-Za-z]+(\d{4}|\d{2})/);
-  if (match) {
-    // Attempting a simple extraction, fallback to generic
-    return match[0].substring(0, 11);
-  }
+function todayDDMMYYYY() {
   const d = new Date();
   return `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`;
 }
 
-function deriveSarathiStatus(snapshotStr) {
-  let details = {};
+function extractDate(text) {
+  const value = String(text || '');
+  const m1 = value.match(/(\d{2})[-/](\d{2})[-/](\d{4})/);
+  if (m1) return `${m1[1]}-${m1[2]}-${m1[3]}`;
+  const m2 = value.match(/(\d{1,2})[\s-]([A-Za-z]{3,9})[\s-](\d{2,4})/);
+  if (m2) {
+    const mmMap = { jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3, apr: 4, april: 4, may: 5, jun: 6, june: 6, jul: 7, july: 7, aug: 8, august: 8, sep: 9, sept: 9, september: 9, oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12 };
+    const day = String(Number(m2[1])).padStart(2, '0');
+    const month = String(mmMap[String(m2[2]).toLowerCase()] || '').padStart(2, '0');
+    let year = String(m2[3]);
+    if (year.length === 2) year = `20${year}`;
+    if (month !== '00') return `${day}-${month}-${year}`;
+  }
+  return todayDDMMYYYY();
+}
+
+function fmtStatus(done, dateStr) {
+  return done ? `${dateStr} \u2705` : `Pending`;
+}
+
+function isDispatchRcGenerated(value) {
+  return String(value || '').toUpperCase().includes('DISPATCH RC GENERATED');
+}
+
+function parseSnapshot(snapshotStr) {
   try {
-    details = JSON.parse(snapshotStr || '{}');
-  } catch (e) {}
+    return JSON.parse(snapshotStr || '{}');
+  } catch (_) {
+    return {};
+  }
+}
 
-  const statusText = [
-    details.kind,
-    details.stage,
-    details.message,
-    details.approvedAction,
-    details.transaction,
-  ].map((value) => String(value || '').toUpperCase()).join(' ');
+function deriveSarathiStatus(snapshotStr) {
+  const details = parseSnapshot(snapshotStr);
+  const text = [details.kind, details.stage, details.message, details.approvedAction, details.transaction]
+    .map((v) => String(v || '').toUpperCase())
+    .join(' ');
+  const completed = Array.isArray(details.completedActions) ? details.completedActions : [];
+  const findCompletedDate = (needle) => {
+    const row = completed.find((item) => String(item.actionName || '').toUpperCase().includes(needle));
+    return row ? extractDate(row.processedOn || '') : '';
+  };
 
-  const dispatchedDone = details.kind === 'dispatched' || statusText.includes('DISPATCH');
-  const approvalDone = dispatchedDone || details.kind === 'approved' || statusText.includes('PRINTING') || statusText.includes('CARD') || statusText.includes('APPROVAL');
-  const scrutinyDone = approvalDone || (Boolean(details.stage) && !String(details.stage).toUpperCase().includes('SCRUTINY'));
-
-  const dateStr = extractDate(statusText);
+  const dispatchedDone = details.kind === 'dispatched' || text.includes('DISPATCH');
+  const approvalDone = dispatchedDone || details.kind === 'approved' || text.includes('APPROVAL') || text.includes('CARD') || text.includes('PRINTING');
+  const scrutinyDone = approvalDone || (!!details.stage && !String(details.stage).toUpperCase().includes('SCRUTINY'));
+  const scrutinyDate = findCompletedDate('SCRUTINY') || extractDate(text);
+  const approvalDate = findCompletedDate('APPROVAL') || extractDate(details.approvedOn || '') || (approvalDone ? scrutinyDate : '');
+  const dispatchedDate = findCompletedDate('DISPATCH') || (dispatchedDone ? extractDate(text) : '');
 
   return {
-    scrutiny: scrutinyDone ? `${dateStr} ✅` : '— ⚠️',
-    approval: approvalDone ? `${dateStr} ✅` : '— ⚠️',
-    dispatched: dispatchedDone ? `${dateStr} ✅` : '— ⚠️',
+    scrutiny: fmtStatus(scrutinyDone, scrutinyDate),
+    approval: fmtStatus(approvalDone, approvalDate),
+    dispatched: fmtStatus(dispatchedDone, dispatchedDate),
+    details,
   };
 }
 
 function deriveVahanStatus(snapshotStr) {
-  let details = {};
-  try {
-    details = JSON.parse(snapshotStr || '{}');
-  } catch (e) {}
-
-  const rowsText = (details.rows || []).join(' ').toUpperCase();
+  const details = parseSnapshot(snapshotStr);
+  const rows = Array.isArray(details.rows) ? details.rows : [];
+  const rowValues = rows.map((row) => {
+    if (typeof row === 'string') return row;
+    return `${row.transactionPurpose || ''} ${row.currentStatus || ''}`;
+  });
+  const rowsText = rowValues.join(' ').toUpperCase();
   const rcPrint = String(details.rcPrintOrSmartCardStatus || '').toUpperCase();
   const dispatch = String(details.dispatchRcStatus || '').toUpperCase();
+  const merged = `${rowsText} ${rcPrint} ${dispatch}`;
 
-  const dispatchedDone = dispatch.includes('DISPATCHED') || dispatch.includes('DELIVERED');
-  const approvalDone = dispatchedDone || rcPrint.includes('PRINTED') || rowsText.includes('APPROVED');
-  const scrutinyDone = approvalDone || rowsText.includes('VERIFIED') || rowsText.includes('SUCCESS');
-
-  const dateStr = extractDate(rowsText + ' ' + rcPrint + ' ' + dispatch);
+  const dispatchedDone = isDispatchRcGenerated(dispatch);
+  const approvalDone = dispatchedDone || rcPrint.includes('PRINTED') || merged.includes('APPROVED') || merged.includes('COMPLETED');
+  const scrutinyDone = approvalDone || merged.includes('VERIFIED') || merged.includes('SUCCESS');
+  const approvedRowDate = rows
+    .filter((row) => {
+      const text = typeof row === 'string' ? row : `${row.transactionPurpose || ''} ${row.currentStatus || ''}`;
+      return /COMPLETED|APPROVED/i.test(text);
+    })
+    .map((row) => extractDate(typeof row === 'string' ? row : row.currentStatus || ''))
+    .find(Boolean) || '';
+  const scrutinyDate = extractDate(rowsText) || approvedRowDate;
+  const approvalDate = approvedRowDate || extractDate(rcPrint) || (approvalDone ? scrutinyDate : '');
+  const dispatchedDate = extractDate(dispatch);
 
   return {
-    scrutiny: scrutinyDone ? `${dateStr} ✅` : '— ⚠️',
-    approval: approvalDone ? `${dateStr} ✅` : '— ⚠️',
-    dispatched: dispatchedDone ? `${dateStr} ✅` : '— ⚠️',
+    scrutiny: fmtStatus(scrutinyDone, scrutinyDate),
+    approval: fmtStatus(approvalDone, approvalDate),
+    dispatched: fmtStatus(dispatchedDone, dispatchedDate),
+    details,
   };
 }
 
-const htmlTemplate = (data) => `
-<!DOCTYPE html>
-<html>
-<head>
-<style>
-  body {
-    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    padding: 30px;
-    background-color: #f8fafc;
-    margin: 0;
-  }
-  .table-container {
-    background: white;
-    border-radius: 12px;
-    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-    padding: 20px;
-    max-width: 1200px;
-  }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 10px;
-  }
-  th, td {
-    padding: 14px 16px;
-    text-align: left;
-    border-bottom: 1px solid #e2e8f0;
-  }
-  th {
-    background-color: #f1f5f9;
-    font-weight: 600;
-    color: #334155;
-    text-transform: uppercase;
-    font-size: 13px;
-    letter-spacing: 0.05em;
-  }
-  .section-header {
-    background-color: #3b82f6 !important;
-    color: white !important;
-    font-size: 16px !important;
-    font-weight: bold !important;
-    text-transform: none !important;
-    letter-spacing: normal !important;
-  }
-  .vahan-header {
-    background-color: #10b981 !important;
-  }
-  tr:last-child td {
-    border-bottom: none;
-  }
-  .status-completed {
-    color: #166534;
-    background-color: #dcfce7;
-    padding: 4px 8px;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 500;
-    display: inline-block;
-  }
-  .status-pending {
-    color: #991b1b;
-    background-color: #fee2e2;
-    padding: 4px 8px;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 500;
-    display: inline-block;
-  }
-</style>
-</head>
-<body>
-  <div class="table-container">
-    <h2 style="margin-top: 0; color: #1e293b; text-align: center; margin-bottom: 20px;">Live Application Status Tracker</h2>
-    <table>
-      <thead>
-        <tr>
-          <th style="width: 5%">Sr. No.</th>
-          <th style="width: 15%">Name / Tag</th>
-          <th style="width: 15%">Service / Transport</th>
-          <th style="width: 15%">Application No.</th>
-          <th style="width: 12%">DOB / Vehicle No.</th>
-          <th style="width: 12%">Scrutiny</th>
-          <th style="width: 12%">Approval</th>
-          <th style="width: 14%">Dispatched</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${data.filter(d => d.category === 'sarathi').length > 0 ? `
-        <tr>
-          <td colspan="8" class="section-header">🚘 Sarathi Applications (DOB)</td>
-        </tr>
-        ${data.filter(d => d.category === 'sarathi').map(d => `
-          <tr>
-            <td>${d.srNo}</td>
-            <td><strong>${d.applicantName}</strong></td>
-            <td>${d.serviceName}</td>
-            <td>${d.appNo}</td>
-            <td>${d.dobOrVehicle}</td>
-            <td><span class="${d.scrutiny.includes('✅') ? 'status-completed' : 'status-pending'}">${d.scrutiny}</span></td>
-            <td><span class="${d.approval.includes('✅') ? 'status-completed' : 'status-pending'}">${d.approval}</span></td>
-            <td><span class="${d.dispatched.includes('✅') ? 'status-completed' : 'status-pending'}">${d.dispatched}</span></td>
-          </tr>
-        `).join('')}
-        ` : ''}
-        
-        ${data.filter(d => d.category === 'vahan').length > 0 ? `
-        <tr>
-          <td colspan="8" class="section-header vahan-header">🛵 Vahan Applications (Vehicle No.)</td>
-        </tr>
-        ${data.filter(d => d.category === 'vahan').map(d => `
-          <tr>
-            <td>${d.srNo}</td>
-            <td><strong>${d.applicantName}</strong></td>
-            <td>${d.serviceName}</td>
-            <td>${d.appNo}</td>
-            <td><strong>${d.dobOrVehicle}</strong></td>
-            <td><span class="${d.scrutiny.includes('✅') ? 'status-completed' : 'status-pending'}">${d.scrutiny}</span></td>
-            <td><span class="${d.approval.includes('✅') ? 'status-completed' : 'status-pending'}">${d.approval}</span></td>
-            <td><span class="${d.dispatched.includes('✅') ? 'status-completed' : 'status-pending'}">${d.dispatched}</span></td>
-          </tr>
-        `).join('')}
-        ` : ''}
-        
-        ${data.length === 0 ? '<tr><td colspan="8" style="text-align: center;">No tracked applications found.</td></tr>' : ''}
-      </tbody>
-    </table>
-  </div>
-</body>
-</html>
-`;
+function inferSarathiService(details) {
+  return String((details && details.transaction) || '').trim() || 'Sarathi Service';
+}
+
+function inferVahanService(details) {
+  const rows = Array.isArray(details && details.rows) ? details.rows : [];
+  const transactionNames = rows
+    .map((row) => (typeof row === 'string' ? '' : String(row.transactionPurpose || '').trim()))
+    .filter((value) => value && !/(^|\s|\/)(POSTAL\s+)?FEE(\s|\/|$)|\b(MV\s*)?TAX\b/i.test(value));
+  if (transactionNames.length) return [...new Set(transactionNames)].join(', ');
+  const merged = `${rows.map((row) => (typeof row === 'string' ? row : `${row.transactionPurpose || ''} ${row.currentStatus || ''}`)).join(' ')} ${(details && details.rcPrintOrSmartCardStatus) || ''} ${(details && details.dispatchRcStatus) || ''}`.toUpperCase();
+  if (merged.includes('HYPOTHECATION')) return 'Hypothecation Removal';
+  if (merged.includes('TRANSFER')) return 'RC Transfer';
+  if (merged.includes('DUPLICATE')) return 'Duplicate RC';
+  return 'Vahan Service';
+}
+
+function inferVehicleNo(item, details) {
+  const rows = Array.isArray(details && details.rows) ? details.rows : [];
+  const source = `${item.applicationNumber || ''} ${rows.map((row) => (typeof row === 'string' ? row : `${row.transactionPurpose || ''} ${row.currentStatus || ''}`)).join(' ')}`.toUpperCase();
+  const m = source.match(/\b[A-Z]{2}\d{2}[A-Z]{1,3}\d{1,4}\b/);
+  return m ? m[0] : 'Not Available';
+}
+
+function htmlTemplate({ sarathiRows, vahanRows }) {
+  const renderRow = (d) => `
+    <tr>
+      <td class="sr">${d.srNo}</td>
+      <td class="name">${d.applicantName}</td>
+      <td class="service">${d.serviceName}</td>
+      <td class="date">${d.applicationDate}</td>
+      <td class="app">${d.appNo}</td>
+      <td class="id">${d.dobOrVehicle}</td>
+      <td><span class="${d.scrutiny.includes('\u2705') ? 'status-completed' : 'status-pending'}">${d.scrutiny}</span></td>
+      <td><span class="${d.approval.includes('\u2705') ? 'status-completed' : 'status-pending'}">${d.approval}</span></td>
+      <td><span class="${d.dispatched.includes('\u2705') ? 'status-completed' : 'status-pending'}">${d.dispatched}</span></td>
+    </tr>`;
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><style>
+    *{box-sizing:border-box}
+    html,body{width:1200px;min-height:960px}
+    body{font-family:'Segoe UI',Roboto,Arial,sans-serif;padding:14px;background:#f6f8fb;margin:0;color:#111827}
+    .table-container{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:14px;width:1172px;margin:0 auto}
+    h2{margin:0 0 12px 0;text-align:center;font-size:30px;line-height:1.1;color:#172033}
+    table{width:100%;border-collapse:collapse;font-size:15px;line-height:1.18;table-layout:fixed}
+    th,td{border:1px solid #dbe2ea;padding:9px 9px;vertical-align:middle;overflow-wrap:anywhere}
+    th{background:#eef3f9;font-weight:800;font-size:15px;color:#122033}
+    th:nth-child(1){width:5%}
+    th:nth-child(2){width:13%}
+    th:nth-child(3){width:15%}
+    th:nth-child(4){width:11%}
+    th:nth-child(5){width:14%}
+    th:nth-child(6){width:13%}
+    th:nth-child(7),th:nth-child(8),th:nth-child(9){width:9.66%}
+    td.name{font-weight:800}
+    td.id,td.date{font-weight:800}
+    .section-header{background:#1f6feb;color:#fff;font-weight:800;font-size:17px;text-align:left;padding:10px 12px}
+    .vahan{background:#0f9d58}
+    .status-completed{color:#166534;background:#dcfce7;border-radius:7px;padding:3px 4px;display:inline-block;font-weight:800;font-size:12px;white-space:nowrap}
+    .status-pending{color:#991b1b;background:#fee2e2;border-radius:7px;padding:3px 6px;display:inline-block;font-weight:800;font-size:13px;white-space:nowrap}
+  </style></head><body><div class="table-container"><h2>Application Status Tracker</h2><table><thead><tr>
+  <th>Sr. No.</th><th>Applicant Name</th><th>Service Name</th><th>Application Date</th><th>Application No.</th><th>DOB / Vehicle No.</th><th>Scrutiny</th><th>Approval</th><th>Dispatched</th>
+  </tr></thead><tbody>
+  ${sarathiRows.length ? `<tr><td colspan="9" class="section-header">Sarathi Applications</td></tr>${sarathiRows.map(renderRow).join('')}` : ''}
+  ${vahanRows.length ? `<tr><td colspan="9" class="section-header vahan">Vahan Applications</td></tr>${vahanRows.map(renderRow).join('')}` : ''}
+  ${(!sarathiRows.length && !vahanRows.length) ? '<tr><td colspan="9" style="text-align:center">No tracked applications found.</td></tr>' : ''}
+  </tbody></table></div></body></html>`;
+}
 
 async function generateStatusImage(chatId) {
-  const sarathiItems = readTrackedApplications().filter(i => i.chatId === chatId);
-  const vahanItems = readVahanStore().filter(i => i.chatId === chatId);
+  const sarathiItems = readTrackedApplications().filter((i) => String(i.chatId) === String(chatId));
+  const vahanItems = readVahanStore().filter((i) => String(i.chatId) === String(chatId));
+
+  const limitedSarathi = sarathiItems.slice(0, 10);
+  const remaining = Math.max(0, 10 - limitedSarathi.length);
+  const limitedVahan = vahanItems.slice(0, remaining);
 
   let srNo = 1;
-  const data = [];
-
-  for (const item of sarathiItems) {
-    let sInfo = deriveSarathiStatus(item.lastSnapshot);
-    data.push({
-      category: 'sarathi',
+  const sarathiRows = limitedSarathi.map((item) => {
+    const s = deriveSarathiStatus(item.lastSnapshot);
+    const scrutiny = String(item.scrutinyAt || '').trim() ? `${item.scrutinyAt} \u2705` : s.scrutiny;
+    const approval = String(item.approvalAt || '').trim() ? `${item.approvalAt} \u2705` : s.approval;
+    const dispatched = String(item.dispatchedAt || '').trim() ? `${item.dispatchedAt} \u2705` : s.dispatched;
+    return {
       srNo: srNo++,
-      applicantName: item.tag || 'Unknown',
-      serviceName: 'Sarathi ' + (item.transport || ''),
+      applicantName: item.applicantName || item.tag || 'Unknown',
+      serviceName: item.serviceName || inferSarathiService(s.details),
+      applicationDate: item.applicationDate || 'Not Available',
       appNo: item.appNo,
-      dobOrVehicle: item.dob || 'Not Provided',
-      scrutiny: sInfo.scrutiny,
-      approval: sInfo.approval,
-      dispatched: sInfo.dispatched
-    });
-  }
+      dobOrVehicle: item.dob || 'Not Available',
+      scrutiny,
+      approval,
+      dispatched,
+    };
+  });
 
-  for (const item of vahanItems) {
-    let vInfo = deriveVahanStatus(item.lastSnapshot);
-    data.push({
-      category: 'vahan',
+  const vahanRows = limitedVahan.map((item) => {
+    const v = deriveVahanStatus(item.lastSnapshot);
+    const scrutiny = String(item.scrutinyAt || '').trim() ? `${item.scrutinyAt} \u2705` : v.scrutiny;
+    const approval = String(item.approvalAt || '').trim() ? `${item.approvalAt} \u2705` : v.approval;
+    const dispatched = String(item.dispatchedAt || '').trim() ? `${item.dispatchedAt} \u2705` : v.dispatched;
+    return {
       srNo: srNo++,
-      applicantName: item.tag || 'Unknown',
-      serviceName: 'Vahan ' + (item.transport || ''),
+      applicantName: item.applicantName || item.tag || 'Unknown',
+      serviceName: item.serviceName || inferVahanService(v.details),
+      applicationDate: item.applicationDate || 'Not Available',
       appNo: item.applicationNumber,
-      dobOrVehicle: 'Vehicle Details Check',
-      scrutiny: vInfo.scrutiny,
-      approval: vInfo.approval,
-      dispatched: vInfo.dispatched
-    });
-  }
+      dobOrVehicle: item.vehicleNo || inferVehicleNo(item, v.details),
+      scrutiny,
+      approval,
+      dispatched,
+    };
+  });
 
-  const html = htmlTemplate(data);
+  const html = htmlTemplate({ sarathiRows, vahanRows });
   const tempHtmlPath = path.join(__dirname, '..', '..', `temp_table_${Date.now()}.html`);
   const outImagePath = path.join(__dirname, '..', '..', `status_${chatId}_${Date.now()}.png`);
-  
-  fs.writeFileSync(tempHtmlPath, html);
 
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  });
+  fs.writeFileSync(tempHtmlPath, html);
+  const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
   const page = await browser.newPage();
-  
-  await page.setViewport({ width: 1300, height: 900, deviceScaleFactor: 2 });
+  await page.setViewport({ width: 1200, height: 960, deviceScaleFactor: 2 });
   await page.setContent(html, { waitUntil: 'networkidle0' });
-  
-  const element = await page.$('.table-container');
-  if (element) {
-    await element.screenshot({ path: outImagePath });
-  } else {
-    await page.screenshot({ path: outImagePath });
-  }
-  
+  await page.screenshot({ path: outImagePath, fullPage: true });
   await browser.close();
   fs.unlinkSync(tempHtmlPath);
-  
   return outImagePath;
 }
 
 module.exports = {
   generateStatusImage,
   deriveSarathiStatus,
-  deriveVahanStatus
+  deriveVahanStatus,
 };
+

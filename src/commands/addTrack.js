@@ -1,4 +1,4 @@
-const { addAutoTrack } = require('../services/autoTrackService');
+const { addAutoTrack, enrichTrackedApplicationFromAck } = require('../services/autoTrackService');
 const { isSarathiTrackedAnywhere } = require('../services/trackingControlService');
 
 async function addTrackCommand(message, transport, chatId, appNo, tag, dob) {
@@ -28,6 +28,11 @@ async function addTrackCommand(message, transport, chatId, appNo, tag, dob) {
   });
 
   if (result.created) {
+    if (dob) {
+      try {
+        await enrichTrackedApplicationFromAck({ appNo, transport, chatId, dob, tag });
+      } catch (_) {}
+    }
     await message.reply(
       `Auto-tracking started for ${appNo}${tag ? ` - ${tag}` : ''}. I will notify you when it is approved.`
     );

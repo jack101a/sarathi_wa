@@ -6,7 +6,14 @@
     "tag": "ganesh ahire",
     "createdAt": "2026-03-14T08:03:24.752Z",
     "lastSnapshot": "{\"rows\":[\"ONLINE TRANSACTION SUCCESS ON 10-Mar-2026 14:08:29 BUT NOT INWARDED AT R.T.O.BORIVALI (MH-47)\",\"ONLINE TRANSACTION SUCCESS ON 10-Mar-2026 14:08:29 BUT NOT INWARDED AT R.T.O.BORIVALI (MH-47)\"],\"rcPrintOrSmartCardStatus\":\"Not Available\",\"dispatchRcStatus\":\"Not Available\"}",
-    "lastCheckedAt": "2026-03-19T06:09:19.837Z"
+    "lastCheckedAt": "2026-03-19T06:09:19.837Z",
+    "applicantName": "",
+    "serviceName": "",
+    "applicationDate": "",
+    "vehicleNo": "",
+    "scrutinyAt": "",
+    "approvalAt": "",
+    "dispatchedAt": ""
   },
   {
     "transport": "whatsapp",
@@ -15,6 +22,45 @@
     "tag": "test",
     "createdAt": "2026-03-19T05:50:37.891Z",
     "lastSnapshot": "",
-    "lastCheckedAt": ""
+    "lastCheckedAt": "",
+    "applicantName": "",
+    "serviceName": "",
+    "applicationDate": "",
+    "vehicleNo": "",
+    "scrutinyAt": "",
+    "approvalAt": "",
+    "dispatchedAt": ""
+  },
+  {
+    "transport": "whatsapp",
+    "chatId": "917715055466@c.us",
+    "applicationNumber": "MH260310V7505731",
+    "tag": "ganesh",
+    "createdAt": "2026-05-07T13:47:17.325Z",
+    "lastSnapshot": "",
+    "lastCheckedAt": "",
+    "applicantName": "ganesh",
+    "serviceName": "",
+    "applicationDate": "",
+    "vehicleNo": "MH47BC5108",
+    "scrutinyAt": "",
+    "approvalAt": "",
+    "dispatchedAt": ""
+  },
+  {
+    "transport": "whatsapp",
+    "chatId": "917715055466@c.us",
+    "applicationNumber": "MH260430V3712080",
+    "tag": "dilip",
+    "createdAt": "2026-05-07T13:47:17.325Z",
+    "lastSnapshot": "",
+    "lastCheckedAt": "",
+    "applicantName": "dilip",
+    "serviceName": "",
+    "applicationDate": "",
+    "vehicleNo": "MH03EV6333",
+    "scrutinyAt": "",
+    "approvalAt": "",
+    "dispatchedAt": ""
   }
 ]

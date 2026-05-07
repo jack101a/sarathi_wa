@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const { getTrackingSnapshot } = require('./trackingSnapshotService');
 const { parseStatusDetails } = require('./statusService');
+const { getAckSnapshot } = require('./ackService');
 const {
   readTrackedApplications,
   upsertTrackedApplication,
@@ -22,6 +23,20 @@ const STAGE_ICONS = {
   pending: '\u26a0\ufe0f',
 };
 
+function normalizeDate(value) {
+  const text = String(value || '').trim();
+  const m = text.match(/(\d{2})[-/](\d{2})[-/](\d{4})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
+}
+
+function cleanServiceName(value) {
+  return String(value || '')
+    .replace(/^\s*\d+\.\s*/, '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -41,8 +56,13 @@ function buildTrackingSignature(snapshot) {
     stage: details.stage || '',
     message: details.message || '',
     approvedAction: details.approvedAction || '',
+    approvedOn: details.approvedOn || '',
     transaction: details.transaction || '',
     counter: details.counter || '',
+    dlNumber: details.dlNumber || '',
+    trackerNo: details.trackerNo || '',
+    completedActions: details.completedActions || [],
+    furtherActions: details.furtherActions || [],
   });
 }
 
@@ -75,6 +95,22 @@ function deriveAutoTrackStageState(snapshot) {
     scrutinyDone,
     approvalDone,
     dispatchedDone,
+  };
+}
+
+function deriveSarathiTimeline(details = {}) {
+  const completed = Array.isArray(details.completedActions) ? details.completedActions : [];
+  const further = Array.isArray(details.furtherActions) ? details.furtherActions : [];
+  const scrutinyRow = completed.find((r) => String(r.actionName || '').toUpperCase().includes('SCRUTINY'));
+  const approvalRow = completed.find((r) => String(r.actionName || '').toUpperCase().includes('APPROVAL'));
+  const dispatchRow = completed.find((r) => String(r.actionName || '').toUpperCase().includes('DISPATCH'));
+  const pendingDispatch = further.find((r) => String(r.actionName || '').toUpperCase().includes('DISPATCH'));
+
+  return {
+    scrutinyAt: normalizeDate(scrutinyRow && scrutinyRow.processedOn),
+    approvalAt: normalizeDate(approvalRow && approvalRow.processedOn),
+    dispatchedAt: normalizeDate(dispatchRow && dispatchRow.processedOn),
+    hasPendingDispatch: Boolean(pendingDispatch),
   };
 }
 
@@ -128,8 +164,24 @@ async function checkTrackedEntry(entry) {
     filename: `tracked_status_${entry.appNo}_${Date.now()}.jpg`,
   });
   const details = snapshot.details || parseStatusDetails(snapshot.html);
+  const timeline = deriveSarathiTimeline(details);
+  const serviceName = cleanServiceName(
+    (snapshot.ackDetails && snapshot.ackDetails.serviceRequested) || details.transaction || ''
+  );
+  const applicantName = String((snapshot.ackDetails && snapshot.ackDetails.name) || entry.tag || '').trim();
+  const applicationDate = String((snapshot.ackDetails && snapshot.ackDetails.applicationDate) || '').trim();
   const signature = buildTrackingSignature(snapshot);
   const hasChanged = signature !== String(entry.lastSnapshot || '');
+  const updates = {
+    lastStage: details.stage || entry.lastStage || '',
+    lastSnapshot: signature,
+    serviceName: serviceName || entry.serviceName || '',
+    applicantName: applicantName || entry.applicantName || '',
+    applicationDate: applicationDate || entry.applicationDate || '',
+    scrutinyAt: timeline.scrutinyAt || entry.scrutinyAt || '',
+    approvalAt: timeline.approvalAt || entry.approvalAt || normalizeDate(details.approvedOn) || '',
+    dispatchedAt: timeline.dispatchedAt || entry.dispatchedAt || '',
+  };
 
   if (details.kind === 'dispatched') {
     if (hasChanged) {
@@ -146,10 +198,7 @@ async function checkTrackedEntry(entry) {
 
   if (hasChanged) {
     await notifyTrackedApplication(entry, snapshot);
-    updateTrackedApplication(entry, {
-      lastStage: details.stage || entry.lastStage || '',
-      lastSnapshot: signature,
-    });
+    updateTrackedApplication(entry, updates);
     return {
       snapshot,
       details,
@@ -157,10 +206,55 @@ async function checkTrackedEntry(entry) {
     };
   }
 
+  if (
+    (!entry.applicantName && updates.applicantName) ||
+    (!entry.serviceName && updates.serviceName) ||
+    (!entry.applicationDate && updates.applicationDate) ||
+    (!entry.scrutinyAt && updates.scrutinyAt) ||
+    (!entry.approvalAt && updates.approvalAt) ||
+    (!entry.dispatchedAt && updates.dispatchedAt) ||
+    String(entry.lastSnapshot || '') !== signature
+  ) {
+    updateTrackedApplication(entry, updates);
+  }
+
   return {
     snapshot,
     details,
     notified: false,
+  };
+}
+
+async function enrichTrackedApplicationFromAck(entry) {
+  const appNo = String(entry && entry.appNo || '').trim();
+  const dob = String(entry && entry.dob || '').trim();
+  if (!appNo || !dob) {
+    return { enriched: false, reason: 'MISSING_INPUT' };
+  }
+
+  const ackSnapshot = await getAckSnapshot(appNo, dob, {
+    keepFile: false,
+    filename: `ack_metadata_${appNo}_${Date.now()}.jpg`,
+  });
+  const ackDetails = ackSnapshot.ackDetails || {};
+  const applicantName = String(ackDetails.name || '').trim();
+  const serviceName = cleanServiceName(ackDetails.serviceRequested || '');
+  const applicationDate = String(ackDetails.applicationDate || '').trim();
+  if (!applicantName && !serviceName && !applicationDate) {
+    return { enriched: false, reason: 'NO_ACK_DETAILS' };
+  }
+
+  const result = updateTrackedApplication(entry, {
+    applicantName: applicantName || entry.applicantName || entry.tag || '',
+    serviceName: serviceName || entry.serviceName || '',
+    applicationDate: applicationDate || entry.applicationDate || '',
+  });
+
+  return {
+    enriched: Boolean(result.updated),
+    applicantName,
+    serviceName,
+    applicationDate,
   };
 }
 
@@ -196,7 +290,11 @@ async function refreshTrackedApplications(chatId, transport = 'whatsapp') {
       await sleep(randomBetween(5 * 1000, 10 * 1000));
     }
 
-    await checkTrackedEntry(entries[index]);
+    try {
+      await checkTrackedEntry(entries[index]);
+    } catch (error) {
+      console.error(`Refresh track failed for ${entries[index].appNo}: ${error.message}`);
+    }
   }
 
   return entries.length;
@@ -274,6 +372,7 @@ module.exports = {
   removeAutoTrack,
   readTrackedApplications,
   checkTrackedApplications,
+  enrichTrackedApplicationFromAck,
   startAutoTrackScheduler,
   buildStatusCaption,
   buildTrackingSignature,

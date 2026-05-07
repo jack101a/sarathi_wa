@@ -154,6 +154,37 @@ function parseStatusDetails(html) {
   const stage = normalizeText(currentStatusRow.find('td').eq(1).find('b').first().text());
   const counter = normalizeText(currentStatusRow.find('td').eq(2).find('b').first().text());
   const stageUpper = stage.toUpperCase();
+  const completedActions = [];
+  const furtherActions = [];
+
+  $('fieldset')
+    .filter((_, el) =>
+      normalizeText($(el).find('legend').first().text()).includes('Completed Action(s)')
+    )
+    .find('table tbody tr')
+    .each((_, row) => {
+      const cells = $(row).find('td');
+      const actionName = normalizeText(cells.eq(0).text());
+      const statusText = normalizeText(cells.eq(1).text());
+      const processedOn = normalizeText(cells.eq(2).text());
+      if (actionName) {
+        completedActions.push({ actionName, status: statusText, processedOn });
+      }
+    });
+
+  $('fieldset')
+    .filter((_, el) =>
+      normalizeText($(el).find('legend').first().text()).includes('Further Action(s)')
+    )
+    .find('table tbody tr')
+    .each((_, row) => {
+      const cells = $(row).find('td');
+      const actionName = normalizeText(cells.eq(0).text());
+      const statusText = normalizeText(cells.eq(1).text());
+      if (actionName) {
+        furtherActions.push({ actionName, status: statusText });
+      }
+    });
 
   const dispatchHeading = $('h3')
     .filter((_, el) => normalizeText($(el).text()).includes('Licence has been dispatched'))
@@ -186,6 +217,8 @@ function parseStatusDetails(html) {
       transaction,
       stage,
       counter,
+      completedActions,
+      furtherActions,
     };
   }
 
@@ -210,6 +243,8 @@ function parseStatusDetails(html) {
       transaction,
       stage,
       counter,
+      completedActions,
+      furtherActions,
     };
   }
 
@@ -224,6 +259,8 @@ function parseStatusDetails(html) {
       transaction,
       stage,
       counter,
+      completedActions,
+      furtherActions,
     };
   }
 
@@ -235,6 +272,24 @@ function parseStatusDetails(html) {
       transaction,
       stage,
       counter,
+      completedActions,
+      furtherActions,
+    };
+  }
+
+  const approvedHeading = $('h3')
+    .filter((_, el) => /licen[cs]e\s+has\s+been\s+approved/i.test(normalizeText($(el).text())))
+    .first();
+
+  if (approvedHeading.length > 0) {
+    return {
+      kind: 'approved',
+      message: normalizeText(approvedHeading.text()),
+      transaction,
+      stage,
+      counter,
+      completedActions,
+      furtherActions,
     };
   }
 
@@ -243,6 +298,8 @@ function parseStatusDetails(html) {
     transaction,
     stage,
     counter,
+    completedActions,
+    furtherActions,
   };
 }
 

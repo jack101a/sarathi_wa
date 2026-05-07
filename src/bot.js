@@ -631,7 +631,7 @@ async function createBot() {
           return;
         }
         if (!addTrackRcMatch[1] || extractedRc.fromReceiptCache) clearRcReceiptTrackingCandidate(message.from);
-        await enqueueOrReply(message, 'whatsapp', { command: 'add_track_rc', payload: { appNo: rcAppNo, tag: tagValue }, chatId: message.from });
+        await enqueueOrReply(message, 'whatsapp', { command: 'add_track_rc', payload: { appNo: rcAppNo, tag: tagValue, vehicleNo: extractedRc.vehicleNo || '' }, chatId: message.from });
         return;
       }
 

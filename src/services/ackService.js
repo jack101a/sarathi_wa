@@ -238,6 +238,13 @@ function parseAckDetails(html) {
 
   return {
     name: detailMap.name || '',
+    applicationDate:
+      detailMap['application date'] ||
+      detailMap['appl date'] ||
+      detailMap['application submission date'] ||
+      detailMap['submission date'] ||
+      detailMap.date ||
+      '',
     serviceRequested: servicesRequested.join(', '),
   };
 }
