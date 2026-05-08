@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { renderHTML } = require('../core/puppeteerEngine');
 const { readTrackedApplications } = require('./autoTrackStore');
 const { readEntries: readVahanStore } = require('./vahanTrackStore');
@@ -108,7 +109,13 @@ function inferSarathiService(details) {
 function inferVahanService(details) {
   const rows = Array.isArray(details && details.rows) ? details.rows : [];
   const transactionNames = rows
-    .map((row) => (typeof row === 'string' ? '' : String(row.transactionPurpose || '').trim()))
+    .map((row) => {
+      if (typeof row === 'string') {
+        const value = String(row).trim();
+        return /FEE|TAX/i.test(value) ? '' : value;
+      }
+      return String(row.transactionPurpose || '').trim();
+    })
     .filter((value) => value && !/(^|\s|\/)(POSTAL\s+)?FEE(\s|\/|$)|\b(MV\s*)?TAX\b/i.test(value));
   if (transactionNames.length) return [...new Set(transactionNames)].join(', ');
   const merged = `${rows.map((row) => (typeof row === 'string' ? row : `${row.transactionPurpose || ''} ${row.currentStatus || ''}`)).join(' ')} ${(details && details.rcPrintOrSmartCardStatus) || ''} ${(details && details.dispatchRcStatus) || ''}`.toUpperCase();
@@ -116,6 +123,66 @@ function inferVahanService(details) {
   if (merged.includes('TRANSFER')) return 'RC Transfer';
   if (merged.includes('DUPLICATE')) return 'Duplicate RC';
   return 'Vahan Service';
+}
+
+function isPlaceholderService(value) {
+  const text = String(value || '').trim().toUpperCase();
+  return (
+    !text ||
+    text === 'VAHAN SERVICE' ||
+    text === 'SARATHI SERVICE' ||
+    text === 'NOT AVAILABLE'
+  );
+}
+
+function getCacheMetaPath(chatId) {
+  return path.join(__dirname, '..', '..', 'data', 'tmp', `status_cache_${String(chatId).replace(/[^a-z0-9@._-]/gi, '_')}.json`);
+}
+
+function buildChatSignature(sarathiItems, vahanItems) {
+  const payload = {
+    sarathi: sarathiItems.map((item) => ({
+      appNo: item.appNo,
+      applicantName: item.applicantName || item.tag || '',
+      serviceName: item.serviceName || '',
+      applicationDate: item.applicationDate || '',
+      lastSnapshot: item.lastSnapshot || '',
+      scrutinyAt: item.scrutinyAt || '',
+      approvalAt: item.approvalAt || '',
+      dispatchedAt: item.dispatchedAt || '',
+      dob: item.dob || '',
+    })),
+    vahan: vahanItems.map((item) => ({
+      applicationNumber: item.applicationNumber,
+      applicantName: item.applicantName || item.tag || '',
+      serviceName: item.serviceName || '',
+      applicationDate: item.applicationDate || '',
+      lastSnapshot: item.lastSnapshot || '',
+      scrutinyAt: item.scrutinyAt || '',
+      approvalAt: item.approvalAt || '',
+      dispatchedAt: item.dispatchedAt || '',
+      vehicleNo: item.vehicleNo || '',
+    })),
+  };
+  return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+}
+
+function readCacheMeta(chatId) {
+  try {
+    const p = getCacheMetaPath(chatId);
+    if (!fs.existsSync(p)) return null;
+    const raw = fs.readFileSync(p, 'utf8');
+    if (!raw.trim()) return null;
+    return JSON.parse(raw);
+  } catch (_) {
+    return null;
+  }
+}
+
+function writeCacheMeta(chatId, meta) {
+  const p = getCacheMetaPath(chatId);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, JSON.stringify(meta, null, 2), 'utf8');
 }
 
 function inferVehicleNo(item, details) {
@@ -177,6 +244,11 @@ async function generateStatusImage(chatId) {
   const limitedSarathi = sarathiItems.slice(0, 10);
   const remaining = Math.max(0, 10 - limitedSarathi.length);
   const limitedVahan = vahanItems.slice(0, remaining);
+  const signature = buildChatSignature(limitedSarathi, limitedVahan);
+  const existingCache = readCacheMeta(chatId);
+  if (existingCache && existingCache.signature === signature && existingCache.imagePath && fs.existsSync(existingCache.imagePath)) {
+    return existingCache.imagePath;
+  }
 
   let srNo = 1;
   const sarathiRows = limitedSarathi.map((item) => {
@@ -187,7 +259,7 @@ async function generateStatusImage(chatId) {
     return {
       srNo: srNo++,
       applicantName: item.applicantName || item.tag || 'Unknown',
-      serviceName: item.serviceName || inferSarathiService(s.details),
+      serviceName: isPlaceholderService(item.serviceName) ? inferSarathiService(s.details) : item.serviceName,
       applicationDate: item.applicationDate || 'Not Available',
       appNo: item.appNo,
       dobOrVehicle: item.dob || 'Not Available',
@@ -205,7 +277,7 @@ async function generateStatusImage(chatId) {
     return {
       srNo: srNo++,
       applicantName: item.applicantName || item.tag || 'Unknown',
-      serviceName: item.serviceName || inferVahanService(v.details),
+      serviceName: isPlaceholderService(item.serviceName) ? inferVahanService(v.details) : item.serviceName,
       applicationDate: item.applicationDate || 'Not Available',
       appNo: item.applicationNumber,
       dobOrVehicle: item.vehicleNo || inferVehicleNo(item, v.details),
@@ -229,6 +301,13 @@ async function generateStatusImage(chatId) {
     pdfOptions: {},
   });
 
+  writeCacheMeta(chatId, {
+    chatId: String(chatId),
+    signature,
+    imagePath: outImagePath,
+    generatedAt: new Date().toISOString(),
+  });
+
   return outImagePath;
 }
 
@@ -236,5 +315,6 @@ module.exports = {
   generateStatusImage,
   deriveSarathiStatus,
   deriveVahanStatus,
+  inferVahanService,
 };
 

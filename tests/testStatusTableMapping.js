@@ -3,6 +3,7 @@ const { parseStatusDetails } = require('../src/services/statusService');
 const {
   deriveSarathiStatus,
   deriveVahanStatus,
+  inferVahanService,
 } = require('../src/services/imageGeneratorService');
 
 function testSarathiApprovedHeading() {
@@ -37,9 +38,22 @@ function testVahanObjectRows() {
   assert.strictEqual(status.dispatched, 'Pending');
 }
 
+function testVahanServiceInferenceIgnoresFeeRows() {
+  const service = inferVahanService({
+    rows: [
+      { transactionPurpose: 'Hypothecation Termination', currentStatus: 'COMPLETED / APPROVED ON 27-Mar-2026' },
+      { transactionPurpose: 'Issue of Duplicate RC', currentStatus: 'COMPLETED / APPROVED ON 27-Mar-2026' },
+      { transactionPurpose: 'Postal Fee', currentStatus: 'ONLINE TRANSACTION SUCCESS ON 10-Mar-2026' },
+      { transactionPurpose: 'Smart Card Fee', currentStatus: 'ONLINE TRANSACTION SUCCESS ON 10-Mar-2026' },
+    ],
+  });
+  assert.strictEqual(service, 'Hypothecation Termination, Issue of Duplicate RC');
+}
+
 function run() {
   testSarathiApprovedHeading();
   testVahanObjectRows();
+  testVahanServiceInferenceIgnoresFeeRows();
   console.log('PASS - status table mapping');
 }
 

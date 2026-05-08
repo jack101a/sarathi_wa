@@ -776,6 +776,15 @@ async function createBot() {
       return;
     }
 
+    // Allow self-issued command messages, but ignore self echo chatter/status texts.
+    if (message.fromMe) {
+      const ownBody = normalizeText(message.body || '');
+      const looksLikeCommand = /^(help|track|add|remove|refresh|list|alive|suno|appl|form1|form1a|form2|formset|stop|auth|\/?llprint|\/?send(?:_|\s+)chatid)\b/i.test(ownBody);
+      if (!looksLikeCommand) {
+        return;
+      }
+    }
+
     if (message.id && message.id.id && sentMessageIds.has(message.id.id)) {
       sentMessageIds.delete(message.id.id);
       return;

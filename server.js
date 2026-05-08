@@ -6,12 +6,34 @@
 const path = require('path');
 const CONFIG = require('./src/config/config');
 const logger = require('./src/core/logger');
-const { cleanupWhatsAppAuthLocks } = require('./src/core/runtimeCleanup');
+const {
+  cleanupWhatsAppAuthLocks,
+  cleanupWhatsAppRuntimeCache,
+  releaseStaleWhatsAppProfileLocks,
+} = require('./src/core/runtimeCleanup');
 const { closeBrowser } = require('./src/core/puppeteerEngine');
 const { startWorkers, stopWorkers } = require('./src/workers');
 const { startBillingCron } = require('./src/services/billingCron');
 
 let shutdownInFlight = false;
+const WA_START_MAX_ATTEMPTS = 3;
+
+function isRetryableWhatsAppStartupError(error) {
+  const text = String(error && error.message || '').toLowerCase();
+  return (
+    text.includes('execution context was destroyed') ||
+    text.includes('target closed') ||
+    text.includes('session closed') ||
+    text.includes('protocol error') ||
+    text.includes('timed out') ||
+    text.includes('navigation') ||
+    text.includes('browser is already running for')
+  );
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 async function shutdownService(name, action) {
   try { await action(); } catch (error) {
@@ -90,14 +112,38 @@ async function startServer() {
   startAdminServer();
 
   if (CONFIG.WHATSAPP.ENABLED) {
-    const deletedLocks = cleanupWhatsAppAuthLocks();
-    if (deletedLocks.length > 0) logger.info('server', `Deleted ${deletedLocks.length} WhatsApp auth lock file(s).`);
-    try {
-      const { createBot } = require('./src/bot');
-      waClient = await createBot();
-    } catch (error) {
-      logger.error('server', 'Failed to start WhatsApp bot', { error: error.message });
-      throw error;
+    const { createBot } = require('./src/bot');
+    for (let attempt = 1; attempt <= WA_START_MAX_ATTEMPTS; attempt += 1) {
+      const releaseResult = releaseStaleWhatsAppProfileLocks();
+      if (releaseResult.attempted && releaseResult.killed > 0) {
+        logger.info('server', `Stopped ${releaseResult.killed} stale Chromium profile process(es).`);
+      }
+
+      const lockCleanup = cleanupWhatsAppAuthLocks();
+      const cacheCleanup = cleanupWhatsAppRuntimeCache();
+      if (lockCleanup.deleted.length > 0 || lockCleanup.busyCount > 0) {
+        logger.info(
+          'server',
+          `WhatsApp auth lock cleanup: deleted=${lockCleanup.deleted.length}, busy=${lockCleanup.busyCount}`
+        );
+      }
+      if (cacheCleanup.deleted.length > 0 || cacheCleanup.busyCount > 0) {
+        logger.info(
+          'server',
+          `WhatsApp runtime cache cleanup: deleted=${cacheCleanup.deleted.length}, busy=${cacheCleanup.busyCount}`
+        );
+      }
+
+      try {
+        waClient = await createBot();
+        break;
+      } catch (error) {
+        logger.error('server', 'Failed to start WhatsApp bot', { error: error.message, attempt });
+        if (attempt >= WA_START_MAX_ATTEMPTS || !isRetryableWhatsAppStartupError(error)) {
+          throw error;
+        }
+        await wait(attempt * 2000);
+      }
     }
   } else {
     logger.info('server', 'WhatsApp bot disabled (WHATSAPP_PHONE_NUMBER not set)');

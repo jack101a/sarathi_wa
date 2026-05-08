@@ -62,11 +62,34 @@ apiQueue.process(async (job) => {
  if (job.command === 'appl_pdf') { const p = await ackService.getAckPDF(payload.appNo, payload.dob); await sendPdfFile(transport, chatId, p); cleanup(p); return { ok: true }; }
  if (job.command === 'track_rc') { const vahanClient = makeVahanClient(transport, chatId); await vahanService.startLookup(vahanClient, chatId, payload.appNo, transport, { expectedVehicleNo: payload.vehicleNo || '' }); return { ok: true }; }
  if (job.command === 'add_track') { const entry = { appNo: payload.appNo, transport, chatId, dob: payload.dob || '', tag: payload.tag || '' }; const r = addAutoTrack(entry); if (r.created && entry.dob) { try { await autoTrackService.enrichTrackedApplicationFromAck(entry); } catch (_) {} } await sendText(transport, chatId, r.created ? `Tracking added for ${payload.appNo}.` : `Tracking already exists for ${payload.appNo}.`); return { ok: true }; }
- if (job.command === 'add_track_rc') { const r = addVahanTrack(chatId, payload.appNo, payload.tag || '', transport, { vehicleNo: payload.vehicleNo || '', applicantName: payload.name || payload.tag || '' }); await sendText(transport, chatId, r.created ? `Vahan tracking added for ${payload.appNo}.` : `Vahan tracking already exists for ${payload.appNo}.`); return { ok: true }; }
+ if (job.command === 'add_track_rc') {
+   const r = await addVahanTrack(chatId, payload.appNo, payload.tag || '', transport, {
+     vehicleNo: payload.vehicleNo || '',
+     applicantName: payload.name || payload.tag || '',
+   });
+   await sendText(
+     transport,
+     chatId,
+     r.created ? `Vahan tracking added for ${payload.appNo}. Fetching current status...` : `Vahan tracking already exists for ${payload.appNo}.`
+   );
+   if (r.created) {
+     const vahanClient = makeVahanClient(transport, chatId);
+     await vahanService.startLookup(vahanClient, chatId, payload.appNo, transport, {
+       expectedVehicleNo: payload.vehicleNo || '',
+     });
+   }
+   return { ok: true };
+ }
  if (job.command === 'remove_track') { const r = removeAutoTrack({ appNo: payload.appNo, transport, chatId }); await sendText(transport, chatId, r.removed ? `Tracking removed for ${payload.appNo}.` : `No tracking found for ${payload.appNo}.`); return { ok: true }; }
  if (job.command === 'remove_track_rc') { const r = removeVahanTrackEverywhere(payload.appNo); await sendText(transport, chatId, r.removed ? `Vahan tracking removed for ${payload.appNo}.` : `No Vahan tracking found for ${payload.appNo}.`); return { ok: true }; }
   if (job.command === 'list_track') { const p = await imageGeneratorService.generateStatusImage(chatId); await sendImageFile(transport, chatId, p); cleanup(p); return { ok: true }; }
- if (job.command === 'refresh_track') { await refreshAllTrackedApplications(); await sendText(transport, chatId, 'Refresh triggered.'); return { ok: true }; }
+ if (job.command === 'refresh_track') {
+   await refreshUserTrackedData(chatId, transport);
+   const p = await imageGeneratorService.generateStatusImage(chatId);
+   await sendImageFile(transport, chatId, p);
+   cleanup(p);
+   return { ok: true };
+ }
   if (job.command === 'track_status') { const p = await imageGeneratorService.generateStatusImage(chatId); await sendImageFile(transport, chatId, p); cleanup(p); return { ok: true }; }
  await sendText(transport, chatId, 'Unsupported command for API worker.'); return { ok: false };
 });

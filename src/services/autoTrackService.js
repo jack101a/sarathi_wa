@@ -169,13 +169,26 @@ async function sendTrackingSnapshot(entry, snapshot, targetChatId = entry.chatId
 }
 
 async function checkTrackedEntry(entry) {
-  // Skip ack browser fetch if we already have applicant metadata from a previous run
-  const alreadyEnriched = Boolean(String(entry.applicantName || '').trim());
-  const snapshot = await getTrackingSnapshot(entry.appNo, entry.dob, {
-    keepFile: false,
-    filename: `tracked_status_${entry.appNo}_${Date.now()}.jpg`,
-    skipAck: alreadyEnriched,
-  });
+  const missingIdentity = !String(entry.applicantName || '').trim() || !String(entry.applicationDate || '').trim();
+  const canTryAck = Boolean(String(entry.dob || '').trim()) && missingIdentity;
+  let snapshot;
+  try {
+    snapshot = await getTrackingSnapshot(entry.appNo, entry.dob, {
+      keepFile: false,
+      filename: `tracked_status_${entry.appNo}_${Date.now()}.jpg`,
+      skipAck: !canTryAck,
+    });
+  } catch (error) {
+    if (!canTryAck) {
+      throw error;
+    }
+    // Ack fetch failed for this run; continue with status-only so refresh does not fail.
+    snapshot = await getTrackingSnapshot(entry.appNo, entry.dob, {
+      keepFile: false,
+      filename: `tracked_status_${entry.appNo}_${Date.now()}.jpg`,
+      skipAck: true,
+    });
+  }
   const details = snapshot.details || parseStatusDetails(snapshot.html);
   const timeline = deriveSarathiTimeline(details);
   const serviceName = cleanServiceName(

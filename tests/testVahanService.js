@@ -150,6 +150,130 @@ function testVahanStatusAnalyzerParsesServicesAndDispatchStrictly() {
   assert.strictEqual(__private.deriveVahanTimeline(pendingDispatchCard).dispatchedAt, '');
 }
 
+function testVahanTwoColumnTableParsesServiceNameAndStatus() {
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+    <partial-response>
+      <changes>
+        <update id="tb_showStatus"><![CDATA[
+          <div>
+            <h2>Application Status for Application Number MH260418V3806213 dated - 08-May-2026 12:00:00 against vehicle no - MH12AB1234</h2>
+            <table>
+              <tbody id="tb_appl_no_status_data">
+                <tr><td>Issue of Duplicate RC</td><td>COMPLETED / APPROVED ON 08-May-2026 12:12:10 by user TEST</td></tr>
+                <tr><td>Smart Card Fee</td><td>ONLINE TRANSACTION SUCCESS ON 08-May-2026 12:10:00 .TRANSACTION COMPLETE.</td></tr>
+              </tbody>
+            </table>
+            <table>
+              <tbody id="tb_appl_no_status_detail_data">
+                <tr><td></td><td></td><td>Not Available</td><td>DISPATCH RC Status : Pending</td></tr>
+              </tbody>
+            </table>
+          </div>
+        ]]></update>
+      </changes>
+    </partial-response>`;
+
+  const card = __private.parseStatusCard(xml, 'fallback');
+  assert.strictEqual(card.vehicleNumber, 'MH12AB1234');
+  assert.strictEqual(card.applicationDate, '08-May-2026 12:00:00');
+
+  const timeline = __private.deriveVahanTimeline(card);
+  assert.strictEqual(timeline.serviceName, 'Issue of Duplicate RC');
+  assert.strictEqual(timeline.approvalAt, '08-05-2026');
+  assert.strictEqual(timeline.dispatchedAt, '');
+}
+
+function testVahanSplitStatusAndGridFragmentsParseServiceName() {
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+    <partial-response>
+      <changes>
+        <update id="tb_showStatus"><![CDATA[
+          <div>
+            <h2>Application Status for Application Number MH260418V3806213 dated - 08-May-2026 12:00:00 against vehicle no - MH12AB1234</h2>
+          </div>
+        ]]></update>
+        <update id="tb_appl_no_status_grv"><![CDATA[
+          <table>
+            <tbody id="tb_appl_no_status_data">
+              <tr><td>1</td><td>Hypothecation Addition</td><td></td><td>PENDING AT SCRUTINY ON 08-May-2026 12:12:10</td></tr>
+              <tr><td>2</td><td>Smart Card Fee</td><td></td><td>ONLINE TRANSACTION SUCCESS ON 08-May-2026 12:10:00 .TRANSACTION COMPLETE.</td></tr>
+            </tbody>
+          </table>
+          <table>
+            <tbody id="tb_appl_no_status_detail_data">
+              <tr><td></td><td></td><td>Not Available</td><td>DISPATCH RC Status : Pending</td></tr>
+            </tbody>
+          </table>
+        ]]></update>
+      </changes>
+    </partial-response>`;
+
+  const card = __private.parseStatusCard(xml, 'fallback');
+  const timeline = __private.deriveVahanTimeline(card);
+  assert.strictEqual(card.vehicleNumber, 'MH12AB1234');
+  assert.strictEqual(card.rows.length, 2);
+  assert.strictEqual(timeline.serviceName, 'Hypothecation Addition');
+  assert.strictEqual(timeline.scrutinyAt, '08-05-2026');
+}
+
+function testVahanFallbackTableParserWithoutKnownIds() {
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+    <partial-response>
+      <changes>
+        <update id="tb_showStatus"><![CDATA[
+          <div>
+            <h2>Application Status for Application Number MH260418V3806213 dated - 08-May-2026 12:00:00 against vehicle no - MH12AB1234</h2>
+            <table>
+              <tr><th>Transaction</th><th>Current Status</th></tr>
+              <tr><td>Hypothecation Termination</td><td>COMPLETED / APPROVED ON 08-May-2026 12:12:10 by user TEST</td></tr>
+              <tr><td>Postal Fee</td><td>ONLINE TRANSACTION SUCCESS ON 08-May-2026 12:10:00 .TRANSACTION COMPLETE.</td></tr>
+            </table>
+            <table>
+              <tbody id="tb_appl_no_status_detail_data">
+                <tr><td></td><td></td><td>Not Available</td><td>DISPATCH RC Status : Pending</td></tr>
+              </tbody>
+            </table>
+          </div>
+        ]]></update>
+      </changes>
+    </partial-response>`;
+
+  const card = __private.parseStatusCard(xml, 'fallback');
+  const timeline = __private.deriveVahanTimeline(card);
+  assert.strictEqual(timeline.serviceName, 'Hypothecation Termination');
+  assert.strictEqual(timeline.approvalAt, '08-05-2026');
+}
+
+function testVahanKeepsTaxTransactionAsService() {
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+    <partial-response>
+      <changes>
+        <update id="tb_showStatus"><![CDATA[
+          <div>
+            <h2>Application Status for Application Number MH260418V3806213 dated - 18-Apr-2026 10:55:41 against vehicle no - MH02BR1458</h2>
+            <table>
+              <tbody id="tb_appl_no_status_data">
+                <tr><td>1</td><td>MV Tax</td><td>Mobile</td><td>ONLINE TRANSACTION SUCCESS ON 18-Apr-2026 10:55:41 .TRANSACTION COMPLETE.</td><td></td><td>ONLINE SERVICE</td></tr>
+              </tbody>
+            </table>
+            <table>
+              <tbody id="tb_appl_no_status_detail_data">
+                <tr><td>Not Available</td><td>Not Available</td><td>Not Available</td><td>Not Available</td></tr>
+              </tbody>
+            </table>
+          </div>
+        ]]></update>
+      </changes>
+    </partial-response>`;
+
+  const card = __private.parseStatusCard(xml, 'fallback');
+  const snapshot = JSON.parse(__private.buildTrackingSnapshot(card));
+  const timeline = __private.deriveVahanTimeline(card);
+  assert.strictEqual(snapshot.rows[0].transactionPurpose, 'MV Tax');
+  assert.strictEqual(timeline.serviceName, 'MV Tax');
+  assert.strictEqual(timeline.approvalAt, '18-04-2026');
+}
+
 async function testStartLookupFallsBackToManualCaptchaAfterEightSolverFailures() {
   const originalNotifyChatIds = CONFIG.TELEGRAM.NOTIFY_CHAT_IDS;
   const originalAttemptCount = CONFIG.VAHAN_TRACK.CAPTCHA_MAX_ATTEMPTS;
@@ -220,6 +344,10 @@ async function testStartLookupFallsBackToManualCaptchaAfterEightSolverFailures()
 async function run() {
   await testRetryHelperRetriesTransientErrors();
   testVahanStatusAnalyzerParsesServicesAndDispatchStrictly();
+  testVahanTwoColumnTableParsesServiceNameAndStatus();
+  testVahanSplitStatusAndGridFragmentsParseServiceName();
+  testVahanFallbackTableParserWithoutKnownIds();
+  testVahanKeepsTaxTransactionAsService();
   await testStartLookupReportsBootstrapFailures();
   await testStartLookupFallsBackToManualCaptchaAfterEightSolverFailures();
   console.log('PASS - vahan service retry, solver fallback, and bootstrap failure handling');

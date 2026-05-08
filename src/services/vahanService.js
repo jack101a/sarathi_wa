@@ -402,7 +402,9 @@ function extractStatusGridFragment(xmlText) {
 }
 
 function parseStatusCard(xmlText, fallbackApplicationNumber) {
-  const fragment = extractStatusFragment(xmlText) || extractStatusGridFragment(xmlText);
+  const fragment = [extractStatusFragment(xmlText), extractStatusGridFragment(xmlText)]
+    .filter(Boolean)
+    .join('\n');
   if (!fragment) {
     return null;
   }
@@ -413,16 +415,79 @@ function parseStatusCard(xmlText, fallbackApplicationNumber) {
     /Application Status for Application Number\s+(.+?)\s+dated\s+-\s+(.+?)\s+against vehicle no\s+-\s+(.+)/i
   );
 
-  const rows = $('#tb_appl_no_status_data tr, table tbody[id="tb_appl_no_status_data"] tr')
+  let rows = $('#tb_appl_no_status_data tr, table tbody[id="tb_appl_no_status_data"] tr')
     .map((_, element) => {
       const cells = $(element).find('td');
+      const cellCount = cells.length;
+      let transactionPurpose = '';
+      let currentStatus = '';
+
+      // Vahan responses appear in two layouts:
+      // - 4 columns: [sr, transaction, ..., status]
+      // - 2 columns: [transaction, status]
+      if (cellCount >= 4) {
+        transactionPurpose = normalizeText(cells.eq(1).text());
+        currentStatus = normalizeText(cells.eq(3).text());
+      } else if (cellCount >= 2) {
+        transactionPurpose = normalizeText(cells.eq(0).text());
+        currentStatus = normalizeText(cells.eq(1).text());
+      } else if (cellCount === 1) {
+        transactionPurpose = normalizeText(cells.eq(0).text());
+      }
+
       return {
-        transactionPurpose: normalizeText(cells.eq(1).text()),
-        currentStatus: normalizeText(cells.eq(3).text()),
+        transactionPurpose,
+        currentStatus,
       };
     })
     .get()
     .filter((row) => row.transactionPurpose || row.currentStatus);
+
+  if (rows.length === 0) {
+    rows = $('table tr')
+      .map((_, element) => {
+        const cells = $(element).find('td');
+        if (cells.length < 2) {
+          return null;
+        }
+
+        const values = cells
+          .toArray()
+          .map((cell) => normalizeText($(cell).text()))
+          .filter(Boolean);
+        if (values.length < 2) {
+          return null;
+        }
+
+        const statusIndex = values.findIndex((value) => /APPROVED|COMPLETED|PENDING|SCRUTINY|SUCCESS/i.test(value));
+        let currentStatus = '';
+        let transactionPurpose = '';
+        if (statusIndex >= 0) {
+          currentStatus = values[statusIndex];
+          transactionPurpose = values.find((_, index) => index !== statusIndex) || '';
+        } else {
+          // Generic 2-column fallback: first cell is transaction, second is current status.
+          transactionPurpose = values[0] || '';
+          currentStatus = values[1] || '';
+        }
+        if (!transactionPurpose || !currentStatus) {
+          return null;
+        }
+        if (/^NOT AVAILABLE$/i.test(transactionPurpose)) {
+          return null;
+        }
+        if (/^TRANSACTION$/i.test(transactionPurpose) || /^CURRENT STATUS$/i.test(currentStatus)) {
+          return null;
+        }
+
+        return {
+          transactionPurpose,
+          currentStatus,
+        };
+      })
+      .get()
+      .filter(Boolean);
+  }
 
   const detailCells = $('#tb_appl_no_status_detail_data tr, table tbody[id="tb_appl_no_status_detail_data"] tr')
     .first()
@@ -449,8 +514,7 @@ function parseStatusCard(xmlText, fallbackApplicationNumber) {
 function isIgnoredTransaction(transactionPurpose) {
   const text = normalizeText(transactionPurpose).toUpperCase();
   return /(^|\s|\/)(POSTAL\s+)?FEE(\s|\/|$)/.test(text)
-    || text.includes('SMART CARD FEE')
-    || /\b(MV\s*)?TAX\b/.test(text);
+    || text.includes('SMART CARD FEE');
 }
 
 function getRelevantRows(card) {
@@ -807,7 +871,8 @@ async function sendManualCaptchaFallback(client, session, reasonText) {
   }
 }
 
-async function attemptAutomatedLookup(client, session) {
+async function attemptAutomatedLookup(client, session, options = {}) {
+  const sendStatusImage = options.sendStatusImage !== false;
   const maxAttempts = getCaptchaAttemptCount();
   const retryRange = getCaptchaRetryRangeMs();
 
@@ -824,9 +889,11 @@ async function attemptAutomatedLookup(client, session) {
           throw new Error('The Vahan response did not contain a status card.');
         }
 
-        const imagePath = await renderStatusImage(card, session.chatId);
-        await sendImageFile(client, session.chatId, imagePath, `Vahan status: ${card.vehicleNumber || card.applicationNumber}`);
-        cleanupFile(imagePath);
+        if (sendStatusImage) {
+          const imagePath = await renderStatusImage(card, session.chatId);
+          await sendImageFile(client, session.chatId, imagePath, `Vahan status: ${card.vehicleNumber || card.applicationNumber}`);
+          cleanupFile(imagePath);
+        }
         updateTrackedCardMetadata(session.chatId, session.transport, card);
         const vehicleValidationMessage = buildVehicleValidationMessage(
           session.expectedVehicleNo,
@@ -861,15 +928,18 @@ async function startLookup(client, chatId, applicationNumber, transport = 'whats
   transport = normalizeTransport(transport);
   const existing = getSessionByTransport(chatId, transport);
   const expectedVehicleNo = normalizeText(options.expectedVehicleNo || '');
+  const sendStatusImage = options.sendStatusImage !== false;
   if (existing && existing.authenticated) {
     try {
       existing.expectedVehicleNo = expectedVehicleNo;
       const xmlText = await submitWithAuthenticatedSession(existing, applicationNumber);
       if (!isSessionExpiredResponse(xmlText, applicationNumber)) {
         const card = parseStatusCard(xmlText, applicationNumber);
-        const imagePath = await renderStatusImage(card, chatId);
-        await sendImageFile(client, chatId, imagePath, `Vahan status: ${card.vehicleNumber || card.applicationNumber}`);
-        cleanupFile(imagePath);
+        if (sendStatusImage) {
+          const imagePath = await renderStatusImage(card, chatId);
+          await sendImageFile(client, chatId, imagePath, `Vahan status: ${card.vehicleNumber || card.applicationNumber}`);
+          cleanupFile(imagePath);
+        }
         updateTrackedCardMetadata(chatId, transport, card);
         const vehicleValidationMessage = buildVehicleValidationMessage(expectedVehicleNo, card.vehicleNumber);
         if (vehicleValidationMessage) {
@@ -893,7 +963,7 @@ async function startLookup(client, chatId, applicationNumber, transport = 'whats
   }
   if (CONFIG.VAHAN_TRACK.CAPTCHA_AUTO_SOLVE) {
     try {
-      const solved = await attemptAutomatedLookup(client, session);
+      const solved = await attemptAutomatedLookup(client, session, { sendStatusImage });
       if (solved) {
         return;
       }
@@ -1138,8 +1208,12 @@ async function refreshTrackedApplications(chatId, transport = 'whatsapp') {
 
     const session = getSessionByTransport(chatId, transport);
     if (!session || !session.authenticated || session.requestInFlight) {
-      await startLookup(activeClient, chatId, item.applicationNumber, transport);
-      break;
+      await startLookup(activeClient, chatId, item.applicationNumber, transport, { sendStatusImage: false });
+      const sessionAfterLookup = getSessionByTransport(chatId, transport);
+      if (!sessionAfterLookup || !sessionAfterLookup.authenticated) {
+        break;
+      }
+      continue;
     }
 
     session.requestInFlight = true;
@@ -1147,8 +1221,12 @@ async function refreshTrackedApplications(chatId, transport = 'whatsapp') {
       const xmlText = await submitWithAuthenticatedSession(session, item.applicationNumber);
       if (isSessionExpiredResponse(xmlText, item.applicationNumber)) {
         sessions.delete(getSessionKey(chatId, transport));
-        await startLookup(activeClient, chatId, item.applicationNumber, transport);
-        break;
+        await startLookup(activeClient, chatId, item.applicationNumber, transport, { sendStatusImage: false });
+        const sessionAfterReauth = getSessionByTransport(chatId, transport);
+        if (!sessionAfterReauth || !sessionAfterReauth.authenticated) {
+          break;
+        }
+        continue;
       }
 
       const card = parseStatusCard(xmlText, item.applicationNumber);

@@ -1,0 +1,81 @@
+{
+  "sarathi_track": [
+    {
+      "appNo": "1680006226",
+      "ok": true,
+      "details": {
+        "kind": "pending",
+        "transaction": "RENEWAL OF DL",
+        "stage": "SCRUTINY - (Verification of Proof Documents)",
+        "counter": "IMV02"
+      },
+      "htmlLen": 2639
+    },
+    {
+      "appNo": "1948134926",
+      "ok": true,
+      "details": {
+        "kind": "pending",
+        "transaction": "",
+        "stage": "",
+        "counter": ""
+      },
+      "htmlLen": 1154
+    },
+    {
+      "appNo": "543064526",
+      "ok": true,
+      "details": {
+        "kind": "pending",
+        "transaction": "ISSUE OF DRIVING LICENCE",
+        "stage": "SCRUTINY - (Verification of Proof Documents)",
+        "counter": "AIMV2 COUNTER MH47"
+      },
+      "htmlLen": 2781
+    },
+    {
+      "appNo": "1750019026",
+      "ok": true,
+      "details": {
+        "kind": "pending-counter",
+        "message": "This Application is serviceable but not pending at your counter",
+        "transaction": "",
+        "stage": "",
+        "counter": ""
+      },
+      "htmlLen": 703
+    }
+  ],
+  "vahan_track_rc": [
+    {
+      "appNo": "MH260310V7505731",
+      "ok": true,
+      "sent": {
+        "text": [],
+        "image": [
+          {
+            "chatId": "raw-debug-chat",
+            "imagePath": "C:\\codex\\Antigravity\\sarathi_wabot_lastest\\data\\tmp\\vahan_raw-debug-chat_status.jpg",
+            "exists": true,
+            "caption": "Vahan status: MH47BC5108"
+          }
+        ]
+      }
+    },
+    {
+      "appNo": "MH260430V3712080",
+      "ok": true,
+      "sent": {
+        "text": [],
+        "image": [
+          {
+            "chatId": "raw-debug-chat",
+            "imagePath": "C:\\codex\\Antigravity\\sarathi_wabot_lastest\\data\\tmp\\vahan_raw-debug-chat_status.jpg",
+            "exists": true,
+            "caption": "Vahan status: MH03EV6333"
+          }
+        ]
+      }
+    }
+  ]
+}

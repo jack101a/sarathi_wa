@@ -1,0 +1,105 @@
+{
+  "generatedAt": "2026-05-07T13:00:31.493Z",
+  "sarathi": [
+    {
+      "input": {
+        "appNo": "1680006226",
+        "dob": "01-01-1997"
+      },
+      "ok": false,
+      "error": "Failed to generate acknowledgement image: Acknowledgement content was not found."
+    },
+    {
+      "input": {
+        "appNo": "1948134926",
+        "dob": "25-08-2004"
+      },
+      "ok": true,
+      "mode": "ack-status-merged",
+      "details": {
+        "kind": "pending",
+        "transaction": "",
+        "stage": "",
+        "counter": ""
+      },
+      "ackDetails": {
+        "name": "YASH BHUSHAN MHATRE",
+        "serviceRequested": "1. Issue of New LL Application ( LMV, MCWG )"
+      },
+      "htmlPreview": " <div> <b style=\"color: red;\" class=\"marginStyle\"> </b> <!-- <center> --> <!-- Logic for Displaying Applicant Details --> <!-- Logic for ErrorMessages goes here --> <div class=\"marginStyle\"> <fieldset class=\"scheduler-border col-md-12\"> <h3 align=\"center\">Licence has been Approved.</h3> <!-- start added by chaitanya on 05-09-2015 --> <!-- end of start added --> <div class=\"table-responsive\"> <table class=\"table table-bordered table-hover\"> <!--added by chaitanya on 04-02-2017 to display more then one LL details --> <tbody><tr><td align=\"right\"><b>Learner Licence Number : </b> </td><td align=\"left\"> <b style=\"color:#4da9ff\">MH47 /0060556/2026</b> </td></tr> <tr><td align=\"right\"><b>Learner Licence Number : </b> </td><td align=\"left\"> <b style=\"color:#4da9ff\">MH47 /0060555/2026</b> </td></tr"
+    },
+    {
+      "input": {
+        "appNo": "543064526",
+        "dob": "03-05-2004"
+      },
+      "ok": true,
+      "mode": "ack-status-merged",
+      "details": {
+        "kind": "pending",
+        "transaction": "ISSUE OF DRIVING LICENCE",
+        "stage": "SCRUTINY - (Verification of Proof Documents)",
+        "counter": "AIMV2 COUNTER MH47"
+      },
+      "ackDetails": {
+        "name": "MAGLESH MAURYA",
+        "serviceRequested": "1. ISSUE OF NEW DL ( MCWG, LMV )"
+      },
+      "htmlPreview": " <div> <b style=\"color: red;\" class=\"marginStyle\"> </b> <!-- <center> --> <!-- Logic for Displaying Applicant Details --> <div class=\"marginStyle\"> <!-- get from getStatusofApplicant() In ApplStatusDAO.java --> <fieldset class=\"scheduler-border col-md-12\"> <!-- <div style=\"height: auto; width: 700px; border: 2px solid green; \"> --> <legend class=\"scheduler-border\"> Current Status </legend> <!-- added by chaitanya on 22-07-2017 --> <!-- end of start added --> <div class=\"table-responsive\"> <br> <table class=\"table table-bordered table-hover\" id=\"covTable\"> <tbody><tr> <!-- <th style=\"width: 200px;\" >Applied COVs</th> --> <th style=\"background-color:#a94442 !important;\">Transaction Name</th> <th style=\"background-color:#a94442 !important;\">Application Processing Stage</th> <th style=\"backgro"
+    },
+    {
+      "input": {
+        "appNo": "1750019026",
+        "dob": "21-08-2007"
+      },
+      "ok": true,
+      "mode": "ack-status-merged",
+      "details": {
+        "kind": "pending-counter",
+        "message": "This Application is serviceable but not pending at your counter",
+        "transaction": "",
+        "stage": "",
+        "counter": ""
+      },
+      "ackDetails": {
+        "name": "NITESH SANJAY GUPTA",
+        "serviceRequested": "1. ISSUE OF NEW DL ( LMV, MCWG )"
+      },
+      "htmlPreview": " <div> <b style=\"color: red;\" class=\"marginStyle\"> </b> <!-- <center> --> <!-- Logic for Displaying Applicant Details --> <!-- Logic for ErrorMessages goes here --> <div class=\"marginStyle\"> <fieldset class=\"scheduler-border col-md-12\"> <h3 align=\"center\">This Application is serviceable but not pending at your counter</h3> <!-- start added by chaitanya on 05-09-2015 --> <!-- end of start added --> <div class=\"table-responsive\"> <table class=\"table table-bordered table-hover\"> </table> </div> </fieldset> </div> <!-- </center> --> <!-- added by chaitanya on 30-03-2017 to display dispatch details --> <!-- end of start added on 30-03-2017 --> </div> "
+    }
+  ],
+  "vahan": [
+    {
+      "input": {
+        "appNo": "MH260310V7505731",
+        "tag": "ganesh"
+      },
+      "ok": true,
+      "storeEntry": {
+        "transport": "whatsapp",
+        "chatId": "919660930674@c.us",
+        "applicationNumber": "MH260310V7505731",
+        "tag": "ganesh ahire",
+        "createdAt": "2026-03-14T08:03:24.752Z",
+        "lastCheckedAt": "2026-03-19T06:09:19.837Z"
+      },
+      "lastSnapshotRaw": "{\"rows\":[\"ONLINE TRANSACTION SUCCESS ON 10-Mar-2026 14:08:29 BUT NOT INWARDED AT R.T.O.BORIVALI (MH-47)\",\"ONLINE TRANSACTION SUCCESS ON 10-Mar-2026 14:08:29 BUT NOT INWARDED AT R.T.O.BORIVALI (MH-47)\"],\"rcPrintOrSmartCardStatus\":\"Not Available\",\"dispatchRcStatus\":\"Not Available\"}",
+      "lastSnapshotParsed": {
+        "rows": [
+          "ONLINE TRANSACTION SUCCESS ON 10-Mar-2026 14:08:29 BUT NOT INWARDED AT R.T.O.BORIVALI (MH-47)",
+          "ONLINE TRANSACTION SUCCESS ON 10-Mar-2026 14:08:29 BUT NOT INWARDED AT R.T.O.BORIVALI (MH-47)"
+        ],
+        "rcPrintOrSmartCardStatus": "Not Available",
+        "dispatchRcStatus": "Not Available"
+      }
+    },
+    {
+      "input": {
+        "appNo": "MH260430V3712080",
+        "tag": "dilip"
+      },
+      "ok": false,
+      "error": "No existing tracked/store snapshot found for this application number."
+    }
+  ]
+}
