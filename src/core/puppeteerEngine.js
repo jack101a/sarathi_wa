@@ -123,6 +123,7 @@ async function renderHTML(content, options = {}) {
     imageOptions = {},
     waitForSelector = null,
     waitForFunction = null,
+    viewport = { width: 850, height: 1200, deviceScaleFactor: 2 },
   } = options;
 
   const page = await acquirePage();
@@ -140,9 +141,9 @@ async function renderHTML(content, options = {}) {
 
     if (type === 'image') {
       await page.setViewport({
-        width: 850,
-        height: 1200,
-        deviceScaleFactor: 2,
+        width: viewport.width  || 850,
+        height: viewport.height || 1200,
+        deviceScaleFactor: viewport.deviceScaleFactor || 2,
       });
 
       await page.screenshot({

@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { getBrowser } = require('../core/puppeteerEngine');
+const { renderHTML } = require('../core/puppeteerEngine');
 const { readTrackedApplications } = require('./autoTrackStore');
 const { readEntries: readVahanStore } = require('./vahanTrackStore');
 
@@ -217,19 +217,18 @@ async function generateStatusImage(chatId) {
 
   const html = htmlTemplate({ sarathiRows, vahanRows });
   const outImagePath = path.join(__dirname, '..', '..', 'data', 'tmp', `status_${chatId}_${Date.now()}.png`);
-  // Ensure output dir exists
   fs.mkdirSync(path.dirname(outImagePath), { recursive: true });
 
-  // Reuse shared browser — no new Chromium process per call
-  const browser = await getBrowser();
-  const page = await browser.newPage();
-  try {
-    await page.setViewport({ width: 1200, height: 960, deviceScaleFactor: 2 });
-    await page.setContent(html, { waitUntil: 'networkidle0' });
-    await page.screenshot({ path: outImagePath, fullPage: true });
-  } finally {
-    await page.close();
-  }
+  // Use the shared renderHTML helper — correctly acquires/releases the page semaphore
+  // and uses waitUntil:'domcontentloaded' so local HTML never hangs on networkidle0
+  await renderHTML(html, {
+    type: 'image',
+    path: outImagePath,
+    viewport: { width: 1200, height: 960, deviceScaleFactor: 2 },
+    imageOptions: { fullPage: true },
+    pdfOptions: {},
+  });
+
   return outImagePath;
 }
 
