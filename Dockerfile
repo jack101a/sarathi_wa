@@ -13,8 +13,14 @@ RUN npm run build
 FROM node:20-bookworm-slim AS deps
 WORKDIR /app
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV npm_config_build_from_source=sqlite3
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    make \
+    g++ \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev && npm rebuild sqlite3 --build-from-source
 
 ### Stage 3: Runtime image (multi-arch: linux/amd64 + linux/arm64)
 FROM node:20-bookworm-slim AS runtime
