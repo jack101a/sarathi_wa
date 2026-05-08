@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       IMAGE_NAME: ghcr.io/jack101a/sarathiwa_bot
+      # Opt into Node.js 24 now to avoid deprecation warnings from actions
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     permissions:
       contents: read
