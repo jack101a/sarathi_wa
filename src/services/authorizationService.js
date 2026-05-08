@@ -77,6 +77,16 @@ async function getUserForRequest(message, transport) {
     const chatId = String(message && message.chat && message.chat.id || '');
     return chatId ? repo.getUserByPhone(chatId) : null;
   }
+  const idObj = extractIdentityFromMessage(message);
+  if (idObj && idObj.identities) {
+    for (const val of idObj.identities) {
+      const identity = await repo.getIdentity(val);
+      if (identity && identity.auth_user_id) {
+        const user = await repo.getUserById(identity.auth_user_id);
+        if (user && Number(user.is_active) === 1) return user;
+      }
+    }
+  }
   const phone = getWhatsAppSenderId(message);
   return phone ? repo.getUserByPhone(phone) : null;
 }
