@@ -66,6 +66,8 @@ WORKDIR /app
 # Copy prod dependencies from deps stage
 COPY --from=deps /app/node_modules ./node_modules
 
+RUN npx playwright install --with-deps
+
 # Copy built React admin frontend from frontend-builder stage
 COPY --from=frontend-builder /frontend/dist ./frontend/dist
 
