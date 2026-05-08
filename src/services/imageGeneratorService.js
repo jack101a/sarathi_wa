@@ -1,6 +1,6 @@
-const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
+const { getBrowser } = require('../core/puppeteerEngine');
 const { readTrackedApplications } = require('./autoTrackStore');
 const { readEntries: readVahanStore } = require('./vahanTrackStore');
 
@@ -216,17 +216,20 @@ async function generateStatusImage(chatId) {
   });
 
   const html = htmlTemplate({ sarathiRows, vahanRows });
-  const tempHtmlPath = path.join(__dirname, '..', '..', `temp_table_${Date.now()}.html`);
-  const outImagePath = path.join(__dirname, '..', '..', `status_${chatId}_${Date.now()}.png`);
+  const outImagePath = path.join(__dirname, '..', '..', 'data', 'tmp', `status_${chatId}_${Date.now()}.png`);
+  // Ensure output dir exists
+  fs.mkdirSync(path.dirname(outImagePath), { recursive: true });
 
-  fs.writeFileSync(tempHtmlPath, html);
-  const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+  // Reuse shared browser — no new Chromium process per call
+  const browser = await getBrowser();
   const page = await browser.newPage();
-  await page.setViewport({ width: 1200, height: 960, deviceScaleFactor: 2 });
-  await page.setContent(html, { waitUntil: 'networkidle0' });
-  await page.screenshot({ path: outImagePath, fullPage: true });
-  await browser.close();
-  fs.unlinkSync(tempHtmlPath);
+  try {
+    await page.setViewport({ width: 1200, height: 960, deviceScaleFactor: 2 });
+    await page.setContent(html, { waitUntil: 'networkidle0' });
+    await page.screenshot({ path: outImagePath, fullPage: true });
+  } finally {
+    await page.close();
+  }
   return outImagePath;
 }
 

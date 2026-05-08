@@ -23,6 +23,16 @@ const STAGE_ICONS = {
   pending: '\u26a0\ufe0f',
 };
 
+function isWithinTrackingWindow() {
+  // Only allow auto-tracking between 6 PM (18:00) and 6 AM (06:00)
+  const hour = new Date().getHours(); // local time, 0–23
+  const allowed = hour >= 18 || hour < 6;
+  if (!allowed) {
+    console.log('[autoTrack] Outside tracking window (6 PM - 6 AM), skipping.');
+  }
+  return allowed;
+}
+
 function normalizeDate(value) {
   const text = String(value || '').trim();
   const m = text.match(/(\d{2})[-/](\d{2})[-/](\d{4})/);
@@ -159,9 +169,12 @@ async function sendTrackingSnapshot(entry, snapshot, targetChatId = entry.chatId
 }
 
 async function checkTrackedEntry(entry) {
+  // Skip ack browser fetch if we already have applicant metadata from a previous run
+  const alreadyEnriched = Boolean(String(entry.applicantName || '').trim());
   const snapshot = await getTrackingSnapshot(entry.appNo, entry.dob, {
     keepFile: false,
     filename: `tracked_status_${entry.appNo}_${Date.now()}.jpg`,
+    skipAck: alreadyEnriched,
   });
   const details = snapshot.details || parseStatusDetails(snapshot.html);
   const timeline = deriveSarathiTimeline(details);
@@ -305,16 +318,28 @@ async function checkTrackedApplications() {
     return;
   }
 
+  if (!isWithinTrackingWindow()) {
+    return;
+  }
+
   autoTrackRunning = true;
 
   try {
     const trackedApplications = readTrackedApplications();
+    const BATCH_SIZE = 3;
 
-    for (const entry of trackedApplications) {
-      try {
-        await checkTrackedEntry(entry);
-      } catch (error) {
-        console.error(`Auto-track check failed for ${entry.appNo}: ${error.message}`);
+    for (let i = 0; i < trackedApplications.length; i += BATCH_SIZE) {
+      const batch = trackedApplications.slice(i, i + BATCH_SIZE);
+      await Promise.allSettled(batch.map(async (entry) => {
+        try {
+          await checkTrackedEntry(entry);
+        } catch (error) {
+          console.error(`Auto-track check failed for ${entry.appNo}: ${error.message}`);
+        }
+      }));
+      // Stagger between batches to avoid hammering the API
+      if (i + BATCH_SIZE < trackedApplications.length) {
+        await sleep(randomBetween(3000, 6000));
       }
     }
   } finally {

@@ -314,14 +314,23 @@ const CONFIG = {
   },
 
   QUEUE: {
-    API_CONCURRENCY: asNumber(process.env.API_CONCURRENCY, 5),
-    BROWSER_CONCURRENCY: asNumber(process.env.BROWSER_CONCURRENCY, 1),
-    BROWSER_DELAY_MS: asNumber(process.env.BROWSER_DELAY_MS, 3000),
+    API_CONCURRENCY:     asNumber(process.env.API_CONCURRENCY,     8),
+    BROWSER_CONCURRENCY: asNumber(process.env.BROWSER_CONCURRENCY, 2),
+    BROWSER_DELAY_MS:    asNumber(process.env.BROWSER_DELAY_MS,    3000),
     BROWSER_MAX_RETRIES: asNumber(process.env.BROWSER_MAX_RETRIES, 2),
-    BROWSER_BACKOFF_MS: asNumber(process.env.BROWSER_BACKOFF_MS, 5000),
+    BROWSER_BACKOFF_MS:  asNumber(process.env.BROWSER_BACKOFF_MS,  5000),
   },
 
-  DEBUG: asBoolean(process.env.DEBUG, false),
+  SESSION_POOL_SIZE: asNumber(process.env.SESSION_POOL_SIZE, 3),
+  MAX_BROWSER_PAGES: asNumber(process.env.MAX_BROWSER_PAGES, 5),
+
+  ADMIN: {
+    TOKEN:    String(process.env.ADMIN_TOKEN    || 'changeme').trim(),
+    USERNAME: String(process.env.ADMIN_USERNAME || 'admin').trim(),
+  },
+
+  DEBUG:     asBoolean(process.env.DEBUG,     false),
+  LOG_LEVEL: String(process.env.LOG_LEVEL || 'info').trim().toLowerCase(),
 };
 
 module.exports = CONFIG;

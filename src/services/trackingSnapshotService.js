@@ -117,7 +117,7 @@ async function buildMergedTopHalfImage(ackBuffer, statusBuffer, outputPath) {
 }
 
 async function getTrackingSnapshot(appNo, dob, options = {}) {
-  const { keepFile = false, filename = `Track_${appNo}.jpg` } = options;
+  const { keepFile = false, filename = `Track_${appNo}.jpg`, skipAck = false } = options;
   const statusFilename = dob ? `status_${appNo}_${Date.now()}.jpg` : filename;
   const statusSnapshot = await getStatusSnapshot(appNo, {
     keepFile,
@@ -125,7 +125,10 @@ async function getTrackingSnapshot(appNo, dob, options = {}) {
   });
   const details = parseStatusDetails(statusSnapshot.html);
 
-  if (!dob) {
+  if (!dob || skipAck) {
+    if (skipAck) {
+      console.log('[trackingSnapshot] Skipping ack fetch (skipAck=true)');
+    }
     return {
       ...statusSnapshot,
       details,

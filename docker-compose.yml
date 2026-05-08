@@ -2,43 +2,91 @@ version: '3.8'
 
 services:
   sarathi-bot:
-    image: ghcr.io/jack101a/sarathiwa_bot:docker-16
+    image: ghcr.io/jack101a/sarathiwa_bot:wabot
     container_name: sarathi_bot
     restart: always
     init: true
     stop_grace_period: 60s
 
     environment:
+      # ── Core ───────────────────────────────────────────────────────────────
       - APP_ENV=${APP_ENV:-production}
+      - NODE_ENV=production
       - DEBUG=${DEBUG:-false}
       - PORT=${PORT:-3000}
+
+      # ── WhatsApp ───────────────────────────────────────────────────────────
       - SESSION_NAME=${SESSION_NAME:-default-session}
       - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER:-}
+
+      # ── Telegram ───────────────────────────────────────────────────────────
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_NOTIFY_CHAT_IDS=${TELEGRAM_NOTIFY_CHAT_IDS:-}
+
+      # ── Authorization ──────────────────────────────────────────────────────
       - AUTHORIZED_USERS=${AUTHORIZED_USERS:-}
       - AUTHORIZED_GROUPS=${AUTHORIZED_GROUPS:-}
       - AUTHORIZED_TG_USERS=${AUTHORIZED_TG_USERS:-}
       - AUTHORIZED_TG_GROUPS=${AUTHORIZED_TG_GROUPS:-}
       - ADMIN_USERS=${ADMIN_USERS:-}
+
+      # ── Tracking ───────────────────────────────────────────────────────────
       - AUTO_TRACK_UPDATE_CHAT_ID=${AUTO_TRACK_UPDATE_CHAT_ID:-}
       - VAHAN_TRACK_UPDATE_CHAT_ID=${VAHAN_TRACK_UPDATE_CHAT_ID:-}
-      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
       - AUTO_TRACK_CRON=${AUTO_TRACK_CRON:-0 10-22/3 * * *}
       - VAHAN_TRACK_CRON=${VAHAN_TRACK_CRON:-0 10-22/3 * * *}
 
+      # ── Notifications ──────────────────────────────────────────────────────
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
+
+      # ── Admin Dashboard ────────────────────────────────────────────────────
+      - ADMIN_TOKEN=${ADMIN_TOKEN:-changeme_set_a_real_secret}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+
+      # ── Puppeteer ──────────────────────────────────────────────────────────
+      - PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+      - PUPPETEER_HEADLESS=true
+      - PUPPETEER_DISABLE_SANDBOX=true
+      - PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage
+
+      # ── Scalability ────────────────────────────────────────────────────────
+      - SESSION_POOL_SIZE=${SESSION_POOL_SIZE:-3}
+      - MAX_BROWSER_PAGES=${MAX_BROWSER_PAGES:-5}
+      - API_CONCURRENCY=${API_CONCURRENCY:-8}
+      - BROWSER_CONCURRENCY=${BROWSER_CONCURRENCY:-2}
+
+      # ── Logging ────────────────────────────────────────────────────────────
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+
+      # ── File Paths (inside container — do not change) ──────────────────────
+      - CONFIG_FILE=data/config.yml
+      - AUTO_TRACK_STORE_FILE=data/tracked_applications.json
+      - VAHAN_TRACK_STORE_FILE=data/vahan_tracked_applications.json
+      - TEMP_DIR=data/tmp
+
     command: ["node", "server.js"]
 
-    shm_size: "1024m"
+    ports:
+      - "${PORT:-3000}:3000"
+
+    # Chromium requires large /dev/shm — 2 GB for multi-page concurrent usage
+    shm_size: "2048m"
 
     deploy:
       resources:
         limits:
-          memory: 1g
+          memory: 2g
 
     volumes:
-      - ${CONFIG_PATH}/sarathi/auth_data:/app/.wwebjs_auth
-      - ${CONFIG_PATH}/sarathi/data:/app/data
+      - ${CONFIG_PATH}/sarathi_new/auth_data:/app/.wwebjs_auth
+      - ${CONFIG_PATH}/sarathi_new/data:/app/data
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${PORT:-3000}/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
     stdin_open: true
     tty: true

@@ -751,13 +751,22 @@ async function createBot() {
     } catch (error) {
       await message.reply('Something went wrong. Please try again later.');
     }
-  }  const sentMessageIds = new Set();
+  }  const sentMessageIds = new Map(); // id → timestamp
+
+  // Prune entries older than 60 seconds every 30 seconds
+  const _sentIdsCleanup = setInterval(() => {
+    const cutoff = Date.now() - 60_000;
+    for (const [id, ts] of sentMessageIds) {
+      if (ts < cutoff) sentMessageIds.delete(id);
+    }
+  }, 30_000);
+  _sentIdsCleanup.unref(); // don't keep process alive just for this
 
   const originalSendMessage = client.sendMessage.bind(client);
   client.sendMessage = async function(chatId, content, options) {
     const result = await originalSendMessage(chatId, content, options);
     if (result && result.id && result.id.id) {
-      sentMessageIds.add(result.id.id);
+      sentMessageIds.set(result.id.id, Date.now());
     }
     return result;
   };

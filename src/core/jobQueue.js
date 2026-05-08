@@ -1,5 +1,7 @@
 const CONFIG = require('../config/config');
 const jobRepository = require('../services/jobRepository');
+const logger = require('./logger');
+const { run } = require('./db');
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -17,8 +19,21 @@ class JobQueue {
   }
 
   process(handlerFn) { this.handler = handlerFn; }
-  enqueue(job) { this.pending.push(job); this._tick().catch(() => {}); }
-  getStats() { return { pending: this.pending.length, running: this.running.size, completed: this.completed, failed: this.failed }; }
+
+  enqueue(job) {
+    this.pending.push(job);
+    this._tick().catch(() => {});
+  }
+
+  getStats() {
+    return {
+      name: this.name,
+      pending: this.pending.length,
+      running: this.running.size,
+      completed: this.completed,
+      failed: this.failed,
+    };
+  }
 
   async _runJob(job) {
     this.running.add(job.id);
@@ -29,9 +44,12 @@ class JobQueue {
       const result = await this.handler(job);
       await jobRepository.updateJobStatus(job.id, 'completed', JSON.stringify(result || {}), '');
       this.completed += 1;
+      logger.debug('jobQueue', `Job completed`, { queue: this.name, jobId: job.id, command: job.command });
     } catch (error) {
-      await jobRepository.updateJobStatus(job.id, 'failed', '{}', error.message || String(error));
+      const errMsg = error.message || String(error);
+      await jobRepository.updateJobStatus(job.id, 'failed', '{}', errMsg);
       this.failed += 1;
+      logger.warn('jobQueue', `Job failed`, { queue: this.name, jobId: job.id, command: job.command, error: errMsg });
     } finally {
       this.running.delete(job.id);
       this._tick().catch(() => {});
@@ -49,7 +67,39 @@ class JobQueue {
   stop() { this.stopped = true; }
 }
 
-const apiQueue = new JobQueue('api', CONFIG.QUEUE.API_CONCURRENCY);
-const browserQueue = new JobQueue('browser', CONFIG.QUEUE.BROWSER_CONCURRENCY, { delayMs: CONFIG.QUEUE.BROWSER_DELAY_MS, maxRetries: CONFIG.QUEUE.BROWSER_MAX_RETRIES, backoffMs: CONFIG.QUEUE.BROWSER_BACKOFF_MS });
+const apiQueue     = new JobQueue('api',     CONFIG.QUEUE.API_CONCURRENCY);
+const browserQueue = new JobQueue('browser', CONFIG.QUEUE.BROWSER_CONCURRENCY, {
+  delayMs:     CONFIG.QUEUE.BROWSER_DELAY_MS,
+  maxRetries:  CONFIG.QUEUE.BROWSER_MAX_RETRIES,
+  backoffMs:   CONFIG.QUEUE.BROWSER_BACKOFF_MS,
+});
 
-module.exports = { apiQueue, browserQueue, JobQueue };
+/**
+ * On startup, re-queue jobs that were interrupted by a crash.
+ * Resets any 'running' jobs to 'pending' and loads them into memory queues.
+ */
+async function recoverJobs() {
+  try {
+    // Reset orphaned 'running' jobs back to 'pending'
+    await run("UPDATE jobs SET status = 'pending', started_at = '' WHERE status = 'running'");
+
+    const [apiPending, browserPending] = await Promise.all([
+      jobRepository.getPendingJobs('api', 100),
+      jobRepository.getPendingJobs('browser', 20),
+    ]);
+
+    for (const job of apiPending)     apiQueue.enqueue(job);
+    for (const job of browserPending) browserQueue.enqueue(job);
+
+    if (apiPending.length + browserPending.length > 0) {
+      logger.info('jobQueue', `Recovered jobs after restart`, {
+        api: apiPending.length,
+        browser: browserPending.length,
+      });
+    }
+  } catch (error) {
+    logger.error('jobQueue', 'Job recovery failed', { error: error.message });
+  }
+}
+
+module.exports = { apiQueue, browserQueue, JobQueue, recoverJobs };

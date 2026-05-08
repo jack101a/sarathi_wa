@@ -5,6 +5,9 @@ const rateLimiter = require('./rateLimiter');
 const jobRepository = require('../services/jobRepository');
 const { apiQueue, browserQueue } = require('./jobQueue');
 
+// Commands that only read from stored data — never block on concurrent job count
+const INSTANT_COMMANDS = new Set(['track_status', 'list_track']);
+
 function makeJobId() { return `job_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`; }
 
 function getQueueType(command) {
@@ -27,9 +30,11 @@ async function processRequest(message, transport, commandInfo) {
   const rateCheck = await rateLimiter.checkRateLimit(user.id, plan);
   if (!rateCheck.allowed) return { blocked: true, reason: 'rate_limit', message: `Rate limit reached: ${rateCheck.reason}. Please wait.` };
 
-  const activeCount = await rateLimiter.getActiveJobCount(user.id);
-  const limits = CONFIG.RATE_LIMITS[plan] || CONFIG.RATE_LIMITS.free;
-  if (activeCount >= limits.maxConcurrent) return { blocked: true, reason: 'concurrent_limit', message: 'You already have jobs running. Please wait for them to finish.' };
+  if (!INSTANT_COMMANDS.has(commandInfo.command)) {
+    const activeCount = await rateLimiter.getActiveJobCount(user.id);
+    const limits = CONFIG.RATE_LIMITS[plan] || CONFIG.RATE_LIMITS.free;
+    if (activeCount >= limits.maxConcurrent) return { blocked: true, reason: 'concurrent_limit', message: 'You already have jobs running. Please wait for them to finish.' };
+  }
 
   const queueType = getQueueType(commandInfo.command);
   const jobId = makeJobId();

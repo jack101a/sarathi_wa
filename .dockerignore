@@ -1,30 +1,39 @@
-﻿### SECTION: Dependencies & Logs
+# Node modules — never copy into the image (installed fresh by npm ci)
 node_modules
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-*.log
+frontend/node_modules
 
-### SECTION: Secrets & Source Control
-.env
+# Local development auth sessions (volume-mounted at runtime)
+.wwebjs_auth
+.wwebjs_cache
+
+# Local data directory (volume-mounted at runtime)
+data/
+
+# Build artifacts that are regenerated in the Docker stages
+frontend/dist
+
+# Git history and CI files (not needed in runtime image)
 .git
 .gitignore
+.github
 
-### SECTION: WhatsApp & Puppeteer Local Data
-# Block old session data files
-_IGNORE_default-session
-default-session.data.json
-
-# Block the local WhatsApp authentication folders (we use a Docker Volume for this now)
-.wwebjs_auth
-auth_data
-
-# Block local browser binaries (Puppeteer will download fresh ones inside the container)
-.cache
-
-### SECTION: OS Artifacts & Temporary Files
-*.tmp
-*.temp
-*.pdf
-*.jpg
+# Editor / OS noise
+.vscode
+.idea
+*.swp
+*.swo
 .DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Local env file — secrets must come from docker-compose env, never baked in
+.env
+.env.*
+
+# Testing
+testing_ground/
+*.test.js
+*.spec.js
