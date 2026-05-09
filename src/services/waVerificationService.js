@@ -60,6 +60,16 @@ async function consumeVerificationMessage(messageText, identityContext) {
       await repo.createUserIdentity(user.id, type, val);
     }
   }
+
+  // Always ensure the canonical @c.us alias is saved (91+10digit@c.us template)
+  // This guarantees the bot can always recognize the user by phone even if WhatsApp
+  // only provided the random @lid alias during registration.
+  const canonicalCus = `91${phone}@c.us`;
+  const cusExists = await repo.getIdentity(canonicalCus);
+  if (!cusExists) {
+    await repo.createUserIdentity(user.id, 'wa_cus', canonicalCus);
+  }
+
   return true;
 }
 

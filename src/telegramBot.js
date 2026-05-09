@@ -130,10 +130,10 @@ async function startTelegramBot(config) {
     const { processRequest } = require('./core/requestPipeline');
     const result = await processRequest(msg, 'telegram', commandInfo);
     if (result.blocked) {
-      await botClient.sendMessage(msg.chat.id, `? ${result.message}`);
+      await botClient.sendMessage(msg.chat.id, `🚫 ${result.message}`);
       return false;
     }
-    await botClient.sendMessage(msg.chat.id, '? Processing...');
+    await botClient.sendMessage(msg.chat.id, '⏳ Processing...');
     return true;
   }
 
@@ -291,9 +291,23 @@ async function startTelegramBot(config) {
     const args = parseArgs(match && match[1]);
     const appNo = args[0];
     const dob = normalizeDob(args[1] || '');
-    const mobile = args[2];
-    if (!appNo || !dob || !mobile || mobile.length < 10) {
-      await bot.sendMessage(chatId, 'Usage: /llprint <application_number> <dob> <10_digit_mobile>');
+    if (!appNo || !dob) {
+      await bot.sendMessage(chatId, 'Usage: /llprint <application_number> <dob> [10_digit_mobile]');
+      return;
+    }
+    // Try to resolve mobile from DB canonical_phone stored at registration.
+    // Telegram chat IDs are numeric IDs, not phone numbers — so we check the DB.
+    let mobile = args[2] || '';
+    try {
+      const { getUserByPhone } = require('./services/authorizationRepository');
+      const dbUser = await getUserByPhone(String(chatId));
+      if (dbUser && dbUser.canonical_phone) {
+        const cp = String(dbUser.canonical_phone).replace(/\D/g, '');
+        if (cp.length >= 10) mobile = cp.length > 10 ? cp.slice(-10) : cp;
+      }
+    } catch (_) {}
+    if (!mobile || mobile.length < 10) {
+      await bot.sendMessage(chatId, 'Mobile number not found in your profile. Please provide it:\nUsage: /llprint <application_number> <dob> <10_digit_mobile>');
       return;
     }
     const cleanMobile = mobile.length > 10 ? mobile.slice(-10) : mobile;

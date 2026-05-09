@@ -17,6 +17,63 @@ const CAPTCHA_RULES = [
     { src: "img[src*='captchaimage.jsp']", tgt: "input[name='captxt']" },
 ];
 
+// ---------------------------------------------------------------------------
+// PROFILE POOL — 5 fixed Firefox profile directories, one per concurrent user.
+//
+// Why fixed profiles instead of temp dirs?
+//   - Firefox locks a profile while it's in use. A fresh temp dir has no
+//     pre-warmed state and can behave differently per OS.  Fixed, pre-created
+//     dirs are stable, reusable, and never have cross-session lock conflicts.
+//
+// How it works:
+//   1. acquireProfile()  → picks a free slot (0-4), marks it busy, returns
+//                          the profile path.  If all 5 are busy the caller
+//                          waits in a Promise queue.
+//   2. releaseProfile()  → marks the slot free again and unblocks the next
+//                          waiter (if any) from the queue.
+// ---------------------------------------------------------------------------
+const MAX_PROFILES = 5;
+const PROFILE_BASE = path.join(process.cwd(), "firefox_profiles");
+
+// Ensure all profile directories exist at startup
+for (let i = 0; i < MAX_PROFILES; i++) {
+    const dir = path.join(PROFILE_BASE, `profile_${i}`);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
+
+const profileBusy = new Array(MAX_PROFILES).fill(false); // slot → in-use?
+const profileQueue = []; // waiters: Array of { resolve, slotIndex } — actually just resolve fns
+
+function acquireProfile() {
+    // Find a free slot
+    const freeIdx = profileBusy.findIndex(busy => !busy);
+    if (freeIdx !== -1) {
+        profileBusy[freeIdx] = true;
+        const profilePath = path.join(PROFILE_BASE, `profile_${freeIdx}`);
+        console.log(`[ProfilePool] Acquired profile slot ${freeIdx}: ${profilePath}`);
+        return Promise.resolve({ slotIdx: freeIdx, profilePath });
+    }
+
+    // All busy — wait in queue
+    console.log(`[ProfilePool] All ${MAX_PROFILES} slots busy. Request queued (queue length: ${profileQueue.length + 1})`);
+    return new Promise(resolve => profileQueue.push(resolve));
+}
+
+function releaseProfile(slotIdx) {
+    if (profileQueue.length > 0) {
+        // Hand this slot directly to the next waiter
+        const nextResolve = profileQueue.shift();
+        const profilePath = path.join(PROFILE_BASE, `profile_${slotIdx}`);
+        console.log(`[ProfilePool] Slot ${slotIdx} handed to next queued request.`);
+        nextResolve({ slotIdx, profilePath });
+        // slot stays "busy" — the new owner is responsible for releasing it
+    } else {
+        profileBusy[slotIdx] = false;
+        console.log(`[ProfilePool] Released profile slot ${slotIdx}. (${profileBusy.filter(b => b).length}/${MAX_PROFILES} in use)`);
+    }
+}
+// ---------------------------------------------------------------------------
+
 async function solveOcr(imageBytes) {
     const b64Img = imageBytes.toString('base64');
     try {
@@ -78,23 +135,34 @@ async function smartSolveCaptcha(page, stepName) {
 }
 
 async function startLLPrintFlow(appNum, dob, mobile) {
+    console.log(`🚀 [${appNum}] Requesting profile slot...`);
+
+    // Claim a profile slot (waits in queue if all 5 are busy)
+    const { slotIdx, profilePath } = await acquireProfile();
+
     console.log("🚀 Starting LL Print Flow...");
 
-    // No persistent profile or firefox lock!
-    // Each session gets a new browser context (no lock on disk).
-    let browser, context;
+    const firefoxPrefs = {
+        "dom.disable_open_during_load": false,
+        "privacy.popups.showBrowserMessage": false,
+        "pdfjs.disabled": false,
+        "browser.download.folderList": 1,
+        "browser.download.manager.showWhenStarting": false,
+        "security.insecure_field_warning.contextual.enabled": false,
+        "security.certerrors.mitm.auto_enable_enterprise_roots": true,
+    };
+
+    let context;
     try {
-        browser = await firefox.launch({
+        context = await firefox.launchPersistentContext(profilePath, {
             headless: true,
-        });
-
-        context = await browser.newContext({
+            firefoxUserPrefs: firefoxPrefs,
             acceptDownloads: true,
-            userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0"
-            // No profile path: use blank/ephemeral profile per context
+            userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
         });
 
-        const page = await context.newPage();
+        const pages = context.pages();
+        const page = pages.length > 0 ? pages[0] : await context.newPage();
 
         await page.goto(`${BASE_URL}/stateSelection.do`);
 
@@ -147,20 +215,23 @@ async function startLLPrintFlow(appNum, dob, mobile) {
             }
         }
 
-        // Return context, page, and browser for clean closing
-        return { context, page, browser };
+        // Return context and page so we can keep it alive.
+        // slotIdx is stored internally so submitLLPrintOTP can release it via context._llSlotIdx.
+        context._llSlotIdx = slotIdx;
+        return { context, page };
+
     } catch (error) {
         console.error("❌ Error in startLLPrintFlow:", error);
         if (context) {
             await context.close().catch(() => {});
         }
-        if (browser) {
-            await browser.close().catch(() => {});
-        }
+        releaseProfile(slotIdx); // Free slot for the next user on failure
         throw error;
     }
 }
 
+// Signature matches all callers in bot.js and telegramBot.js:
+//   submitLLPrintOTP(flow.context, flow.page, otpCode, flow.appNo, flow.dob)
 async function submitLLPrintOTP(context, page, otpCode, appNum, dob) {
     let downloadSuccess = false;
     let outputPath = path.join(process.cwd(), `LL_${appNum}.pdf`);
@@ -184,7 +255,6 @@ async function submitLLPrintOTP(context, page, otpCode, appNum, dob) {
 
         if (!primeCaptchaText) {
             console.log("    -> ❌ OCR failed on Background Captcha. Exiting.");
-            await context.close();
             throw new Error("OCR failed on Background Captcha");
         }
 
@@ -363,9 +433,12 @@ async function submitLLPrintOTP(context, page, otpCode, appNum, dob) {
         throw e;
     } finally {
         await page.waitForTimeout(3000);
-        await context.close();
-        if (context.browser) {
-            await context.browser().close().catch(() => {});
+        await context.close().catch(() => {});
+
+        // Release the profile slot back to the pool for the next user
+        const slotIdx = context._llSlotIdx;
+        if (slotIdx !== undefined) {
+            releaseProfile(slotIdx);
         }
     }
 }

@@ -487,10 +487,10 @@ async function createBot() {
       const { processRequest } = require('./core/requestPipeline');
       const result = await processRequest(messageObj, transport, commandInfo);
       if (result.blocked) {
-        await messageObj.reply(`? ${result.message}`);
+        await messageObj.reply(`🚫 ${result.message}`);
         return false;
       }
-      await messageObj.reply('? Processing...');
+      await messageObj.reply('⏳ Processing...');
       return true;
     }
 
@@ -601,8 +601,21 @@ async function createBot() {
           await message.reply('Usage: /llprint <application_number> <dob>');
           return;
         }
-        const senderPhone = (message.from || '').split('@')[0];
-        const mobile = senderPhone.length > 10 ? senderPhone.slice(-10) : senderPhone;
+        // Resolve mobile from DB canonical_phone (admin-registered number),
+        // fall back to last 10 digits of WhatsApp JID if not found.
+        let mobile;
+        try {
+          const { getUserForRequest } = require('./services/authorizationService');
+          const dbUser = await getUserForRequest(message, 'whatsapp');
+          if (dbUser && dbUser.canonical_phone) {
+            const cp = String(dbUser.canonical_phone).replace(/\D/g, '');
+            mobile = cp.length > 10 ? cp.slice(-10) : cp;
+          }
+        } catch (_) {}
+        if (!mobile) {
+          const senderPhone = (message.from || '').split('@')[0].replace(/\D/g, '');
+          mobile = senderPhone.length > 10 ? senderPhone.slice(-10) : senderPhone;
+        }
         await enqueueOrReply(message, 'whatsapp', { command: 'llprint_start', payload: { appNo, dob, mobile }, chatId: message.from });
         return;
       }

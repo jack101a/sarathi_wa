@@ -77,18 +77,47 @@ async function getUserForRequest(message, transport) {
     const chatId = String(message && message.chat && message.chat.id || '');
     return chatId ? repo.getUserByPhone(chatId) : null;
   }
+
+  // Step 1: Try matching via auth_user_identities (alias table).
+  // The identity_value stored on registration is like "9876543210@c.us" (10-digit).
+  // But the sender JID may come as "919876543210@c.us" (with country code).
+  // So we also try the last-10-digit variant of each identity to handle the mismatch.
   const idObj = extractIdentityFromMessage(message);
   if (idObj && idObj.identities) {
     for (const val of idObj.identities) {
-      const identity = await repo.getIdentity(val);
+      // Try exact match first
+      let identity = await repo.getIdentity(val);
+      // If no match and it's a JID, also try stripping to last 10 digits (only for phone-number domains)
+      if (!identity && val.includes('@')) {
+        const [localPart, domain] = val.split('@');
+        if (domain === 'c.us' || domain === 's.whatsapp.net') {
+          const digits = localPart.replace(/\D/g, '');
+          const short = digits.length > 10 ? digits.slice(-10) : digits;
+          if (short !== localPart) {
+            identity = await repo.getIdentity(`${short}@${domain}`);
+          }
+        }
+      }
       if (identity && identity.auth_user_id) {
         const user = await repo.getUserById(identity.auth_user_id);
         if (user && Number(user.is_active) === 1) return user;
       }
     }
   }
-  const phone = getWhatsAppSenderId(message);
-  return phone ? repo.getUserByPhone(phone) : null;
+
+  // Step 2: Try canonical_phone direct match — full number first, then last-10.
+  const phone = getWhatsAppSenderId(message); // already digits-only
+  if (phone) {
+    const user = await repo.getUserByPhone(phone);
+    if (user && Number(user.is_active) === 1) return user;
+    // Try last-10 variant in case DB stores without country code
+    if (phone.length > 10) {
+      const short10 = phone.slice(-10);
+      const user10 = await repo.getUserByPhone(short10);
+      if (user10 && Number(user10.is_active) === 1) return user10;
+    }
+  }
+  return null;
 }
 
 function isUserAllowed(user) {
@@ -107,7 +136,18 @@ async function addAuthorizedEntry(channel, type, id, extras = {}) {
   if ((c === 'wa' || c === 'whatsapp') && t === 'user') {
     const digits = normalizePhone(id); if (!digits) return null;
     const u = await repo.createUser(digits, 'wa');
-    await repo.createUserIdentity(u.id, 'wa_cus', `${digits}@c.us`);
+    // Save raw digits@c.us alias (e.g. 9660930674@c.us)
+    const rawCus = `${digits}@c.us`;
+    const rawCusExists = await repo.getIdentity(rawCus);
+    if (!rawCusExists) await repo.createUserIdentity(u.id, 'wa_cus', rawCus);
+    // Also save 91+digits@c.us alias for reliability (e.g. 919660930674@c.us)
+    // WhatsApp often sends the full international format with country code
+    const withCountryCode = digits.startsWith('91') ? digits : `91${digits}`;
+    const canonicalCus = `${withCountryCode}@c.us`;
+    if (canonicalCus !== rawCus) {
+      const canonicalCusExists = await repo.getIdentity(canonicalCus);
+      if (!canonicalCusExists) await repo.createUserIdentity(u.id, 'wa_cus', canonicalCus);
+    }
     await repo.updateUserProfile(digits, { name: extras.name || '', subscription_plan: extras.plan || extras.subscription_plan || 'free', monthly_limit: Number(extras.monthly_limit || 50), expiry_date: extras.expiry_date || '' });
     return u;
   }
