@@ -5,6 +5,7 @@ frontend/node_modules
 # Local development auth sessions (volume-mounted at runtime)
 .wwebjs_auth
 .wwebjs_cache
+firefox_permanent_profile/
 
 # Local data directory (volume-mounted at runtime)
 data/
@@ -28,6 +29,9 @@ Thumbs.db
 # Logs
 *.log
 logs/
+debug_*.png
+application_status.png
+LL_*.pdf
 
 # Local env file — secrets must come from docker-compose env, never baked in
 .env

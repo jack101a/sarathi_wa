@@ -4,8 +4,7 @@
 FROM node:20-bookworm-slim AS frontend-builder
 WORKDIR /frontend
 COPY frontend/package*.json ./
-# Use ci if lock file present, else install (handles first-time builds)
-RUN npm ci || npm install
+RUN npm ci
 COPY frontend/ .
 RUN npm run build
 
@@ -20,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     g++ \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 COPY package*.json ./
-RUN npm ci --omit=dev && npm rebuild sqlite3 --build-from-source
+RUN npm ci --omit=dev
 
 ### Stage 3: Runtime image (multi-arch: linux/amd64 + linux/arm64)
 FROM node:20-bookworm-slim AS runtime
