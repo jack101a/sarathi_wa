@@ -53,6 +53,8 @@ const {
 const { submitLLPrintOTP } = require('./services/llPrintService');
 const { getLlprintSessions } = require('./workers/browserWorker');
 const fs = require('fs');
+const replyQueue = require('./core/replyQueue');
+
 
 const TRACK_DOB_TIMEOUT_MS = 120 * 1000;
 const pendingDobRequests = new Map();
@@ -473,13 +475,25 @@ async function createBot() {
     await handlePairingCode(code);
   });
 
+  let botReadyAt = null; // Unix seconds — set when bot is fully ready
+
   client.on('ready', () => {
+    botReadyAt = Math.floor(Date.now() / 1000);
     console.log('WhatsApp bot is online.');
   });
 
   startVahanPolling(vahanWhatsAppClient, 'whatsapp');
 
   async function handleMessage(message, eventName = 'message') {
+    // ── Guard: drop messages received while bot was offline ──
+    if (botReadyAt !== null) {
+      const msgTs = Number(message.timestamp || 0); // WA gives Unix seconds
+      if (msgTs > 0 && msgTs < botReadyAt) {
+        console.log(`[whatsapp] Skipping stale offline message (msgTs=${msgTs} < readyAt=${botReadyAt}) from ${message.from}`);
+        return;
+      }
+    }
+
     const normalizedBody = String(message.body || '').trim();
     const llprintSessions = getLlprintSessions();
 
@@ -487,10 +501,10 @@ async function createBot() {
       const { processRequest } = require('./core/requestPipeline');
       const result = await processRequest(messageObj, transport, commandInfo);
       if (result.blocked) {
-        await messageObj.reply(`? ${result.message}`);
+        await replyQueue.send(() => messageObj.reply('\u274C ' + result.message));
         return false;
       }
-      await messageObj.reply('? Processing...');
+      await replyQueue.send(() => messageObj.reply('\u23F3 Processing...'));
       return true;
     }
 
@@ -780,7 +794,11 @@ async function createBot() {
     if (message.fromMe) {
       const ownBody = normalizeText(message.body || '');
       const looksLikeCommand = /^(help|track|add|remove|refresh|list|alive|suno|appl|form1|form1a|form2|formset|stop|auth|\/?llprint|\/?send(?:_|\s+)chatid)\b/i.test(ownBody);
-      if (!looksLikeCommand) {
+      // Also allow through if there is an active llprint OTP session for this chat
+      // (owner replies with bare OTP digits to themselves — not a command keyword)
+      const _llprintSessions = getLlprintSessions();
+      const hasActiveLlprintSession = _llprintSessions.has(message.from);
+      if (!looksLikeCommand && !hasActiveLlprintSession) {
         return;
       }
     }

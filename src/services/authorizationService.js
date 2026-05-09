@@ -39,6 +39,26 @@ async function isAuthorizedWhatsApp(message, config = CONFIG) {
     }
     const pureSender = getWhatsAppSenderId(message);
     if (await repo.getUserByPhone(pureSender)) return true;
+    
+    // Auto-map identities using underlying contact phone number
+    if (typeof message.getContact === 'function') {
+      const contact = await message.getContact().catch(() => null);
+      if (contact && contact.number) {
+        const phone = normalizePhone(contact.number);
+        const user = await repo.getUserByPhone(phone);
+        if (user) {
+          if (idObj && idObj.identities) {
+            for (const val of idObj.identities) {
+              if (!(await repo.getIdentity(val))) {
+                await repo.createUserIdentity(user.id, val.endsWith('@lid') ? 'wa_lid' : 'wa_cus', val);
+              }
+            }
+          }
+          return true;
+        }
+      }
+    }
+
     const envUsers = (config.SECURITY.AUTHORIZED_USERS || []).map((u) => String(u).replace(/\D/g, ''));
     return envUsers.includes(pureSender);
   } catch (_) { return false; }
@@ -88,7 +108,17 @@ async function getUserForRequest(message, transport) {
     }
   }
   const phone = getWhatsAppSenderId(message);
-  return phone ? repo.getUserByPhone(phone) : null;
+  let user = phone ? await repo.getUserByPhone(phone) : null;
+  
+  if (!user && typeof message.getContact === 'function') {
+    const contact = await message.getContact().catch(() => null);
+    if (contact && contact.number) {
+      const contactPhone = normalizePhone(contact.number);
+      user = await repo.getUserByPhone(contactPhone);
+    }
+  }
+  
+  return user;
 }
 
 function isUserAllowed(user) {
@@ -143,4 +173,18 @@ async function deleteUser(phone) { return repo.deactivateUser(phone); }
 async function listUsers() { return repo.listAllUsers(); }
 async function getUserDetails(phone) { return repo.getUserByPhone(phone); }
 
-module.exports = { isAuthorizedWhatsApp, isAuthorizedTelegram, isAdminWhatsApp, isAdminTelegram, addAuthorizedEntry, removeAuthorizedEntry, listAuthorizedEntries, getWhatsAppSenderId, getUserForRequest, isUserAllowed, editUser, deleteUser, listUsers, getUserDetails };
+function isAdminIdentity(message, transport, config = CONFIG) {
+  const t = String(transport || '').toLowerCase();
+  if (t === 'telegram') {
+    const chatId = String(message && message.chat && message.chat.id || '');
+    const tgAdmins = [
+      ...parseCsv(process.env.AUTHORIZED_TG_ADMINS || ''),
+      ...(config.SECURITY.ADMIN_USERS || []),
+      ...(config.SECURITY.AUTHORIZED_TG_ADMINS || []),
+    ];
+    return tgAdmins.map(String).includes(chatId);
+  }
+  return isAdminWhatsApp(message, config);
+}
+
+module.exports = { isAuthorizedWhatsApp, isAuthorizedTelegram, isAdminWhatsApp, isAdminTelegram, addAuthorizedEntry, removeAuthorizedEntry, listAuthorizedEntries, getWhatsAppSenderId, getUserForRequest, isUserAllowed, editUser, deleteUser, listUsers, getUserDetails, isAdminIdentity };

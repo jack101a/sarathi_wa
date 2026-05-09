@@ -9,7 +9,24 @@ browserQueue.process(async (job) => {
   const chatId = job.chat_id || payload.chatId;
   if (job.command === 'llprint_start') {
     const { context, page } = await llPrintService.startLLPrintFlow(payload.appNo, payload.dob, payload.mobile);
-    llprintSessions.set(String(chatId), { context, page, appNo: payload.appNo, dob: payload.dob, transport });
+    const sessionKey = String(chatId);
+    llprintSessions.set(sessionKey, { context, page, appNo: payload.appNo, dob: payload.dob, transport });
+
+    // Auto-timeout after 300 seconds (5 minutes)
+    setTimeout(async () => {
+      const session = llprintSessions.get(sessionKey);
+      // Ensure we only clean up the exact same context to avoid race conditions
+      if (session && session.context === context) {
+        console.log(`[LLPrint] Session timeout for ${chatId}. Cleaning up...`);
+        llprintSessions.delete(sessionKey);
+        await llPrintService.closeLLPrintFlow(context);
+        
+        const timeoutMsg = 'Session timed out (300s). Your OTP is no longer valid. Please start again.';
+        if (transport === 'telegram') await chatNotifier.sendTelegramMessage(chatId, timeoutMsg);
+        else await chatNotifier.sendWhatsAppText(chatId, timeoutMsg);
+      }
+    }, 300000);
+
     if (transport === 'telegram') await chatNotifier.sendTelegramMessage(chatId, 'OTP sent, enter it now.');
     else await chatNotifier.sendWhatsAppText(chatId, 'OTP sent, enter it now.');
     return { ok: true };
