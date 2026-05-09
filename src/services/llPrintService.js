@@ -2,7 +2,6 @@ const { chromium, firefox } = require('playwright');
 const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
-const os = require('os');
 const { PDFDocument } = require('pdf-lib');
 
 const OCR_API = "https://tata-ocs.duckdns.org/v1/solve";
@@ -81,50 +80,21 @@ async function smartSolveCaptcha(page, stepName) {
 async function startLLPrintFlow(appNum, dob, mobile) {
     console.log("🚀 Starting LL Print Flow...");
 
-    const baseProfilePath = path.join(process.cwd(), "firefox_permanent_profile");
-    const uniqueId = Date.now().toString() + Math.floor(Math.random() * 10000).toString();
-    const tempProfilePath = path.join(os.tmpdir(), `llprint_profile_${uniqueId}`);
-
+    // No persistent profile or firefox lock!
+    // Each session gets a new browser context (no lock on disk).
+    let browser, context;
     try {
-        if (fs.existsSync(baseProfilePath)) {
-            // Copy base profile to isolated temp directory
-            fs.cpSync(baseProfilePath, tempProfilePath, { recursive: true, force: true });
-            
-            // CRITICAL: Delete the lock file! If not deleted, Firefox will fail to launch or hang.
-            const lockFile = path.join(tempProfilePath, "parent.lock");
-            if (fs.existsSync(lockFile)) {
-                fs.rmSync(lockFile, { force: true });
-            }
-        }
-    } catch (e) {
-        console.warn("⚠️ Failed to copy base profile, continuing with empty profile:", e.message);
-    }
-
-    // In node.js playwright, user prefs are passed via options
-    const firefoxPrefs = {
-        "dom.disable_open_during_load": false,
-        "privacy.popups.showBrowserMessage": false,
-        "pdfjs.disabled": false,
-        "browser.download.folderList": 1,
-        "browser.download.manager.showWhenStarting": false,
-        "security.insecure_field_warning.contextual.enabled": false,
-        "security.certerrors.mitm.auto_enable_enterprise_roots": true,
-    };
-
-    let context;
-    try {
-        context = await firefox.launchPersistentContext(tempProfilePath, {
+        browser = await firefox.launch({
             headless: true,
-            firefoxUserPrefs: firefoxPrefs,
-            acceptDownloads: true,
-            userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
         });
-        
-        // Save the temp path to the context object so we can delete it later
-        context.__llprintTempProfilePath = tempProfilePath;
 
-        const pages = context.pages();
-        const page = pages.length > 0 ? pages[0] : await context.newPage();
+        context = await browser.newContext({
+            acceptDownloads: true,
+            userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0"
+            // No profile path: use blank/ephemeral profile per context
+        });
+
+        const page = await context.newPage();
 
         await page.goto(`${BASE_URL}/stateSelection.do`);
 
@@ -177,15 +147,15 @@ async function startLLPrintFlow(appNum, dob, mobile) {
             }
         }
 
-        // Return context and page so we can keep it alive
-        return { context, page };
+        // Return context, page, and browser for clean closing
+        return { context, page, browser };
     } catch (error) {
         console.error("❌ Error in startLLPrintFlow:", error);
         if (context) {
             await context.close().catch(() => {});
         }
-        if (fs.existsSync(tempProfilePath)) {
-            fs.rmSync(tempProfilePath, { recursive: true, force: true }).catch(() => {});
+        if (browser) {
+            await browser.close().catch(() => {});
         }
         throw error;
     }
@@ -393,37 +363,14 @@ async function submitLLPrintOTP(context, page, otpCode, appNum, dob) {
         throw e;
     } finally {
         await page.waitForTimeout(3000);
-        await context.close().catch(() => {});
-        
-        // Clean up the temporary profile
-        if (context.__llprintTempProfilePath && fs.existsSync(context.__llprintTempProfilePath)) {
-            try {
-                fs.rmSync(context.__llprintTempProfilePath, { recursive: true, force: true });
-            } catch (e) {
-                console.error("Failed to delete temp profile:", e);
-            }
-        }
-    }
-}
-
-async function closeLLPrintFlow(context) {
-    if (!context) return;
-    const tempPath = context.__llprintTempProfilePath;
-    try {
-        await context.close().catch(() => {});
-    } catch (e) {}
-
-    if (tempPath && fs.existsSync(tempPath)) {
-        try {
-            fs.rmSync(tempPath, { recursive: true, force: true });
-        } catch (e) {
-            console.error("Failed to delete temp profile on timeout:", e);
+        await context.close();
+        if (context.browser) {
+            await context.browser().close().catch(() => {});
         }
     }
 }
 
 module.exports = {
     startLLPrintFlow,
-    submitLLPrintOTP,
-    closeLLPrintFlow
+    submitLLPrintOTP
 };

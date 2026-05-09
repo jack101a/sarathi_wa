@@ -17,46 +17,6 @@ function getQueueType(command) {
 
 async function processRequest(message, transport, commandInfo) {
   const user = await authService.getUserForRequest(message, transport);
-  const isAdmin = authService.isAdminIdentity(message, transport, CONFIG);
-
-  // ── Identify effective user for tracking ──
-  const userId = user ? user.id : (isAdmin ? 'admin' : null);
-  const userPhone = user ? user.canonical_phone : (isAdmin && transport === 'whatsapp' ? authService.getWhatsAppSenderId(message) : (isAdmin ? 'admin' : null));
-
-  // ── Ensure llprint_start always uses the correct 10-digit mobile number ──
-  if (commandInfo.command === 'llprint_start') {
-    if (user && user.canonical_phone) {
-      commandInfo.payload.mobile = user.canonical_phone;
-    } else if (transport === 'whatsapp') {
-      const raw = authService.getWhatsAppSenderId(message);
-      // If it looks like a phone number (not @lid), take last 10 digits
-      if (raw && !raw.includes('@') && raw.replace(/\D/g, '').length >= 10) {
-        commandInfo.payload.mobile = raw.replace(/\D/g, '').slice(-10);
-      }
-    }
-  }
-
-  // ── Admin fast-path ───────────────────────────────────────────────────────
-  if (isAdmin) {
-    const queueType = getQueueType(commandInfo.command);
-    const jobId = makeJobId();
-    const payloadJson = JSON.stringify(commandInfo.payload || {});
-    await jobRepository.createJob({
-      id: jobId,
-      userId: userId || 'admin',
-      userPhone: userPhone || 'admin',
-      queueType,
-      command: commandInfo.command,
-      payloadJson,
-      chatId: commandInfo.chatId,
-      transport,
-    });
-    const job = { id: jobId, command: commandInfo.command, payload_json: payloadJson, chat_id: commandInfo.chatId, transport, user_phone: userPhone || 'admin' };
-    if (queueType === 'browser') browserQueue.enqueue(job); else apiQueue.enqueue(job);
-    return { blocked: false, jobId, isAdmin: true };
-  }
-
-  // ── Normal user path ──────────────────────────────────────────────────────
   if (!user) return { blocked: true, reason: 'unregistered', message: 'You are not registered. Contact admin.' };
 
   const allowed = authService.isUserAllowed(user);
