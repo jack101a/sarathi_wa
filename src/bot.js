@@ -620,6 +620,12 @@ async function createBot() {
         return;
       }
 
+      if (/^resend\s+([A-Z0-9]+)$/i.test(normalizedBody)) {
+        const appNo = normalizedBody.match(/^resend\s+([A-Z0-9]+)$/i)[1].toUpperCase();
+        await enqueueOrReply(message, 'whatsapp', { command: 'resend_otp', payload: { appNo }, chatId: message.from });
+        return;
+      }
+
       if (/^list\s+track$/i.test(normalizedBody)) {
         await enqueueOrReply(message, 'whatsapp', { command: 'list_track', payload: {}, chatId: message.from });
         return;
@@ -733,7 +739,7 @@ async function createBot() {
           const appNo = args[0] || '';
           const dob = normalizeDob(args[1] || '');
           if (!appNo || !dob) { await message.reply('Usage: appl <application_number> <dob>'); break; }
-          await enqueueOrReply(message, 'whatsapp', { command: 'appl_image', payload: { appNo, dob }, chatId: message.from });
+          await enqueueOrReply(message, 'whatsapp', { command: 'appl_pdf', payload: { appNo, dob }, chatId: message.from });
           break;
         }
         case 'form1':
@@ -792,7 +798,7 @@ async function createBot() {
     // Allow self-issued command messages, but ignore self echo chatter/status texts.
     if (message.fromMe) {
       const ownBody = normalizeText(message.body || '');
-      const looksLikeCommand = /^(help|track|add|remove|refresh|list|alive|suno|appl|form1|form1a|form2|formset|stop|auth|\/?llprint|\/?send(?:_|\s+)chatid)\b/i.test(ownBody);
+      const looksLikeCommand = /^(help|track|add|remove|refresh|list|alive|suno|appl|form1|form1a|form2|formset|stop|auth|resend|\/?llprint|\/?send(?:_|\s+)chatid)\b/i.test(ownBody);
       if (!looksLikeCommand) {
         return;
       }

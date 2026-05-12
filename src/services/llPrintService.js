@@ -1,10 +1,9 @@
 const { chromium, firefox } = require('playwright');
-const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
 const { PDFDocument } = require('pdf-lib');
+const { solveSarathiCaptcha } = require('./sarathiCaptchaSolver');
 
-const OCR_API = "https://tata-ocs.duckdns.org/v1/solve";
 const BASE_URL = "https://sarathi.parivahan.gov.in/sarathiservice";
 const CAPTCHA_RULES = [
     { src: "#capimg1", tgt: "#entcaptxt1" },
@@ -75,28 +74,8 @@ function releaseProfile(slotIdx) {
 // ---------------------------------------------------------------------------
 
 async function solveOcr(imageBytes) {
-    const b64Img = imageBytes.toString('base64');
-    try {
-        const res = await axios.post(
-            OCR_API,
-            {
-                type: "image",
-                provider: "image_ocr",
-                payload_base64: b64Img,
-                mode: "accurate",
-                domain: "sarathi.parivahan.gov.in",
-            },
-            {
-                headers: { "x-api-key": process.env.SARATHI_API_KEY || "sk-pJgH9MuRXU0ARtjgkeiNhztCrlqSFMSn4LerY06hhB4" },
-                timeout: 15000,
-            }
-        );
-        const data = res.data;
-        const solved = data.result || data.text || "";
-        return String(solved).trim();
-    } catch (e) {
-        return "";
-    }
+    const result = await solveSarathiCaptcha(imageBytes);
+    return result;
 }
 
 async function smartSolveCaptcha(page, stepName) {

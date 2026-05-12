@@ -773,6 +773,7 @@ function getHelpText() {
     'form1a <application_number> <dob>',
     'form2 <application_number> <dob>',
     'formset <application_number> <dob>',
+    'resend <application_number>',
     'alive',
     'suno',
     'help',

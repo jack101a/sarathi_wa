@@ -11,7 +11,7 @@ const INSTANT_COMMANDS = new Set(['track_status', 'list_track']);
 function makeJobId() { return `job_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`; }
 
 function getQueueType(command) {
-  const browserCommands = ['appl_pdf', 'appl_image', 'llprint_start'];
+  const browserCommands = ['llprint_start'];
   return browserCommands.includes(command) ? 'browser' : 'api';
 }
 

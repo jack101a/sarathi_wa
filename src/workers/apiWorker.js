@@ -11,6 +11,9 @@ const autoTrackService = require('../services/autoTrackService');
 const { addAutoTrack, removeAutoTrack, readTrackedApplications } = require('../services/autoTrackService');
 const { addTrack: addVahanTrack } = require('../services/vahanService');
 const { refreshAllTrackedApplications, removeVahanTrackEverywhere, enforceTrackingLimit } = require('../services/trackingControlService');
+const CONFIG = require('../config/config');
+const { getBrowser } = require('../core/puppeteerEngine');
+
 function makeVahanClient(transport, chatId) {
   return {
     sendText: async (cid, text) => {
@@ -91,6 +94,52 @@ apiQueue.process(async (job) => {
    return { ok: true };
  }
   if (job.command === 'track_status') { const p = await imageGeneratorService.generateStatusImage(chatId); await sendImageFile(transport, chatId, p); cleanup(p); return { ok: true }; }
+  if (job.command === 'resend_otp') {
+    let page;
+    try {
+      const browser = await getBrowser();
+      page = await browser.newPage();
+      
+      await page.goto(`${CONFIG.URLS.HOME}stateSelection.do`, {
+        waitUntil: 'networkidle2',
+        timeout: 60000,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      
+      const url = `https://sarathi.parivahan.gov.in/sarathiservice/passwordresendSTALL.do?applno=${payload.appNo}&_=${Date.now()}`;
+      
+      const resStatus = await page.evaluate(async (fetchUrl) => {
+        try {
+          const response = await fetch(fetchUrl, {
+            headers: {
+              "accept": "*/*",
+              "accept-language": "en-GB,en-US;q=0.9,en;q=0.8",
+              "sec-fetch-dest": "empty",
+              "sec-fetch-mode": "cors",
+              "sec-fetch-site": "same-origin",
+              "x-requested-with": "XMLHttpRequest",
+              "referrer": "https://sarathi.parivahan.gov.in/sarathiservice/authenticationaction.do?authtype=Anugnya"
+            },
+            credentials: 'include'
+          });
+          return response.status;
+        } catch (e) {
+          return 500;
+        }
+      }, url);
+
+      if (resStatus === 200) {
+        await sendText(transport, chatId, `Password has been Resend on ${payload.appNo} ✅`);
+      } else {
+        await sendText(transport, chatId, `OTP resend request made for ${payload.appNo} (Status: ${resStatus}).`);
+      }
+    } catch (e) {
+      await sendText(transport, chatId, `Failed to resend OTP for ${payload.appNo} (Error: ${e.message}).`);
+    } finally {
+      if (page) await page.close().catch(()=>({}));
+    }
+    return { ok: true };
+  }
  await sendText(transport, chatId, 'Unsupported command for API worker.'); return { ok: false };
 });
 

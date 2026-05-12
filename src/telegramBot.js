@@ -108,6 +108,7 @@ function buildHelpText() {
     '/form1a <application_number> <dob>',
     '/form2 <application_number> <dob>',
     '/formset <application_number> <dob>',
+    '/resend <application_number>',
     '/alive',
     '/suno',
   ].join('\n');
@@ -242,7 +243,7 @@ async function startTelegramBot(config) {
     const appNo = args[0];
     const dob = normalizeDob(args[1] || '');
     if (!appNo || !dob) { await bot.sendMessage(chatId, 'Usage: /appl <application_number> <dob>'); return; }
-    await enqueueOrReplyTg(bot, msg, { command: 'appl_image', payload: { appNo, dob }, chatId });
+    await enqueueOrReplyTg(bot, msg, { command: 'appl_pdf', payload: { appNo, dob }, chatId });
   });
 
   bot.onText(/^\/form1(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
@@ -312,6 +313,14 @@ async function startTelegramBot(config) {
     }
     const cleanMobile = mobile.length > 10 ? mobile.slice(-10) : mobile;
     await enqueueOrReplyTg(bot, msg, { command: 'llprint_start', payload: { appNo, dob, mobile: cleanMobile }, chatId });
+  });
+
+  bot.onText(/^\/resend(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
+    if (!(await isTgAuthorized(msg, CONFIG))) return;
+    const chatId = msg.chat.id;
+    const appNo = parseArgs(match && match[1])[0];
+    if (!appNo) { await bot.sendMessage(chatId, 'Usage: /resend <application_number>'); return; }
+    await enqueueOrReplyTg(bot, msg, { command: 'resend_otp', payload: { appNo: appNo.toUpperCase() }, chatId });
   });
 
   bot.onText(/^\/addtrack(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
