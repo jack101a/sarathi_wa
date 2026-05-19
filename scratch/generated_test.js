@@ -350,7 +350,7 @@ test('test', async ({ page }) => {
   await successLocator.waitFor({ state: 'visible', timeout: 30000 }).catch(e => {
       console.log('[DEBUG Trace] ' + '[DEBUG] Success message not found within 30s, continuing with priming requests...');
   });
-  console.log('[DEBUG Trace] ' + '[DEBUG] Success message detected/timeout reached. Executing Priming Request 1 (confirmOrAdd_execute.do) for DYNAMIC_APP_NO:', dyn.appNo);
+  console.log('[DEBUG Trace] ' + '[DEBUG] Success message detected/timeout reached. Executing Priming Request 1 (confirmOrAdd_execute.do) for BAIT_APP_NO:', appNo);
   const fetch1Status = await page.evaluate(async (d) => {
     try {
       const resp = await fetch("https://sarathi.parivahan.gov.in/sarathiservice/confirmOrAdd_execute.do", {
@@ -377,7 +377,7 @@ test('test', async ({ page }) => {
     } catch (err) {
       return err.message;
     }
-  }, dyn);
+  }, { appNo, dob });
   console.log('[DEBUG Trace] ' + '[DEBUG] Priming Request 1 Completed. Status/Result:', fetch1Status);
 
   console.log('[DEBUG Trace] ' + '[DEBUG] Waiting 4 seconds before second priming request...');
