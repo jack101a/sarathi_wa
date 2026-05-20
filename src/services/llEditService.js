@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 
 const { solveSarathiCaptcha } = require('./sarathiCaptchaSolver');
-const { fetchInfo } = require(path.join(process.cwd(), 'scratch', 'info_fetcher.js'));
+const { fetchInfo } = require('./infoFetcherService');
 
 async function smartSolveCaptcha(page) {
   console.log('[lledit] smartSolveCaptcha started');
