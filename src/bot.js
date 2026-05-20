@@ -59,6 +59,7 @@ const {
 } = require('./workers/browserWorker');
 const fs = require('fs');
 
+const botStartupTime = Math.floor(Date.now() / 1000);
 const TRACK_DOB_TIMEOUT_MS = 120 * 1000;
 const pendingDobRequests = new Map();
 const interactiveAddTrackFlows = new Map();
@@ -861,6 +862,10 @@ async function createBot() {
 
   client.on('message_create', async (message) => {
     if (!message) {
+      return;
+    }
+
+    if (message.timestamp && message.timestamp < botStartupTime) {
       return;
     }
 
