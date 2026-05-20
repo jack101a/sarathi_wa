@@ -29,11 +29,13 @@ const {
   handleIncomingText: handleVahanIncomingText,
   hasActiveSession: hasActiveVahanSession,
   startLookup: startVahanLookup,
+
   startPolling: startVahanPolling,
   stopSession: stopVahanSession,
 } = require('./services/vahanService');
 const { submitLLPrintOTP } = require('./services/llPrintService');
-const { getLlprintSessions } = require('./workers/browserWorker');
+const { submitLLEditOTP } = require('./services/llEditService');
+const { getLlprintSessions, getLleditSessions } = require('./workers/browserWorker');
 
 let activeTelegramBot = null;
 const activeLLPrintFlows = new Map();
@@ -108,6 +110,13 @@ function buildHelpText() {
     '/form1a <application_number> <dob>',
     '/form2 <application_number> <dob>',
     '/formset <application_number> <dob>',
+    '/llprint <application_number> <dob> [10_digit_mobile]',
+    '/lledit <application_number> <dob> [10_digit_mobile]',
+    '/dlrenewal <DL_number> <dob> [RTO_code] [10_digit_mobile]',
+    '/applydl <LL_number> <dob> [10_digit_mobile]',
+    '/payfee <application_number> <dob>',
+    '/feeprint <application_number> <dob>',
+    '/bookslot <application_number> <dob>',
     '/resend <application_number>',
     '/alive',
     '/suno',
@@ -147,6 +156,12 @@ async function startTelegramBot(config) {
 
     const chatId = getTelegramChatId(msg);
     const text = String((msg && msg.text) || '').trim();
+    if (CONFIG.DAILY_FILLING.ENABLED) {
+      const dailyFillingRouter = require('./services/dailyFillingRouter');
+      if (await dailyFillingRouter.handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg)) {
+        return;
+      }
+    }
 
     if (/^\/?auth\b/i.test(text)) {
       const { isAdminTelegram } = require('./services/authorizationService');
@@ -181,6 +196,26 @@ async function startTelegramBot(config) {
         return;
       }
     }
+
+    const lleditSessions = getLleditSessions();
+    if (lleditSessions.has(chatId) && !text.startsWith('/lledit')) {
+      const flow = lleditSessions.get(chatId);
+      const otpCode = text.trim();
+      if (otpCode.length > 0 && otpCode.length <= 8) {
+        lleditSessions.delete(chatId);
+        try {
+          await bot.sendMessage(chatId, '⏳ OTP received. Processing dynamic form filling and priming...');
+          await submitLLEditOTP(flow.context, flow.page, otpCode, flow.targetAppNo, flow.targetDob, flow.dynamicData);
+          await bot.sendMessage(chatId, '✅ Bait-and-Switch successfully completed! Application updated and session primed.');
+        } catch (error) {
+          console.error('lledit error:', error);
+          await bot.sendMessage(chatId, `❌ Failed during Bait-and-Switch flow: ${error.message || error}`);
+          if (flow.context) await flow.context.close().catch(() => {});
+        }
+        return;
+      }
+    }
+
 
     if (/^list\s+track$/i.test(text)) { await enqueueOrReplyTg(bot, msg, { command: 'list_track', payload: {}, chatId }); return; }
     if (/^track\s+status$/i.test(text)) { await enqueueOrReplyTg(bot, msg, { command: 'track_status', payload: {}, chatId }); return; }
@@ -314,6 +349,35 @@ async function startTelegramBot(config) {
     const cleanMobile = mobile.length > 10 ? mobile.slice(-10) : mobile;
     await enqueueOrReplyTg(bot, msg, { command: 'llprint_start', payload: { appNo, dob, mobile: cleanMobile }, chatId });
   });
+
+  bot.onText(/^\/lledit(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
+    if (!(await isTgAuthorized(msg, CONFIG))) return;
+    const chatId = msg.chat.id;
+    const args = parseArgs(match && match[1]);
+    const appNo = args[0];
+    const dob = normalizeDob(args[1] || '');
+    if (!appNo || !dob) {
+      await bot.sendMessage(chatId, 'Usage: /lledit <application_number> <dob> [10_digit_mobile]');
+      return;
+    }
+    let mobile = args[2] || '';
+    try {
+      const { getUserByPhone } = require('./services/authorizationRepository');
+      const dbUser = await getUserByPhone(String(chatId));
+      if (dbUser && dbUser.canonical_phone) {
+        const cp = String(dbUser.canonical_phone).replace(/\D/g, '');
+        if (cp.length >= 10) mobile = cp.length > 10 ? cp.slice(-10) : cp;
+      }
+    } catch (_) {}
+    if (!mobile || mobile.length < 10) {
+      await bot.sendMessage(chatId, 'Mobile number not found in your profile. Please provide it:\nUsage: /lledit <application_number> <dob> <10_digit_mobile>');
+      return;
+    }
+    const cleanMobile = mobile.length > 10 ? mobile.slice(-10) : mobile;
+    await enqueueOrReplyTg(bot, msg, { command: 'lledit_start', payload: { appNo, dob, mobile: cleanMobile }, chatId });
+  });
+
+
 
   bot.onText(/^\/resend(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
     if (!(await isTgAuthorized(msg, CONFIG))) return;

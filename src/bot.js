@@ -50,8 +50,13 @@ const {
   refreshAllTrackedApplications,
   removeVahanTrackEverywhere,
 } = require('./services/trackingControlService');
+
 const { submitLLPrintOTP } = require('./services/llPrintService');
-const { getLlprintSessions } = require('./workers/browserWorker');
+const { submitLLEditOTP } = require('./services/llEditService');
+const { 
+  getLlprintSessions, 
+  getLleditSessions,
+} = require('./workers/browserWorker');
 const fs = require('fs');
 
 const TRACK_DOB_TIMEOUT_MS = 120 * 1000;
@@ -548,6 +553,13 @@ async function createBot() {
         return;
       }
 
+      if (CONFIG.DAILY_FILLING.ENABLED) {
+        const dailyFillingRouter = require('./services/dailyFillingRouter');
+        if (await dailyFillingRouter.handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply)) {
+          return;
+        }
+      }
+
       if (llprintSessions.has(message.from) && !normalizedBody.startsWith('/llprint')) {
         const flow = llprintSessions.get(message.from);
         const otpCode = normalizedBody.trim();
@@ -560,6 +572,25 @@ async function createBot() {
             if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath);
           } catch (error) {
             await message.reply('Failed to download Learner Licence or OTP was incorrect.');
+            if (flow.context) await flow.context.close().catch(() => {});
+          }
+          return;
+        }
+      }
+
+      const lleditSessions = getLleditSessions();
+      if (lleditSessions.has(message.from) && !normalizedBody.startsWith('/lledit')) {
+        const flow = lleditSessions.get(message.from);
+        const otpCode = normalizedBody.trim();
+        if (otpCode.length > 0 && otpCode.length <= 8) {
+          lleditSessions.delete(message.from);
+          try {
+            await message.reply('⏳ OTP received. Processing dynamic form filling and priming...');
+            await submitLLEditOTP(flow.context, flow.page, otpCode, flow.targetAppNo, flow.targetDob, flow.dynamicData);
+            await message.reply('✅ Bait-and-Switch successfully completed! Application updated and session primed.');
+          } catch (error) {
+            console.error('lledit error:', error);
+            await message.reply(`❌ Failed during Bait-and-Switch flow: ${error.message || error}`);
             if (flow.context) await flow.context.close().catch(() => {});
           }
           return;
@@ -617,6 +648,31 @@ async function createBot() {
           mobile = senderPhone.length > 10 ? senderPhone.slice(-10) : senderPhone;
         }
         await enqueueOrReply(message, 'whatsapp', { command: 'llprint_start', payload: { appNo, dob, mobile }, chatId: message.from });
+        return;
+      }
+
+      if (/^\/?lledit(?:\s+.*)?$/i.test(normalizedBody)) {
+        const llArgs = normalizedBody.split(/\s+/).slice(1);
+        const appNo = llArgs[0];
+        const dob = normalizeDob(llArgs[1] || '');
+        if (!appNo || !dob) {
+          await message.reply('Usage: /lledit <application_number> <dob>');
+          return;
+        }
+        let mobile;
+        try {
+          const { getUserForRequest } = require('./services/authorizationService');
+          const dbUser = await getUserForRequest(message, 'whatsapp');
+          if (dbUser && dbUser.canonical_phone) {
+            const cp = String(dbUser.canonical_phone).replace(/\D/g, '');
+            mobile = cp.length > 10 ? cp.slice(-10) : cp;
+          }
+        } catch (_) {}
+        if (!mobile) {
+          const senderPhone = (message.from || '').split('@')[0].replace(/\D/g, '');
+          mobile = senderPhone.length > 10 ? senderPhone.slice(-10) : senderPhone;
+        }
+        await enqueueOrReply(message, 'whatsapp', { command: 'lledit_start', payload: { appNo, dob, mobile }, chatId: message.from });
         return;
       }
 
@@ -798,7 +854,7 @@ async function createBot() {
     // Allow self-issued command messages, but ignore self echo chatter/status texts.
     if (message.fromMe) {
       const ownBody = normalizeText(message.body || '');
-      const looksLikeCommand = /^(help|track|add|remove|refresh|list|alive|suno|appl|form1|form1a|form2|formset|stop|auth|resend|\/?llprint|\/?send(?:_|\s+)chatid)\b/i.test(ownBody);
+      const looksLikeCommand = /^(help|track|add|remove|refresh|list|alive|suno|appl|form1|form1a|form2|formset|stop|auth|resend|\/?llprint|\/?lledit|\/?payfee|\/?feeprint|\/?dlrenewal|\/?applydl|\/?bookslot|\/?send(?:_|\s+)chatid)\b/i.test(ownBody);
       if (!looksLikeCommand) {
         return;
       }

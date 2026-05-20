@@ -21,13 +21,15 @@ async function initDb() {
 
   const migrations = [
     "ALTER TABLE auth_users ADD COLUMN name TEXT DEFAULT ''",
-    "ALTER TABLE auth_users ADD COLUMN subscription_plan TEXT DEFAULT 'free'",
-    "ALTER TABLE auth_users ADD COLUMN monthly_limit INTEGER DEFAULT 50",
+    "ALTER TABLE auth_users ADD COLUMN subscription_plan TEXT DEFAULT 'standard'",
+    "ALTER TABLE auth_users ADD COLUMN monthly_limit INTEGER DEFAULT 0",
     "ALTER TABLE auth_users ADD COLUMN used_count INTEGER DEFAULT 0",
     "ALTER TABLE auth_users ADD COLUMN daily_count INTEGER DEFAULT 0",
     "ALTER TABLE auth_users ADD COLUMN expiry_date TEXT DEFAULT ''",
     "ALTER TABLE auth_users ADD COLUMN billing_cycle_start TEXT DEFAULT ''",
-    "ALTER TABLE auth_users ADD COLUMN last_daily_reset TEXT DEFAULT ''"
+    "ALTER TABLE auth_users ADD COLUMN last_daily_reset TEXT DEFAULT ''",
+    // Credit balance for professional/heavy services (50 RS per job deducted on success)
+    "ALTER TABLE auth_users ADD COLUMN credits INTEGER DEFAULT 0"
   ];
   for (const sql of migrations) {
     try { await execRun(sql); } catch (_) {}
@@ -38,8 +40,12 @@ async function initDb() {
   await execRun('CREATE INDEX IF NOT EXISTS idx_jobs_user ON jobs(user_id, status)');
   await execRun('CREATE INDEX IF NOT EXISTS idx_jobs_queue ON jobs(queue_type, status)');
 
-  await execRun(`CREATE TABLE IF NOT EXISTS rate_limit_log (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, timestamp TEXT NOT NULL, command TEXT NOT NULL)`);
+  // rate_limit_log: category column for per-category quota counting (light/medium/heavy)
+  await execRun(`CREATE TABLE IF NOT EXISTS rate_limit_log (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, timestamp TEXT NOT NULL, command TEXT NOT NULL, category TEXT NOT NULL DEFAULT 'light')`);
+  // Migration: add category column to existing DBs BEFORE creating index on it
+  try { await execRun("ALTER TABLE rate_limit_log ADD COLUMN category TEXT NOT NULL DEFAULT 'light'"); } catch (_) {}
   await execRun('CREATE INDEX IF NOT EXISTS idx_rate_log_user ON rate_limit_log(user_id, timestamp)');
+  await execRun('CREATE INDEX IF NOT EXISTS idx_rate_log_cat  ON rate_limit_log(user_id, category, timestamp)');
 }
 
 const command = process.argv[2];

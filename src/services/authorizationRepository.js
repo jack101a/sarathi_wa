@@ -102,8 +102,24 @@ async function addAuthorizedGroup(groupId, channel, createdBy = 'admin') {
 }
 async function removeAuthorizedGroup(groupId, channel) { await run('UPDATE authorized_groups SET is_active = 0 WHERE group_id = ? AND channel = ?', [groupId, channel]); }
 
+async function addCredits(userId, amount) {
+  const n = Math.max(0, Number(amount) || 0);
+  await run('UPDATE auth_users SET credits = COALESCE(credits,0) + ?, updated_at = ? WHERE id = ?', [n, nowIso(), userId]);
+  const rows = await query('SELECT credits FROM auth_users WHERE id = ?', [userId]);
+  return Number((rows[0] && rows[0].credits) || 0);
+}
+async function setCredits(userId, amount) {
+  const n = Math.max(0, Number(amount) || 0);
+  await run('UPDATE auth_users SET credits = ?, updated_at = ? WHERE id = ?', [n, nowIso(), userId]);
+  return n;
+}
+async function getCredits(userId) {
+  const rows = await query('SELECT credits FROM auth_users WHERE id = ?', [userId]);
+  return Number((rows[0] && rows[0].credits) || 0);
+}
+
 async function queryAsync(sql, params = []) { return query(sql, params); }
 async function runAsync(sql, params = []) { return run(sql, params); }
 
 initDb();
-module.exports = { initDb, query: queryAsync, run: runAsync, getUserByPhone, getUserById, listAllUsers, createUser, updateUserProfile, incrementUsage, resetMonthlyUsage, resetDailyCount, deactivateUserById, deactivateUser, createUserIdentity, getIdentity, createVerification, getPendingVerification, updateVerificationStatus, getAuthorizedGroups, addAuthorizedGroup, removeAuthorizedGroup };
+module.exports = { initDb, query: queryAsync, run: runAsync, getUserByPhone, getUserById, listAllUsers, createUser, updateUserProfile, incrementUsage, resetMonthlyUsage, resetDailyCount, deactivateUserById, deactivateUser, createUserIdentity, getIdentity, createVerification, getPendingVerification, updateVerificationStatus, getAuthorizedGroups, addAuthorizedGroup, removeAuthorizedGroup, addCredits, setCredits, getCredits };

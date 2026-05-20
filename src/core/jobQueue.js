@@ -2,6 +2,7 @@ const CONFIG = require('../config/config');
 const jobRepository = require('../services/jobRepository');
 const logger = require('./logger');
 const { run } = require('./db');
+const { HEAVY_COMMANDS } = require('./rateLimiter');
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -45,6 +46,17 @@ class JobQueue {
       await jobRepository.updateJobStatus(job.id, 'completed', JSON.stringify(result || {}), '');
       this.completed += 1;
       logger.debug('jobQueue', `Job completed`, { queue: this.name, jobId: job.id, command: job.command });
+
+      // ── Credit deduction for heavy (professional) commands ──────────────────
+      // Deducted ONLY on successful completion, not on failure/cancellation.
+      if (HEAVY_COMMANDS.has(job.command) && job.user_id) {
+        const cost = CONFIG.CREDIT_COST.heavy || 50;
+        await run(
+          'UPDATE auth_users SET credits = MAX(0, COALESCE(credits,0) - ?) WHERE id = ?',
+          [cost, job.user_id]
+        );
+        logger.info('jobQueue', `Deducted ${cost} credits from user ${job.user_id} for ${job.command}`);
+      }
     } catch (error) {
       const errMsg = error.message || String(error);
       await jobRepository.updateJobStatus(job.id, 'failed', '{}', errMsg);

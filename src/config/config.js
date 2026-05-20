@@ -188,6 +188,9 @@ const CONFIG = {
   PORT: asNumber(process.env.PORT, DEFAULTS.PORT),
   STATE_ID: String(getConfigValue('STATE_ID', 'state.id')).trim(),
   STATE_CODE: String(getConfigValue('STATE_CODE', 'state.code')).trim(),
+  DAILY_FILLING: {
+    ENABLED: asBoolean(process.env.DAILY_FILLING_ENABLED, false),
+  },
 
   URLS: {
     HOME: String(getConfigValue('HOME_URL', 'urls.home', DEFAULTS.HOME_URL)).trim(),
@@ -308,14 +311,40 @@ const CONFIG = {
     ),
   },
 
+  // ─────────────────────────────────────────────────────────────────────
+  // Rate Limits: 3-category tiered model
+  //
+  //  LIGHT   — API/fetch commands: /track, /vahan, /form, /status, /appl
+  //            Low CPU/RAM. 20 per day, 300 per month.
+  //
+  //  MEDIUM  — Browser commands with no destructive writes:
+  //            /llprint, /feeprint, /payfee, /slotbooking, /resendotp
+  //            5 per day, 60 per month.
+  //
+  //  HEAVY   — Professional / data-writing browser services:
+  //            /lledit, /dlrenewal, /applydl (vehicle-class change), etc.
+  //            Credit-based: 50 RS (credits) deducted per SUCCESSFUL job.
+  //            No day/month cap — governed purely by credit balance.
+  //
+  //  No 'free' trial tier — every user must be explicitly activated.
+  // ─────────────────────────────────────────────────────────────────────
   RATE_LIMITS: {
-    free: { perMinute: 5, perDay: 100, perMonth: 50, maxConcurrent: 2 },
-    premium: { perMinute: 15, perDay: 300, perMonth: 500, maxConcurrent: 5 },
+    standard: {
+      light:  { perDay: 20,  perMonth: 300 },
+      medium: { perDay: 5,   perMonth: 60  },
+      heavy:  { perDay: 999, perMonth: 9999 }, // governed by credits, not quota
+      maxConcurrent: 3,
+    },
+  },
+
+  // Cost in credits deducted per successful heavy job.
+  CREDIT_COST: {
+    heavy: asNumber(process.env.CREDIT_COST_HEAVY, 50),
   },
 
   QUEUE: {
-    API_CONCURRENCY:     asNumber(process.env.API_CONCURRENCY,     8),
-    BROWSER_CONCURRENCY: asNumber(process.env.BROWSER_CONCURRENCY, 2),
+    API_CONCURRENCY:     asNumber(process.env.API_CONCURRENCY,     6),
+    BROWSER_CONCURRENCY: asNumber(process.env.BROWSER_CONCURRENCY, 4),
     BROWSER_DELAY_MS:    asNumber(process.env.BROWSER_DELAY_MS,    3000),
     BROWSER_MAX_RETRIES: asNumber(process.env.BROWSER_MAX_RETRIES, 2),
     BROWSER_BACKOFF_MS:  asNumber(process.env.BROWSER_BACKOFF_MS,  5000),
