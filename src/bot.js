@@ -676,6 +676,19 @@ async function createBot() {
         return;
       }
 
+      // /feeprint — standalone receipt download, does NOT require DAILY_FILLING.ENABLED
+      if (/^\/?feeprint(?:\s+.*)?$/i.test(normalizedBody)) {
+        const fpArgs = normalizedBody.split(/\s+/).slice(1);
+        const appNo  = fpArgs[0];
+        const dob    = normalizeDob(fpArgs[1] || '');
+        if (!appNo || !dob) {
+          await message.reply('Usage: /feeprint <application_number> <dob>\nExample: /feeprint 2179944526 04-08-1998');
+          return;
+        }
+        await enqueueOrReply(message, 'whatsapp', { command: 'fee_print_start', payload: { appNo, dob }, chatId: message.from });
+        return;
+      }
+
       if (/^resend\s+([A-Z0-9]+)$/i.test(normalizedBody)) {
         const appNo = normalizedBody.match(/^resend\s+([A-Z0-9]+)$/i)[1].toUpperCase();
         await enqueueOrReply(message, 'whatsapp', { command: 'resend_otp', payload: { appNo }, chatId: message.from });
