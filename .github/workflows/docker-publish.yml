@@ -1,11 +1,11 @@
 ### SECTION: Global Config
-name: Build and Publish Docker Image
+name: Build and Publish Docker Image (wabot)
 
-# Strictly locked to the 'wabot' branch.
-# Pushing to 'main' or any other branch will NOT trigger this.
+# Triggers on pushes to 'test-scaling' branch.
+# Produces the same :wabot rolling tag so the VPS can pull it directly.
 on:
   push:
-    branches: [ "wabot" ]
+    branches: [ "test-scaling" ]
 
 ### SECTION: Main Logic
 jobs:
@@ -46,7 +46,7 @@ jobs:
           # Cache layers in the registry to speed up future builds
           cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache
           cache-to:   type=registry,ref=${{ env.IMAGE_NAME }}:buildcache,mode=max
-          # Rolling deployment tag + per-run rollback tag
+          # :wabot = rolling tag (VPS pulls this), :wabot-N = per-run rollback tag
           tags: |
             ${{ env.IMAGE_NAME }}:wabot
             ${{ env.IMAGE_NAME }}:wabot-${{ github.run_number }}

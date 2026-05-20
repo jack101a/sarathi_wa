@@ -53,11 +53,11 @@ ENV AUTO_TRACK_STORE_FILE=data/tracked_applications.json
 ENV VAHAN_TRACK_STORE_FILE=data/vahan_tracked_applications.json
 ENV TEMP_DIR=data/tmp
 
-# Scalability defaults
+# Scalability defaults (tuned for Oracle Free VPS + home server, 20-50 users)
 ENV SESSION_POOL_SIZE=3
 ENV MAX_BROWSER_PAGES=5
-ENV API_CONCURRENCY=8
-ENV BROWSER_CONCURRENCY=2
+ENV API_CONCURRENCY=6
+ENV BROWSER_CONCURRENCY=4
 ENV LOG_LEVEL=info
 
 WORKDIR /app
@@ -75,7 +75,6 @@ COPY . .
 
 # Ensure required data directories exist
 RUN mkdir -p /app/data/tmp /app/data /app/.wwebjs_auth
-
 
 # WhatsApp session volume
 VOLUME ["/app/.wwebjs_auth"]
