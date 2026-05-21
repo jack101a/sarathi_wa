@@ -13,6 +13,12 @@ function getDb() {
   db = new sqlite3.Database(dbPath);
   db.serialize(() => {
     db.run('PRAGMA journal_mode=WAL');
+    db.run(`CREATE TABLE IF NOT EXISTS ai_layout_mappings (
+      layout_hash TEXT PRIMARY KEY,
+      portal_type TEXT NOT NULL,
+      mapping_rules TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
   });
   return db;
 }

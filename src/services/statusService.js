@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Status service responsibility:
  * Handle status-related workflows for bot interactions.
  */
@@ -10,6 +10,8 @@ const { renderHTML } = require('../core/puppeteerEngine');
 const { getTempFilePath } = require('../core/tempFiles');
 const cheerio = require('cheerio');
 const fs = require('fs');
+const aiParsingService = require('./aiParsingService');
+
 
 function normalizeText(value) {
   return String(value || '')
@@ -303,9 +305,28 @@ function parseStatusDetails(html) {
   };
 }
 
+async function parseStatusDetailsAsync(html) {
+  const standardResult = parseStatusDetails(html);
+  if (CONFIG.AI_PARSING.ENABLED) {
+    const needsAi = !standardResult.transaction || !standardResult.stage || !standardResult.completedActions || standardResult.completedActions.length === 0;
+    if (needsAi) {
+      try {
+        const aiResult = await aiParsingService.parseStatusPage(html, 'sarathi');
+        if (aiResult) {
+          return aiResult;
+        }
+      } catch (err) {
+        console.error('[AI Parsing] Sarathi AI parsing failed, using standard:', err);
+      }
+    }
+  }
+  return standardResult;
+}
+
 module.exports = {
   getVisualStatus,
   getStatusSnapshot,
   fetchStatusMarkup,
   parseStatusDetails,
+  parseStatusDetailsAsync,
 };

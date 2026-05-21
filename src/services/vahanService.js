@@ -8,6 +8,7 @@ const { CookieJar } = require('tough-cookie');
 const CONFIG = require('../config/config');
 const { renderHTML } = require('../core/puppeteerEngine');
 const { getTempFilePath } = require('../core/tempFiles');
+const aiParsingService = require('./aiParsingService');
 const { solveCaptcha } = require('./vahanCaptchaSolver');
 const {
   getTelegramNotificationTargets,
@@ -511,6 +512,31 @@ function parseStatusCard(xmlText, fallbackApplicationNumber) {
   return card;
 }
 
+async function parseStatusCardAsync(xmlText, fallbackApplicationNumber) {
+  const standardResult = parseStatusCard(xmlText, fallbackApplicationNumber);
+
+  if (CONFIG.AI_PARSING.ENABLED) {
+    const needsAi = !standardResult || !standardResult.vehicleNumber || !standardResult.rows || standardResult.rows.length === 0;
+    if (needsAi) {
+      const text = String(xmlText || '').toUpperCase();
+      const hasStatusIndicators = text.includes('APPLICATION STATUS') || text.includes('SHOWSTATUS') || text.includes('STATUS') || text.includes('TB_APPL_NO_STATUS');
+      const isError = text.includes('VERIFICATION CODE') || text.includes('SESSION EXPIRED') || text.includes('EXPIRED');
+
+      if (hasStatusIndicators && !isError) {
+        try {
+          const aiResult = await aiParsingService.parseStatusPage(xmlText, 'vahan');
+          if (aiResult) {
+            return aiResult;
+          }
+        } catch (err) {
+          console.error('[AI Parsing] Vahan AI parsing failed, using standard:', err);
+        }
+      }
+    }
+  }
+  return standardResult;
+}
+
 function isIgnoredTransaction(transactionPurpose) {
   const text = normalizeText(transactionPurpose).toUpperCase();
   return /(^|\s|\/)(POSTAL\s+)?FEE(\s|\/|$)/.test(text)
@@ -737,7 +763,7 @@ async function renderStatusImage(card, chatId) {
   return imagePath;
 }
 
-function isSessionExpiredResponse(xmlText, fallbackApplicationNumber) {
+async function isSessionExpiredResponse(xmlText, fallbackApplicationNumber) {
   const text = normalizeText(xmlText).toUpperCase();
   if (!text) {
     return true;
@@ -747,7 +773,7 @@ function isSessionExpiredResponse(xmlText, fallbackApplicationNumber) {
     return true;
   }
 
-  const card = parseStatusCard(xmlText, fallbackApplicationNumber);
+  const card = await parseStatusCardAsync(xmlText, fallbackApplicationNumber);
   return !card;
 }
 
@@ -882,7 +908,7 @@ async function attemptAutomatedLookup(client, session, options = {}) {
         session.authenticated = false;
         session.captchaRetryCount = attempt;
       } else {
-        const card = parseStatusCard(xmlText, session.applicationNumber);
+        const card = await parseStatusCardAsync(xmlText, session.applicationNumber);
         if (!card) {
           throw new Error('The Vahan response did not contain a status card.');
         }
@@ -931,8 +957,8 @@ async function startLookup(client, chatId, applicationNumber, transport = 'whats
     try {
       existing.expectedVehicleNo = expectedVehicleNo;
       const xmlText = await submitWithAuthenticatedSession(existing, applicationNumber);
-      if (!isSessionExpiredResponse(xmlText, applicationNumber)) {
-        const card = parseStatusCard(xmlText, applicationNumber);
+      if (!(await isSessionExpiredResponse(xmlText, applicationNumber))) {
+        const card = await parseStatusCardAsync(xmlText, applicationNumber);
         if (sendStatusImage) {
           const imagePath = await renderStatusImage(card, chatId);
           await sendImageFile(client, chatId, imagePath, `Vahan status: ${card.vehicleNumber || card.applicationNumber}`);
@@ -1060,7 +1086,7 @@ async function handleIncomingText(client, chatId, text, transport = 'whatsapp') 
       return true;
     }
 
-    const card = parseStatusCard(xmlText, session.applicationNumber);
+    const card = await parseStatusCardAsync(xmlText, session.applicationNumber);
     if (!card) {
       await stopSession(chatId, transport);
       await sendTextMessage(client, chatId, 'The Vahan captcha session looks expired. Send `track rc <appl_no>` again for a fresh captcha.');
@@ -1144,12 +1170,12 @@ async function pollTrackedApplications() {
     session.requestInFlight = true;
     try {
       const xmlText = await submitWithAuthenticatedSession(session, item.applicationNumber);
-      if (isSessionExpiredResponse(xmlText, item.applicationNumber)) {
+      if (await isSessionExpiredResponse(xmlText, item.applicationNumber)) {
         sessions.delete(getSessionKey(item.chatId, item.transport));
         continue;
       }
 
-      const card = parseStatusCard(xmlText, item.applicationNumber);
+      const card = await parseStatusCardAsync(xmlText, item.applicationNumber);
       if (!card) {
         continue;
       }
@@ -1217,7 +1243,7 @@ async function refreshTrackedApplications(chatId, transport = 'whatsapp') {
     session.requestInFlight = true;
     try {
       const xmlText = await submitWithAuthenticatedSession(session, item.applicationNumber);
-      if (isSessionExpiredResponse(xmlText, item.applicationNumber)) {
+      if (await isSessionExpiredResponse(xmlText, item.applicationNumber)) {
         sessions.delete(getSessionKey(chatId, transport));
         await startLookup(activeClient, chatId, item.applicationNumber, transport, { sendStatusImage: false });
         const sessionAfterReauth = getSessionByTransport(chatId, transport);
@@ -1227,7 +1253,7 @@ async function refreshTrackedApplications(chatId, transport = 'whatsapp') {
         continue;
       }
 
-      const card = parseStatusCard(xmlText, item.applicationNumber);
+      const card = await parseStatusCardAsync(xmlText, item.applicationNumber);
       if (!card) {
         continue;
       }
@@ -1298,6 +1324,7 @@ module.exports = {
       sleepFn = fn;
     },
     parseStatusCard,
+    parseStatusCardAsync,
     buildTrackingSnapshot,
     deriveVahanTimeline,
     isIgnoredTransaction,

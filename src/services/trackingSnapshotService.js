@@ -1,6 +1,6 @@
 const fs = require('fs');
 const { getAckSnapshot } = require('./ackService');
-const { getStatusSnapshot, parseStatusDetails } = require('./statusService');
+const { getStatusSnapshot, parseStatusDetails, parseStatusDetailsAsync } = require('./statusService');
 const { renderHTML } = require('../core/puppeteerEngine');
 const { getTempFilePath } = require('../core/tempFiles');
 
@@ -123,7 +123,7 @@ async function getTrackingSnapshot(appNo, dob, options = {}) {
     keepFile,
     filename: statusFilename,
   });
-  const details = parseStatusDetails(statusSnapshot.html);
+  const details = await parseStatusDetailsAsync(statusSnapshot.html);
 
   if (!dob || skipAck) {
     if (skipAck) {

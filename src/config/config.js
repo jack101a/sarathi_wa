@@ -358,9 +358,17 @@ const CONFIG = {
     USERNAME: String(process.env.ADMIN_USERNAME || 'admin').trim(),
   },
 
+  AI_PARSING: {
+    ENABLED: asBoolean(process.env.AI_PARSING_ENABLED, false),
+    API_BASE: String(process.env.LITELLM_API_BASE || 'http://localhost:4000/v1').trim(),
+    API_KEY: String(process.env.LITELLM_API_KEY || '').trim(),
+    MODEL: String(process.env.LITELLM_MODEL || 'gemini/gemini-1.5-flash').trim(),
+  },
+
   DEBUG:     asBoolean(process.env.DEBUG,     false),
   LOG_LEVEL: String(process.env.LOG_LEVEL || 'info').trim().toLowerCase(),
 };
 
 module.exports = CONFIG;
+
 
