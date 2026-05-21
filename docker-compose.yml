@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   sarathi-bot:
-    image: ghcr.io/jack101a/sarathiwa_bot:wabot
+    image: ghcr.io/jack101a/sarathiwa_bot:wabot-17
     container_name: sarathi_bot
     restart: always
     init: true
@@ -23,18 +23,38 @@ services:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_NOTIFY_CHAT_IDS=${TELEGRAM_NOTIFY_CHAT_IDS:-}
 
-      # ── Authorization ──────────────────────────────────────────────────────
+      # ── Authorization & DB ─────────────────────────────────────────────────
       - AUTHORIZED_USERS=${AUTHORIZED_USERS:-}
       - AUTHORIZED_GROUPS=${AUTHORIZED_GROUPS:-}
       - AUTHORIZED_TG_USERS=${AUTHORIZED_TG_USERS:-}
       - AUTHORIZED_TG_GROUPS=${AUTHORIZED_TG_GROUPS:-}
       - ADMIN_USERS=${ADMIN_USERS:-}
+      - AUTHORIZED_TG_ADMINS=${AUTHORIZED_TG_ADMINS:-}
+      - AUTHZ_DB_PATH=${AUTHZ_DB_PATH:-data/authz.sqlite}
+
+      # ── State Config & URLs ────────────────────────────────────────────────
+      - STATE_ID=${STATE_ID:-}
+      - STATE_CODE=${STATE_CODE:-}
+      - DAILY_FILLING_ENABLED=${DAILY_FILLING_ENABLED:-false}
 
       # ── Tracking ───────────────────────────────────────────────────────────
       - AUTO_TRACK_UPDATE_CHAT_ID=${AUTO_TRACK_UPDATE_CHAT_ID:-}
       - VAHAN_TRACK_UPDATE_CHAT_ID=${VAHAN_TRACK_UPDATE_CHAT_ID:-}
       - AUTO_TRACK_CRON=${AUTO_TRACK_CRON:-0 10-22/3 * * *}
       - VAHAN_TRACK_CRON=${VAHAN_TRACK_CRON:-0 10-22/3 * * *}
+
+      # ── AI Status Parsing (LiteLLM) ────────────────────────────────────────
+      - AI_PARSING_ENABLED=${AI_PARSING_ENABLED:-false}
+      - LITELLM_API_BASE=${LITELLM_API_BASE:-http://localhost:4000/v1}
+      - LITELLM_API_KEY=${LITELLM_API_KEY:-}
+      - LITELLM_MODEL=${LITELLM_MODEL:-gemini/gemini-1.5-flash}
+
+      # ── Vahan Captcha Auto-Solver Overrides ────────────────────────────────
+      - VAHAN_CAPTCHA_MODEL_PATH=${VAHAN_CAPTCHA_MODEL_PATH:-godmode_solver.onnx}
+      - VAHAN_CAPTCHA_AUTO_SOLVE=${VAHAN_CAPTCHA_AUTO_SOLVE:-true}
+      - VAHAN_CAPTCHA_MAX_ATTEMPTS=${VAHAN_CAPTCHA_MAX_ATTEMPTS:-8}
+      - VAHAN_CAPTCHA_RETRY_MIN_MS=${VAHAN_CAPTCHA_RETRY_MIN_MS:-3000}
+      - VAHAN_CAPTCHA_RETRY_MAX_MS=${VAHAN_CAPTCHA_RETRY_MAX_MS:-5000}
 
       # ── Notifications ──────────────────────────────────────────────────────
       - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
