@@ -2,7 +2,7 @@ const { removeSarathiTrackEverywhere } = require('../services/trackingControlSer
 
 async function removeTrackCommand(message, transport, chatId, appNo) {
   if (!appNo) {
-    await message.reply('Usage: remove track <application_number>');
+    await message.reply('Usage: remove track <appl_no>');
     return;
   }
 

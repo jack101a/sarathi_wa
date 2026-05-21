@@ -3,7 +3,7 @@ const { isSarathiTrackedAnywhere } = require('../services/trackingControlService
 
 async function addTrackCommand(message, transport, chatId, appNo, tag, dob) {
   if (!appNo) {
-    await message.reply('Usage: add track <application_number> [dob] -tag');
+    await message.reply('Usage: add track <appl_no> <DOB>');
     return;
   }
 

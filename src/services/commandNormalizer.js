@@ -1,0 +1,395 @@
+const { normalizeDob } = require('./commandInputService');
+
+function isDlInput(appNo) {
+  const cleaned = String(appNo || '').trim().replace(/[-\s]/g, '');
+  if (!cleaned) return false;
+  // Purely numeric (DL application number, usually 10 digits)
+  if (/^\d+$/.test(cleaned)) return true;
+  // DL license number: starts with 2 letters, followed ONLY by digits, length >= 15
+  if (/^[A-Za-z]{2}\d+$/.test(cleaned) && cleaned.length >= 15) return true;
+  return false;
+}
+
+// Simple Hindi/Hinglish Error templates
+const ERRORS = {
+  MISSING_DOB: (cmd) => `❌ *जन्मतिथि (DOB) नहीं मिली!*\nलाइसेंस की जानकारी के लिए जन्मतिथि देना ज़रूरी है।\n\n*सही तरीका (Format):*\n👉 \`${cmd} <appl_no> <DOB>\`\n\n*उदाहरण (Example):*\n👉 \`${cmd} 2179944526 04-08-1998\`\n(जन्मतिथि को हमेशा DD-MM-YYYY फॉर्मेट में लिखें, जैसे: 04-08-1998)`,
+  
+  INVALID_DOB: `❌ *गलत जन्मतिथि (DOB) फॉर्मेट!*\nजन्मतिथि का फॉर्मेट सही नहीं है।\n\n*सही तरीका (Format):*\n👉 जन्मतिथि को हमेशा DD-MM-YYYY फॉर्मेट में लिखें (जैसे: 04-08-1998)`,
+  
+  MISSING_QUALIFIER: `❌ *कृपया DL या RC कमांड का उपयोग करें!*\nअब केवल \`track\` लिखने से काम नहीं चलेगा। आपको स्पष्ट बताना होगा कि आप DL देखना चाहते हैं या RC।\n\n*सही तरीका (Format):*\n👉 *DL के लिए:* \`track DL <appl_no> <DOB>\`\n👉 *RC के लिए:* \`track RC <appl_no>\`\n\n*उदाहरण (Example):*\n👉 \`track DL 2179944526 04-08-1998\`\n👉 \`track RC MH26021234567\``,
+  
+  MISSING_APP_NO: (cmd, requiresDob = false) => `❌ *आवेदन संख्या (Application Number) नहीं मिली!*\n\n*सही तरीका (Format):*\n👉 \`${cmd} <appl_no>${requiresDob ? ' <DOB>' : ''}\``
+};
+
+const HELP_TEXT = `📋 *Sarathi Bot Help (मदद)*
+
+*DL/RC की जानकारी (Tracking):*
+• \`track DL <appl_no> <DOB>\` - DL का स्टेटस देखने के लिए
+• \`track RC <appl_no>\` - गाड़ी का RC स्टेटस देखने के लिए
+• \`track status\` - आपकी सक्रिय ट्रैकिंग लिस्ट देखने के लिए
+• \`track add <appl_no> <DOB>\` - DL ऑटो-ट्रैकिंग चालू करने के लिए
+• \`track add <appl_no>\` - RC ऑटो-ट्रैकिंग चालू करने के लिए
+• \`track remove <appl_no>\` - ऑटो-ट्रैकिंग बंद करने के लिए
+
+*फॉर्म डाउनलोड करें (Download Forms):*
+• \`appl <appl_no> <DOB>\` - रसीद (Acknowledgement) डाउनलोड करने के लिए
+• \`form1 <appl_no> <DOB>\` - स्व-घोषणा फॉर्म (Self Declaration) डाउनलोड करने के लिए
+• \`form1a <appl_no> <DOB>\` - मेडिकल सर्टिफिकेट फॉर्म डाउनलोड करने के लिए
+• \`form2 <appl_no> <DOB>\` - फॉर्म 2 एप्लीकेशन डाउनलोड करने के लिए
+• \`formset <appl_no> <DOB>\` - सारे फॉर्म एक साथ (Combined Set) डाउनलोड करने के लिए
+• \`feeprint <appl_no> <DOB>\` - फीस की रसीद प्रिंट करने के लिए
+• \`llprint <appl_no> <DOB>\` - लर्निंग लाइसेंस डाउनलोड करने के लिए
+
+*अन्य कमांड्स (Others):*
+• \`resend <appl_no> <DOB>\` - पासवर्ड/OTP दोबारा भेजने के लिए
+• \`dlrenewal <appl_no> <DOB> [RTO_code]\` - DL रिन्यूअल के लिए
+• \`applydl <appl_no> <DOB>\` - नया DL अप्लाई करने के लिए
+• \`payfee <appl_no> <DOB>\` - फीस पेमेंट करने के लिए
+• \`bookslot <appl_no> <DOB>\` - स्लॉट बुकिंग के लिए
+• \`alive\` - बॉट का स्टेटस चेक करने के लिए
+• \`stop\` - चल रहे काम को रोकने के लिए
+
+💡 _नोट: जन्मतिथि (DOB) हमेशा DD-MM-YYYY फॉर्मेट में लिखें (जैसे: 04-08-1998)_`;
+
+function parseCommand(rawText, hasMedia, user, isAdmin) {
+  if (hasMedia) {
+    return { success: false, ignore: true };
+  }
+
+  const cleanedText = String(rawText || '')
+    .trim()
+    .replace(/\s+/g, ' ');
+
+  if (!cleanedText) {
+    return { success: false, ignore: true };
+  }
+
+  // Check for admin commands silent block
+  const isAuthCommand = /^(?:\/)?auth\b/i.test(cleanedText);
+  const isRefreshCommand = /^(?:\/)?refreshtrack\b/i.test(cleanedText) || /^refresh\s+track$/i.test(cleanedText) || /^track\s+refresh$/i.test(cleanedText);
+
+  if (isAuthCommand || isRefreshCommand) {
+    if (!isAdmin) {
+      return { success: false, silent: true };
+    }
+  }
+
+  // Strip leading slash if present
+  let textToParse = cleanedText;
+  if (textToParse.startsWith('/')) {
+    textToParse = textToParse.slice(1);
+  }
+
+  const parts = textToParse.split(' ');
+  const cmd = parts[0].toLowerCase();
+
+  // 1. HELP COMMANDS
+  if (/^(?:help|मदद|maddad|hi|hello)$/i.test(cmd)) {
+    return { success: true, type: 'help', message: HELP_TEXT };
+  }
+
+  // 2. ALIVE/SUNO
+  if (/^(?:alive|suno)$/i.test(cmd)) {
+    return { success: true, type: 'alive' };
+  }
+
+  // 3. STOP
+  if (/^(?:stop)$/i.test(cmd)) {
+    return { success: true, type: 'stop' };
+  }
+
+  // 4. ADMIN REFRESH TRACK (already verified isAdmin above)
+  if (isRefreshCommand) {
+    return { success: true, type: 'refresh_track', payload: {} };
+  }
+
+  // 5. TRACK COMMANDS
+  if (cmd === 'track') {
+    const sub = (parts[1] || '').toLowerCase();
+    
+    // track status
+    if (sub === 'status') {
+      return { success: true, type: 'track_status', payload: {} };
+    }
+
+    // track add
+    if (sub === 'add') {
+      let appNo = parts[2] || '';
+      let rawDob = '';
+      let isExplicitRc = false;
+      let isExplicitDl = false;
+
+      if (appNo.toLowerCase() === 'dl') {
+        isExplicitDl = true;
+        appNo = parts[3] || '';
+        rawDob = parts[4] || '';
+      } else if (appNo.toLowerCase() === 'rc') {
+        const nextArg = parts[3] || '';
+        if (isDlInput(nextArg)) {
+          isExplicitDl = true;
+          appNo = nextArg;
+          rawDob = parts[4] || '';
+        } else {
+          isExplicitRc = true;
+          appNo = nextArg;
+        }
+      } else {
+        rawDob = parts[3] || '';
+      }
+
+      if (!appNo) {
+        return { success: false, error: ERRORS.MISSING_APP_NO('track add', !isExplicitRc) };
+      }
+
+      const isRc = isExplicitRc || (!isExplicitDl && !isDlInput(appNo) && /^[A-Z0-9]{8,22}$/i.test(appNo) && /[A-Z]/i.test(appNo));
+      if (isRc) {
+        return { success: true, type: 'add_track_rc', payload: { appNo: appNo.toUpperCase(), tag: '' } };
+      } else {
+        // DL track add requires DOB
+        if (!rawDob) {
+          return { success: false, error: ERRORS.MISSING_DOB('track add') };
+        }
+        const normalizedDob = rawDob ? normalizeDob(rawDob) : '';
+        if (!normalizedDob) {
+          return { success: false, error: ERRORS.INVALID_DOB };
+        }
+        return { success: true, type: 'add_track', payload: { appNo, dob: normalizedDob, tag: '' } };
+      }
+    }
+
+    // track remove
+    if (sub === 'remove') {
+      let appNo = parts[2] || '';
+      if (appNo.toLowerCase() === 'dl' || appNo.toLowerCase() === 'rc') {
+        appNo = parts[3] || '';
+      }
+      if (!appNo) {
+        return { success: false, error: ERRORS.MISSING_APP_NO('track remove') };
+      }
+      const isRc = !isDlInput(appNo) && /^[A-Z0-9]{8,22}$/i.test(appNo) && /[A-Z]/i.test(appNo);
+      if (isRc) {
+        return { success: true, type: 'remove_track_rc', payload: { appNo: appNo.toUpperCase() } };
+      } else {
+        return { success: true, type: 'remove_track', payload: { appNo } };
+      }
+    }
+
+    // track DL
+    if (sub === 'dl') {
+      const appNo = parts[2] || '';
+      if (!appNo) {
+        return { success: false, error: ERRORS.MISSING_APP_NO('track DL', true) };
+      }
+      const rawDob = parts[3] || '';
+      if (!rawDob) {
+        return { success: false, error: ERRORS.MISSING_DOB('track DL') };
+      }
+      const normalizedDob = rawDob ? normalizeDob(rawDob) : '';
+      if (!normalizedDob) {
+        return { success: false, error: ERRORS.INVALID_DOB };
+      }
+      return { success: true, type: 'track', payload: { appNo, dob: normalizedDob } };
+    }
+
+    // track RC
+    if (sub === 'rc') {
+      const appNo = parts[2] || '';
+      if (!appNo) {
+        return { success: false, error: ERRORS.MISSING_APP_NO('track RC') };
+      }
+      if (isDlInput(appNo)) {
+        const rawDob = parts[3] || '';
+        if (!rawDob) {
+          return { success: false, error: ERRORS.MISSING_DOB('track DL') };
+        }
+        const normalizedDob = normalizeDob(rawDob);
+        if (!normalizedDob) {
+          return { success: false, error: ERRORS.INVALID_DOB };
+        }
+        return { success: true, type: 'track', payload: { appNo, dob: normalizedDob } };
+      }
+      return { success: true, type: 'track_rc', payload: { appNo: appNo.toUpperCase() } };
+    }
+
+    if (sub) {
+      if (isDlInput(sub)) {
+        const rawDob = parts[2] || '';
+        if (!rawDob) {
+          return { success: false, error: ERRORS.MISSING_DOB('track DL') };
+        }
+        const normalizedDob = rawDob ? normalizeDob(rawDob) : '';
+        if (!normalizedDob) {
+          return { success: false, error: ERRORS.INVALID_DOB };
+        }
+        return { success: true, type: 'track', payload: { appNo: sub, dob: normalizedDob } };
+      } else {
+        const isRc = /^[A-Z0-9]{8,22}$/i.test(sub) && /[A-Z]/i.test(sub);
+        if (isRc) {
+          return { success: true, type: 'track_rc', payload: { appNo: sub.toUpperCase() } };
+        }
+      }
+    }
+
+    // fallback: plain "track" command or invalid qualifier
+    return { success: false, error: ERRORS.MISSING_QUALIFIER };
+  }
+
+  // 6. SHORTCUT / INDEPENDENT COMMANDS
+  if (/^(?:listtrack|list\s+track)$/i.test(textToParse)) {
+    return { success: true, type: 'track_status', payload: {} };
+  }
+
+  if (cmd === 'trackrc') {
+    const appNo = parts[1] || '';
+    if (!appNo) return { success: false, error: ERRORS.MISSING_APP_NO('track RC') };
+    if (isDlInput(appNo)) {
+      const rawDob = parts[2] || '';
+      if (!rawDob) return { success: false, error: ERRORS.MISSING_DOB('track DL') };
+      const normalizedDob = normalizeDob(rawDob);
+      if (!normalizedDob) return { success: false, error: ERRORS.INVALID_DOB };
+      return { success: true, type: 'track', payload: { appNo, dob: normalizedDob } };
+    }
+    return { success: true, type: 'track_rc', payload: { appNo: appNo.toUpperCase() } };
+  }
+  if (cmd === 'addtrackrc') {
+    const appNo = parts[1] || '';
+    if (!appNo) return { success: false, error: ERRORS.MISSING_APP_NO('track add') };
+    if (isDlInput(appNo)) {
+      const rawDob = parts[2] || '';
+      if (!rawDob) return { success: false, error: ERRORS.MISSING_DOB('track add') };
+      const normalizedDob = normalizeDob(rawDob);
+      if (!normalizedDob) return { success: false, error: ERRORS.INVALID_DOB };
+      return { success: true, type: 'add_track', payload: { appNo, dob: normalizedDob, tag: '' } };
+    }
+    return { success: true, type: 'add_track_rc', payload: { appNo: appNo.toUpperCase(), tag: '' } };
+  }
+  if (cmd === 'removetrackrc') {
+    const appNo = parts[1] || '';
+    if (!appNo) return { success: false, error: ERRORS.MISSING_APP_NO('track remove') };
+    if (isDlInput(appNo)) {
+      return { success: true, type: 'remove_track', payload: { appNo } };
+    }
+    return { success: true, type: 'remove_track_rc', payload: { appNo: appNo.toUpperCase() } };
+  }
+
+  if (cmd === 'trackdl') {
+    const appNo = parts[1] || '';
+    if (!appNo) return { success: false, error: ERRORS.MISSING_APP_NO('track DL', true) };
+    const rawDob = parts[2] || '';
+    if (!rawDob) return { success: false, error: ERRORS.MISSING_DOB('track DL') };
+    const normalizedDob = rawDob ? normalizeDob(rawDob) : '';
+    if (!normalizedDob) return { success: false, error: ERRORS.INVALID_DOB };
+    return { success: true, type: 'track', payload: { appNo, dob: normalizedDob } };
+  }
+  if (cmd === 'addtrack') {
+    let appNo = parts[1] || '';
+    let rawDob = '';
+    let isExplicitRc = false;
+    let isExplicitDl = false;
+
+    if (appNo.toLowerCase() === 'dl') {
+      isExplicitDl = true;
+      appNo = parts[2] || '';
+      rawDob = parts[3] || '';
+    } else if (appNo.toLowerCase() === 'rc') {
+      const nextArg = parts[2] || '';
+      if (isDlInput(nextArg)) {
+        isExplicitDl = true;
+        appNo = nextArg;
+        rawDob = parts[3] || '';
+      } else {
+        isExplicitRc = true;
+        appNo = nextArg;
+      }
+    } else {
+      rawDob = parts[2] || '';
+    }
+
+    if (!appNo) return { success: false, error: ERRORS.MISSING_APP_NO('track add', !isExplicitRc) };
+
+    const isRc = isExplicitRc || (!isExplicitDl && !isDlInput(appNo) && /^[A-Z0-9]{8,22}$/i.test(appNo) && /[A-Z]/i.test(appNo));
+    if (isRc) {
+      return { success: true, type: 'add_track_rc', payload: { appNo: appNo.toUpperCase(), tag: '' } };
+    } else {
+      if (!rawDob) return { success: false, error: ERRORS.MISSING_DOB('track add') };
+      const normalizedDob = rawDob ? normalizeDob(rawDob) : '';
+      if (!normalizedDob) return { success: false, error: ERRORS.INVALID_DOB };
+      return { success: true, type: 'add_track', payload: { appNo, dob: normalizedDob, tag: '' } };
+    }
+  }
+  if (cmd === 'removetrack') {
+    let appNo = parts[1] || '';
+    if (appNo.toLowerCase() === 'dl' || appNo.toLowerCase() === 'rc') {
+      appNo = parts[2] || '';
+    }
+    if (!appNo) return { success: false, error: ERRORS.MISSING_APP_NO('track remove') };
+    const isRc = !isDlInput(appNo) && /^[A-Z0-9]{8,22}$/i.test(appNo) && /[A-Z]/i.test(appNo);
+    if (isRc) {
+      return { success: true, type: 'remove_track_rc', payload: { appNo: appNo.toUpperCase() } };
+    } else {
+      return { success: true, type: 'remove_track', payload: { appNo } };
+    }
+  }
+
+  // 7. FORM DOWNLOAD COMMANDS
+  const FORM_MAP = {
+    form1: 'form1',
+    form1a: 'form1a',
+    form2: 'form2',
+    appl: 'appl_pdf',
+    formset: 'formset',
+    feeprint: 'fee_print_start',
+    llprint: 'llprint_start',
+    lledit: 'lledit_start',
+    resend: 'resend_otp',
+    payfee: 'pay_fee_start',
+    bookslot: 'slot_booking_start',
+    dlrenewal: 'dl_renewal_start',
+    applydl: 'apply_dl_start'
+  };
+
+  if (FORM_MAP[cmd]) {
+    const appNo = parts[1] || '';
+    if (!appNo) {
+      return { success: false, error: ERRORS.MISSING_APP_NO(cmd, true) };
+    }
+    const rawDob = parts[2] || '';
+    if (!rawDob) {
+      return { success: false, error: ERRORS.MISSING_DOB(cmd) };
+    }
+    const normalizedDob = rawDob ? normalizeDob(rawDob) : '';
+    if (!normalizedDob) {
+      return { success: false, error: ERRORS.INVALID_DOB };
+    }
+
+    if (cmd === 'dlrenewal') {
+      const dlNo = appNo;
+      const rtoCode = parts[3] && parts[3].length !== 10 && isNaN(Number(parts[3])) ? parts[3] : '';
+      let mobile = '';
+      if (parts[3] && (parts[3].length === 10 || !isNaN(Number(parts[3])))) {
+        mobile = parts[3];
+      } else if (parts[4]) {
+        mobile = parts[4];
+      }
+      return { success: true, type: 'dl_renewal_start', payload: { dlNo, dob: normalizedDob, rtoCode, mobile } };
+    }
+
+    if (cmd === 'applydl') {
+      const llNo = appNo;
+      const mobile = parts[3] || '';
+      return { success: true, type: 'apply_dl_start', payload: { llNo, dob: normalizedDob, mobile } };
+    }
+
+    const mobile = parts[3] || '';
+    return { success: true, type: FORM_MAP[cmd], payload: { appNo, dob: normalizedDob, mobile } };
+  }
+
+  // No command matched
+  return { success: false, unmatched: true };
+}
+
+module.exports = {
+  parseCommand,
+  HELP_TEXT,
+  ERRORS
+};

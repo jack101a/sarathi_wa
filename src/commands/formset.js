@@ -7,7 +7,7 @@ async function formsetCommand(client, message) {
   const dob = parts[2];
 
   if (!appNo || !dob) {
-    await message.reply('Usage: formset <application_number> <dob>');
+    await message.reply('Usage: formset <appl_no> <DOB>');
     return;
   }
 

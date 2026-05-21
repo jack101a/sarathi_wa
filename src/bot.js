@@ -527,7 +527,6 @@ async function createBot() {
       const { isAdminWhatsApp } = require('./services/authorizationService');
       const { handleAuthCommand } = require('./commands/authAdmin');
       if (!isAdminWhatsApp(message, CONFIG)) {
-        await message.reply('Access denied. Admin only.');
         return;
       }
       const reply = await handleAuthCommand(normalizedBody, message.from, client);
@@ -620,223 +619,83 @@ async function createBot() {
         }
       }
 
-      if (/^help$/i.test(normalizedBody)) {
-        await message.reply(getHelpText());
-        return;
-      }
+      const { getUserForRequest, isAdminWhatsApp } = require('./services/authorizationService');
+      const dbUser = await getUserForRequest(message, 'whatsapp');
+      const isAdmin = isAdminWhatsApp(message, CONFIG);
 
-      if (/^\/?llprint(?:\s+.*)?$/i.test(normalizedBody)) {
-        const llArgs = normalizedBody.split(/\s+/).slice(1);
-        const appNo = llArgs[0];
-        const dob = normalizeDob(llArgs[1] || '');
-        if (!appNo || !dob) {
-          await message.reply('Usage: /llprint <application_number> <dob>');
-          return;
-        }
-        // Resolve mobile from DB canonical_phone (admin-registered number),
-        // fall back to last 10 digits of WhatsApp JID if not found.
-        let mobile;
-        try {
-          const { getUserForRequest } = require('./services/authorizationService');
-          const dbUser = await getUserForRequest(message, 'whatsapp');
-          if (dbUser && dbUser.canonical_phone) {
-            const cp = String(dbUser.canonical_phone).replace(/\D/g, '');
-            mobile = cp.length > 10 ? cp.slice(-10) : cp;
-          }
-        } catch (_) {}
-        if (!mobile) {
-          const senderPhone = (message.from || '').split('@')[0].replace(/\D/g, '');
-          mobile = senderPhone.length > 10 ? senderPhone.slice(-10) : senderPhone;
-        }
-        await enqueueOrReply(message, 'whatsapp', { command: 'llprint_start', payload: { appNo, dob, mobile }, chatId: message.from });
-        return;
-      }
+      const commandNormalizer = require('./services/commandNormalizer');
+      const normResult = commandNormalizer.parseCommand(normalizedBody, message.hasMedia, dbUser, isAdmin);
 
-      if (/^\/?lledit(?:\s+.*)?$/i.test(normalizedBody)) {
-        const llArgs = normalizedBody.split(/\s+/).slice(1);
-        const appNo = llArgs[0];
-        const dob = normalizeDob(llArgs[1] || '');
-        if (!appNo || !dob) {
-          await message.reply('Usage: /lledit <application_number> <dob>');
-          return;
-        }
-        let mobile;
-        try {
-          const { getUserForRequest } = require('./services/authorizationService');
-          const dbUser = await getUserForRequest(message, 'whatsapp');
-          if (dbUser && dbUser.canonical_phone) {
-            const cp = String(dbUser.canonical_phone).replace(/\D/g, '');
-            mobile = cp.length > 10 ? cp.slice(-10) : cp;
-          }
-        } catch (_) {}
-        if (!mobile) {
-          const senderPhone = (message.from || '').split('@')[0].replace(/\D/g, '');
-          mobile = senderPhone.length > 10 ? senderPhone.slice(-10) : senderPhone;
-        }
-        await enqueueOrReply(message, 'whatsapp', { command: 'lledit_start', payload: { appNo, dob, mobile }, chatId: message.from });
-        return;
-      }
-
-      // /feeprint — standalone receipt download, does NOT require DAILY_FILLING.ENABLED
-      if (/^\/?feeprint(?:\s+.*)?$/i.test(normalizedBody)) {
-        const fpArgs = normalizedBody.split(/\s+/).slice(1);
-        const appNo  = fpArgs[0];
-        const dob    = normalizeDob(fpArgs[1] || '');
-        if (!appNo || !dob) {
-          await message.reply('Usage: /feeprint <application_number> <dob>\nExample: /feeprint 2179944526 04-08-1998');
-          return;
-        }
-        await enqueueOrReply(message, 'whatsapp', { command: 'fee_print_start', payload: { appNo, dob }, chatId: message.from });
-        return;
-      }
-
-      if (/^resend\s+([A-Z0-9]+)$/i.test(normalizedBody)) {
-        const appNo = normalizedBody.match(/^resend\s+([A-Z0-9]+)$/i)[1].toUpperCase();
-        await enqueueOrReply(message, 'whatsapp', { command: 'resend_otp', payload: { appNo }, chatId: message.from });
-        return;
-      }
-
-      if (/^list\s+track$/i.test(normalizedBody)) {
-        await enqueueOrReply(message, 'whatsapp', { command: 'list_track', payload: {}, chatId: message.from });
-        return;
-      }
-
-      if (/^track\s+status$/i.test(normalizedBody)) {
-        await enqueueOrReply(message, 'whatsapp', { command: 'track_status', payload: {}, chatId: message.from });
-        return;
-      }
-
-      if (/^refresh\s+track$/i.test(normalizedBody)) {
-        await enqueueOrReply(message, 'whatsapp', { command: 'refresh_track', payload: {}, chatId: message.from });
-        return;
-      }
-
-      if (addTrackRcMatch) {
-        const extractedRc = await extractRcTrackInputFromMessage(message, addTrackRcMatch[1] || '');
-        const rcAppNo = (addTrackRcMatch[1] || '').toUpperCase() || extractedRc.appNo || '';
-        const tagValue = addTrackRcMatch[2] || '';
-        if (!rcAppNo) {
-          await message.reply('Usage: add track rc <application_number> -tag');
-          return;
-        }
-        if (!addTrackRcMatch[1] || extractedRc.fromReceiptCache) clearRcReceiptTrackingCandidate(message.from);
-        await enqueueOrReply(message, 'whatsapp', { command: 'add_track_rc', payload: { appNo: rcAppNo, tag: tagValue, vehicleNo: extractedRc.vehicleNo || '' }, chatId: message.from });
-        return;
-      }
-
-      if (removeTrackRcMatch) {
-        await enqueueOrReply(message, 'whatsapp', { command: 'remove_track_rc', payload: { appNo: removeTrackRcMatch[1] }, chatId: message.from });
-        return;
-      }
-
-      if (trackRcMatch) {
-        const extractedRc = await extractRcTrackInputFromMessage(message, trackRcMatch[1] || '');
-        const rcAppNo = (trackRcMatch[1] || '').toUpperCase() || extractedRc.appNo || '';
-        if (!rcAppNo) {
-          await message.reply('Usage: track rc <application_number>');
-          return;
-        }
-        if (!trackRcMatch[1] || extractedRc.fromReceiptCache) clearRcReceiptTrackingCandidate(message.from);
-        await enqueueOrReply(message, 'whatsapp', { command: 'track_rc', payload: { appNo: rcAppNo, vehicleNo: extractedRc.vehicleNo || '' }, chatId: message.from });
-        return;
-      }
-
-      if (/^stop$/i.test(normalizedBody) && hasActiveVahanSession(message.from, 'whatsapp')) {
-        await stopVahanSession(message.from, 'whatsapp');
-        await message.reply('Vahan session stopped.');
-        return;
-      }
-
-      if (/^add\s+track$/i.test(normalizedBody)) {
-        const extracted = await extractTrackInputFromMessage(message);
-        if (extracted.appNo) {
-          if (extracted.fromReceiptCache) clearReceiptTrackingCandidate(message.from);
-          await enqueueOrReply(message, 'whatsapp', { command: 'add_track', payload: { appNo: extracted.appNo, dob: extracted.dob || '', tag: '' }, chatId: message.from });
-          return;
-        }
-        await startInteractiveAddTrackFlow(message);
-        return;
-      }
-
-      if (addTrackMatch) {
-        const explicitAppNo = addTrackMatch[1] || '';
-        const explicitDob = normalizeDob(addTrackMatch[2] || '');
-        const tag = addTrackMatch[3] || '';
-        let resolvedAppNo = explicitAppNo;
-        let resolvedDob = explicitDob;
-        if (!resolvedAppNo) {
-          const extracted = await extractTrackInputFromMessage(message, normalizedBody.replace(/^add\s+track/i, '').trim());
-          resolvedAppNo = extracted.appNo;
-          resolvedDob = resolvedDob || extracted.dob;
-          if (extracted.fromReceiptCache) clearReceiptTrackingCandidate(message.from);
-        }
-        if (!resolvedAppNo) {
-          await message.reply('Could not determine application number.');
-          return;
-        }
-        await enqueueOrReply(message, 'whatsapp', { command: 'add_track', payload: { appNo: resolvedAppNo, dob: resolvedDob, tag }, chatId: message.from });
-        return;
-      }
-
-      if (removeTrackMatch) {
-        await enqueueOrReply(message, 'whatsapp', { command: 'remove_track', payload: { appNo: removeTrackMatch[1] }, chatId: message.from });
-        return;
-      }
-
-      switch (command) {
-        case 'suno':
-        case 'alive':
-          await aliveCommand(client, message, MessageMedia);
-          break;
-        case 'track': {
-          const inlineInput = extractAppNoAndDob(parts.slice(1).join(' '));
-          const resolvedInput = inlineInput.appNo ? inlineInput : await extractTrackInputFromMessage(message, parts.slice(1).join(' '));
-          if (!resolvedInput.appNo) {
-            await message.reply('Usage: track <application_number> [dob]');
-            break;
-          }
-          if (!resolvedInput.dob && !inlineInput.appNo && resolvedInput.rawValue) {
-            await startPendingDobFlow(client, message, MessageMedia, resolvedInput.appNo);
-            break;
-          }
-          clearPendingDobRequest(message.from);
-          if (resolvedInput.fromReceiptCache) clearReceiptTrackingCandidate(message.from);
-          await enqueueOrReply(message, 'whatsapp', { command: 'track', payload: { appNo: resolvedInput.appNo, dob: resolvedInput.dob || '' }, chatId: message.from });
-          break;
-        }
-        case 'appl': {
-          const args = parts.slice(1);
-          const appNo = args[0] || '';
-          const dob = normalizeDob(args[1] || '');
-          if (!appNo || !dob) { await message.reply('Usage: appl <application_number> <dob>'); break; }
-          await enqueueOrReply(message, 'whatsapp', { command: 'appl_pdf', payload: { appNo, dob }, chatId: message.from });
-          break;
-        }
-        case 'form1':
-        case 'form1a':
-        case 'form2': {
-          const args = parts.slice(1);
-          const appNo = args[0] || '';
-          const dob = normalizeDob(args[1] || '');
-          if (!appNo || !dob) { await message.reply(`Usage: ${command} <application_number> <dob>`); break; }
-          await enqueueOrReply(message, 'whatsapp', { command, payload: { appNo, dob }, chatId: message.from });
-          break;
-        }
-        case 'formset': {
-          const args = parts.slice(1);
-          const appNo = args[0] || '';
-          const dob = normalizeDob(args[1] || '');
-          if (!appNo || !dob) { await message.reply('Usage: formset <application_number> <dob>'); break; }
-          await enqueueOrReply(message, 'whatsapp', { command: 'formset', payload: { appNo, dob }, chatId: message.from });
-          break;
-        }
-        default:
-          if (hasActiveVahanSession(message.from, 'whatsapp')) {
-            if (!normalizedBody && message.hasMedia) break;
+      if (normResult.ignore) {
+        if (hasActiveVahanSession(message.from, 'whatsapp')) {
+          if (!normalizedBody && message.hasMedia) {
+            // ignore
+          } else {
             await handleVahanIncomingText(vahanWhatsAppClient, message.from, normalizedBody, 'whatsapp');
           }
-          break;
+        }
+        return;
       }
+
+      if (normResult.silent) {
+        return;
+      }
+
+      if (normResult.success === false) {
+        if (normResult.error) {
+          await message.reply(normResult.error);
+          return;
+        }
+        // unmatched / fallback to active Vahan session
+        if (hasActiveVahanSession(message.from, 'whatsapp')) {
+          if (!normalizedBody && message.hasMedia) {
+            // ignore
+          } else {
+            await handleVahanIncomingText(vahanWhatsAppClient, message.from, normalizedBody, 'whatsapp');
+          }
+        }
+        return;
+      }
+
+      // Route the normalized commands
+      const { type, payload } = normResult;
+
+      if (type === 'help') {
+        await message.reply(normResult.message);
+        return;
+      }
+
+      if (type === 'alive') {
+        await aliveCommand(client, message, MessageMedia);
+        return;
+      }
+
+      if (type === 'stop') {
+        if (hasActiveVahanSession(message.from, 'whatsapp')) {
+          await stopVahanSession(message.from, 'whatsapp');
+          await message.reply('Vahan session stopped.');
+        }
+        return;
+      }
+
+      if (type === 'llprint_start' || type === 'lledit_start' || type === 'dl_renewal_start' || type === 'apply_dl_start') {
+        let mobile = payload.mobile || '';
+        if (!mobile) {
+          if (dbUser && dbUser.canonical_phone) {
+            const cp = String(dbUser.canonical_phone).replace(/\D/g, '');
+            mobile = cp.length > 10 ? cp.slice(-10) : cp;
+          }
+        }
+        if (!mobile) {
+          const senderPhone = (message.from || '').split('@')[0].replace(/\D/g, '');
+          mobile = senderPhone.length > 10 ? senderPhone.slice(-10) : senderPhone;
+        }
+        await enqueueOrReply(message, 'whatsapp', { command: type, payload: { ...payload, mobile }, chatId: message.from });
+        return;
+      }
+
+      // Map other actions directly to enqueueOrReply
+      await enqueueOrReply(message, 'whatsapp', { command: type, payload, chatId: message.from });
     } catch (error) {
       await message.reply('Something went wrong. Please try again later.');
     }

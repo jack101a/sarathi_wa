@@ -90,9 +90,9 @@ Important command families:
   - `form2`
   - `formset`
 - Vahan:
-  - `track rc <application_number>`
-  - `add track rc <application_number> -tag`
-  - `remove track rc <application_number>`
+  - `track rc <appl_no>`
+  - `add track rc <appl_no>`
+  - `remove track rc <appl_no>`
   - `list track`
   - `stop`
 

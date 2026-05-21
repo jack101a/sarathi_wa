@@ -759,21 +759,18 @@ function isCaptchaRejectedResponse(xmlText) {
 function getHelpText() {
   return [
     'Available Vahan commands:',
-    'track <application_number> [dob]',
-    'refresh track',
-    'add track',
-    'add track <application_number> [dob] -tag',
-    'remove track <application_number>',
-    'track rc <application_number>',
-    'add track rc <application_number> -tag',
-    'remove track rc <application_number>',
-    'list track',
-    'appl <application_number> <dob>',
-    'form1 <application_number> <dob>',
-    'form1a <application_number> <dob>',
-    'form2 <application_number> <dob>',
-    'formset <application_number> <dob>',
-    'resend <application_number>',
+    'track DL <appl_no> <DOB>',
+    'track RC <appl_no>',
+    'track status',
+    'track add <appl_no> <DOB>',
+    'track add <appl_no>',
+    'track remove <appl_no>',
+    'appl <appl_no> <DOB>',
+    'form1 <appl_no> <DOB>',
+    'form1a <appl_no> <DOB>',
+    'form2 <appl_no> <DOB>',
+    'formset <appl_no> <DOB>',
+    'resend <appl_no> <DOB>',
     'alive',
     'suno',
     'help',
@@ -1059,14 +1056,14 @@ async function handleIncomingText(client, chatId, text, transport = 'whatsapp') 
       }
 
       await stopSession(chatId, transport);
-      await sendTextMessage(client, chatId, 'Captcha failed twice. Send `track rc <application_number>` for a fresh Vahan session.');
+      await sendTextMessage(client, chatId, 'Captcha failed twice. Send `track rc <appl_no>` for a fresh Vahan session.');
       return true;
     }
 
     const card = parseStatusCard(xmlText, session.applicationNumber);
     if (!card) {
       await stopSession(chatId, transport);
-      await sendTextMessage(client, chatId, 'The Vahan captcha session looks expired. Send `track rc <application_number>` again for a fresh captcha.');
+      await sendTextMessage(client, chatId, 'The Vahan captcha session looks expired. Send `track rc <appl_no>` again for a fresh captcha.');
       return true;
     }
 

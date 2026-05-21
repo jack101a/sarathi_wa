@@ -96,28 +96,26 @@ function getTelegramConfig(config) {
 function buildHelpText() {
   return [
     'Available commands:',
-    '/track <application_number> [dob]',
-    '/addtrack <application_number> [dob] [-tag]',
-    '/removetrack <application_number>',
-    '/listtrack',
-    '/refreshtrack',
-    '/trackrc <application_number>',
-    '/addtrackrc <application_number> [-tag]',
-    '/removetrackrc <application_number>',
+    '/track DL <appl_no> <DOB>',
+    '/track RC <appl_no>',
+    '/track status',
+    '/track add <appl_no> <DOB>',
+    '/track add <appl_no>',
+    '/track remove <appl_no>',
     '/stop',
-    '/appl <application_number> <dob>',
-    '/form1 <application_number> <dob>',
-    '/form1a <application_number> <dob>',
-    '/form2 <application_number> <dob>',
-    '/formset <application_number> <dob>',
-    '/llprint <application_number> <dob> [10_digit_mobile]',
-    '/lledit <application_number> <dob> [10_digit_mobile]',
-    '/dlrenewal <DL_number> <dob> [RTO_code] [10_digit_mobile]',
-    '/applydl <LL_number> <dob> [10_digit_mobile]',
-    '/payfee <application_number> <dob>',
-    '/feeprint <application_number> <dob>',
-    '/bookslot <application_number> <dob>',
-    '/resend <application_number>',
+    '/appl <appl_no> <DOB>',
+    '/form1 <appl_no> <DOB>',
+    '/form1a <appl_no> <DOB>',
+    '/form2 <appl_no> <DOB>',
+    '/formset <appl_no> <DOB>',
+    '/llprint <appl_no> <DOB> [10_digit_mobile]',
+    '/lledit <appl_no> <DOB> [10_digit_mobile]',
+    '/dlrenewal <DL_number> <DOB> [RTO_code] [10_digit_mobile]',
+    '/applydl <LL_number> <DOB> [10_digit_mobile]',
+    '/payfee <appl_no> <DOB>',
+    '/feeprint <appl_no> <DOB>',
+    '/bookslot <appl_no> <DOB>',
+    '/resend <appl_no> <DOB>',
     '/alive',
     '/suno',
   ].join('\n');
@@ -167,7 +165,6 @@ async function startTelegramBot(config) {
       const { isAdminTelegram } = require('./services/authorizationService');
       const { handleAuthCommand } = require('./commands/authAdmin');
       if (!isAdminTelegram(msg, CONFIG)) {
-        await bot.sendMessage(chatId, 'Access denied. Admin only.');
         return;
       }
       const reply = await handleAuthCommand(text, chatId);
@@ -177,10 +174,9 @@ async function startTelegramBot(config) {
       }
     }
 
-    if (!text || text.startsWith('/')) return;
-
+    // Sessions check (these check for raw text, but NOT when starting with the command itself)
     const llprintSessions = getLlprintSessions();
-    if (llprintSessions.has(chatId) && !text.startsWith('/llprint')) {
+    if (llprintSessions.has(chatId) && !/^\/?llprint/i.test(text)) {
       const flow = llprintSessions.get(chatId);
       const otpCode = text.trim();
       if (otpCode.length > 0 && otpCode.length <= 8) {
@@ -198,7 +194,7 @@ async function startTelegramBot(config) {
     }
 
     const lleditSessions = getLleditSessions();
-    if (lleditSessions.has(chatId) && !text.startsWith('/lledit')) {
+    if (lleditSessions.has(chatId) && !/^\/?lledit/i.test(text)) {
       const flow = lleditSessions.get(chatId);
       const otpCode = text.trim();
       if (otpCode.length > 0 && otpCode.length <= 8) {
@@ -216,235 +212,98 @@ async function startTelegramBot(config) {
       }
     }
 
+    // Now, run the command normalizer
+    const hasMedia = !!(msg.photo || msg.document || msg.video || msg.audio || msg.voice);
+    const { getUserForRequest, isAdminTelegram } = require('./services/authorizationService');
+    const dbUser = await getUserForRequest(msg, 'telegram');
+    const isAdmin = isAdminTelegram(msg, CONFIG);
 
-    if (/^list\s+track$/i.test(text)) { await enqueueOrReplyTg(bot, msg, { command: 'list_track', payload: {}, chatId }); return; }
-    if (/^track\s+status$/i.test(text)) { await enqueueOrReplyTg(bot, msg, { command: 'track_status', payload: {}, chatId }); return; }
-    if (/^refresh\s+track$/i.test(text)) { await enqueueOrReplyTg(bot, msg, { command: 'refresh_track', payload: {}, chatId }); return; }
+    const commandNormalizer = require('./services/commandNormalizer');
+    const normResult = commandNormalizer.parseCommand(text, hasMedia, dbUser, isAdmin);
 
-    const trackRcMatch = text.match(/^track\s+rc\s+([A-Z0-9]+)$/i);
-    if (trackRcMatch) { await enqueueOrReplyTg(bot, msg, { command: 'track_rc', payload: { appNo: trackRcMatch[1] }, chatId }); return; }
-
-    const addTrackRcMatch = text.match(/^add\s+track\s+rc\s+([A-Z0-9]+)(?:\s*-\s*(.+))?$/i);
-    if (addTrackRcMatch) { await enqueueOrReplyTg(bot, msg, { command: 'add_track_rc', payload: { appNo: addTrackRcMatch[1], tag: addTrackRcMatch[2] || '' }, chatId }); return; }
-
-    const removeTrackRcMatch = text.match(/^remove\s+track\s+rc\s+([A-Z0-9]+)$/i);
-    if (removeTrackRcMatch) { await enqueueOrReplyTg(bot, msg, { command: 'remove_track_rc', payload: { appNo: removeTrackRcMatch[1] }, chatId }); return; }
-
-    if (/^stop$/i.test(text) && hasActiveVahanSession(chatId, 'telegram')) {
-      await stopVahanSession(chatId, 'telegram');
-      await bot.sendMessage(chatId, 'Vahan session stopped.');
-      return;
-    }
-
-    if (hasActiveVahanSession(chatId, 'telegram')) {
-      await handleVahanIncomingText(vahanTelegramClient, chatId, text, 'telegram');
-    }
-  });
-
-  bot.onText(/^\/start(?:@[^\s]+)?(?:\s+.*)?$/i, async (msg) => {
-    if (!(await isTgAuthorized(msg, CONFIG))) return;
-    await bot.sendMessage(msg.chat.id, 'Welcome to Sarathi Bot.\nUse /help to see supported commands.');
-  });
-
-  bot.onText(/^\/help(?:@[^\s]+)?(?:\s+.*)?$/i, async (msg) => {
-    if (!(await isTgAuthorized(msg, CONFIG))) return;
-    await bot.sendMessage(msg.chat.id, buildHelpText());
-  });
-
-  bot.onText(/^\/(?:alive|suno)(?:@[^\s]+)?(?:\s+.*)?$/i, async (msg) => {
-    if (!(await isTgAuthorized(msg, CONFIG))) return;
-    try {
-      const meme = getRandomAliveMeme();
-      await bot.sendAnimation(msg.chat.id, meme.url, { caption: meme.caption });
-    } catch (_) {
-      await bot.sendMessage(msg.chat.id, 'Bot is alive, but the meme could not be loaded right now.');
-    }
-  });
-
-  bot.onText(/^\/track(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
-    if (!(await isTgAuthorized(msg, CONFIG))) return;
-    const chatId = msg.chat.id;
-    const args = parseArgs(match && match[1]);
-    const appNo = args[0];
-    const dob = normalizeDob(args[1] || '');
-    if (!appNo) { await bot.sendMessage(chatId, 'Usage: /track <application_number> [dob]'); return; }
-    await enqueueOrReplyTg(bot, msg, { command: 'track', payload: { appNo, dob }, chatId });
-  });
-
-  bot.onText(/^\/appl(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
-    if (!(await isTgAuthorized(msg, CONFIG))) return;
-    const chatId = msg.chat.id;
-    const args = parseArgs(match && match[1]);
-    const appNo = args[0];
-    const dob = normalizeDob(args[1] || '');
-    if (!appNo || !dob) { await bot.sendMessage(chatId, 'Usage: /appl <application_number> <dob>'); return; }
-    await enqueueOrReplyTg(bot, msg, { command: 'appl_pdf', payload: { appNo, dob }, chatId });
-  });
-
-  bot.onText(/^\/form1(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
-    if (!(await isTgAuthorized(msg, CONFIG))) return;
-    const chatId = msg.chat.id;
-    const args = parseArgs(match && match[1]);
-    const appNo = args[0];
-    const dob = normalizeDob(args[1] || '');
-    if (!appNo || !dob) { await bot.sendMessage(chatId, 'Usage: /form1 <application_number> <dob>'); return; }
-    await enqueueOrReplyTg(bot, msg, { command: 'form1', payload: { appNo, dob }, chatId });
-  });
-
-  bot.onText(/^\/form1a(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
-    if (!(await isTgAuthorized(msg, CONFIG))) return;
-    const chatId = msg.chat.id;
-    const args = parseArgs(match && match[1]);
-    const appNo = args[0];
-    const dob = normalizeDob(args[1] || '');
-    if (!appNo || !dob) { await bot.sendMessage(chatId, 'Usage: /form1a <application_number> <dob>'); return; }
-    await enqueueOrReplyTg(bot, msg, { command: 'form1a', payload: { appNo, dob }, chatId });
-  });
-
-  bot.onText(/^\/form2(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
-    if (!(await isTgAuthorized(msg, CONFIG))) return;
-    const chatId = msg.chat.id;
-    const args = parseArgs(match && match[1]);
-    const appNo = args[0];
-    const dob = normalizeDob(args[1] || '');
-    if (!appNo || !dob) { await bot.sendMessage(chatId, 'Usage: /form2 <application_number> <dob>'); return; }
-    await enqueueOrReplyTg(bot, msg, { command: 'form2', payload: { appNo, dob }, chatId });
-  });
-
-  bot.onText(/^\/formset(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
-    if (!(await isTgAuthorized(msg, CONFIG))) return;
-    const chatId = msg.chat.id;
-    const args = parseArgs(match && match[1]);
-    const appNo = args[0];
-    const dob = normalizeDob(args[1] || '');
-    if (!appNo || !dob) { await bot.sendMessage(chatId, 'Usage: /formset <application_number> <dob>'); return; }
-    await enqueueOrReplyTg(bot, msg, { command: 'formset', payload: { appNo, dob }, chatId });
-  });
-
-  bot.onText(/^\/llprint(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
-    if (!(await isTgAuthorized(msg, CONFIG))) return;
-    const chatId = msg.chat.id;
-    const args = parseArgs(match && match[1]);
-    const appNo = args[0];
-    const dob = normalizeDob(args[1] || '');
-    if (!appNo || !dob) {
-      await bot.sendMessage(chatId, 'Usage: /llprint <application_number> <dob> [10_digit_mobile]');
-      return;
-    }
-    // Try to resolve mobile from DB canonical_phone stored at registration.
-    // Telegram chat IDs are numeric IDs, not phone numbers — so we check the DB.
-    let mobile = args[2] || '';
-    try {
-      const { getUserByPhone } = require('./services/authorizationRepository');
-      const dbUser = await getUserByPhone(String(chatId));
-      if (dbUser && dbUser.canonical_phone) {
-        const cp = String(dbUser.canonical_phone).replace(/\D/g, '');
-        if (cp.length >= 10) mobile = cp.length > 10 ? cp.slice(-10) : cp;
+    if (normResult.ignore) {
+      if (hasActiveVahanSession(chatId, 'telegram')) {
+        if (!text && hasMedia) {
+          // ignore
+        } else {
+          await handleVahanIncomingText(vahanTelegramClient, chatId, text, 'telegram');
+        }
       }
-    } catch (_) {}
-    if (!mobile || mobile.length < 10) {
-      await bot.sendMessage(chatId, 'Mobile number not found in your profile. Please provide it:\nUsage: /llprint <application_number> <dob> <10_digit_mobile>');
       return;
     }
-    const cleanMobile = mobile.length > 10 ? mobile.slice(-10) : mobile;
-    await enqueueOrReplyTg(bot, msg, { command: 'llprint_start', payload: { appNo, dob, mobile: cleanMobile }, chatId });
-  });
 
-  bot.onText(/^\/lledit(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
-    if (!(await isTgAuthorized(msg, CONFIG))) return;
-    const chatId = msg.chat.id;
-    const args = parseArgs(match && match[1]);
-    const appNo = args[0];
-    const dob = normalizeDob(args[1] || '');
-    if (!appNo || !dob) {
-      await bot.sendMessage(chatId, 'Usage: /lledit <application_number> <dob> [10_digit_mobile]');
+    if (normResult.silent) {
       return;
     }
-    let mobile = args[2] || '';
-    try {
-      const { getUserByPhone } = require('./services/authorizationRepository');
-      const dbUser = await getUserByPhone(String(chatId));
-      if (dbUser && dbUser.canonical_phone) {
-        const cp = String(dbUser.canonical_phone).replace(/\D/g, '');
-        if (cp.length >= 10) mobile = cp.length > 10 ? cp.slice(-10) : cp;
+
+    if (normResult.success === false) {
+      if (normResult.error) {
+        await bot.sendMessage(chatId, normResult.error);
+        return;
       }
-    } catch (_) {}
-    if (!mobile || mobile.length < 10) {
-      await bot.sendMessage(chatId, 'Mobile number not found in your profile. Please provide it:\nUsage: /lledit <application_number> <dob> <10_digit_mobile>');
+      // unmatched / fallback
+      if (hasActiveVahanSession(chatId, 'telegram')) {
+        if (!text && hasMedia) {
+          // ignore
+        } else {
+          await handleVahanIncomingText(vahanTelegramClient, chatId, text, 'telegram');
+        }
+      }
       return;
     }
-    const cleanMobile = mobile.length > 10 ? mobile.slice(-10) : mobile;
-    await enqueueOrReplyTg(bot, msg, { command: 'lledit_start', payload: { appNo, dob, mobile: cleanMobile }, chatId });
-  });
 
+    // Route normalized commands
+    const { type, payload } = normResult;
 
-
-  bot.onText(/^\/resend(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
-    if (!(await isTgAuthorized(msg, CONFIG))) return;
-    const chatId = msg.chat.id;
-    const appNo = parseArgs(match && match[1])[0];
-    if (!appNo) { await bot.sendMessage(chatId, 'Usage: /resend <application_number>'); return; }
-    await enqueueOrReplyTg(bot, msg, { command: 'resend_otp', payload: { appNo: appNo.toUpperCase() }, chatId });
-  });
-
-  bot.onText(/^\/addtrack(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
-    if (!(await isTgAuthorized(msg, CONFIG))) return;
-    const chatId = msg.chat.id;
-    const raw = String((match && match[1]) || '').trim();
-    const parsed = raw.match(/^(\d+)(?:\s+(\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}))?(?:\s*-\s*(.+))?$/i);
-    if (!parsed) { await bot.sendMessage(chatId, 'Usage: /addtrack <application_number> [dob] [-tag]'); return; }
-    await enqueueOrReplyTg(bot, msg, { command: 'add_track', payload: { appNo: parsed[1], dob: normalizeDob(parsed[2] || ''), tag: String(parsed[3] || '').trim() }, chatId });
-  });
-
-  bot.onText(/^\/removetrack(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
-    if (!(await isTgAuthorized(msg, CONFIG))) return;
-    const chatId = msg.chat.id;
-    const appNo = parseArgs(match && match[1])[0];
-    if (!appNo) { await bot.sendMessage(chatId, 'Usage: /removetrack <application_number>'); return; }
-    await enqueueOrReplyTg(bot, msg, { command: 'remove_track', payload: { appNo }, chatId });
-  });
-
-  bot.onText(/^\/listtrack(?:@[^\s]+)?(?:\s+.*)?$/i, async (msg) => {
-    if (!(await isTgAuthorized(msg, CONFIG))) return;
-    await enqueueOrReplyTg(bot, msg, { command: 'list_track', payload: {}, chatId: msg.chat.id });
-  });
-
-  bot.onText(/^\/refreshtrack(?:@[^\s]+)?(?:\s+.*)?$/i, async (msg) => {
-    if (!(await isTgAuthorized(msg, CONFIG))) return;
-    await enqueueOrReplyTg(bot, msg, { command: 'refresh_track', payload: {}, chatId: msg.chat.id });
-  });
-
-  bot.onText(/^\/trackrc(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
-    if (!(await isTgAuthorized(msg, CONFIG))) return;
-    const appNo = parseArgs(match && match[1])[0];
-    if (!appNo) { await bot.sendMessage(msg.chat.id, 'Usage: /trackrc <application_number>'); return; }
-    await enqueueOrReplyTg(bot, msg, { command: 'track_rc', payload: { appNo }, chatId: msg.chat.id });
-  });
-
-  bot.onText(/^\/addtrackrc(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
-    if (!(await isTgAuthorized(msg, CONFIG))) return;
-    const raw = String((match && match[1]) || '').trim();
-    const parsed = raw.match(/^([A-Z0-9]+)(?:\s*-\s*(.+))?$/i);
-    if (!parsed) { await bot.sendMessage(msg.chat.id, 'Usage: /addtrackrc <application_number> [-tag]'); return; }
-    await enqueueOrReplyTg(bot, msg, { command: 'add_track_rc', payload: { appNo: parsed[1], tag: parsed[2] || '' }, chatId: msg.chat.id });
-  });
-
-  bot.onText(/^\/removetrackrc(?:@[^\s]+)?(?:\s+(.+))?$/i, async (msg, match) => {
-    if (!(await isTgAuthorized(msg, CONFIG))) return;
-    const appNo = parseArgs(match && match[1])[0];
-    if (!appNo) { await bot.sendMessage(msg.chat.id, 'Usage: /removetrackrc <application_number>'); return; }
-    await enqueueOrReplyTg(bot, msg, { command: 'remove_track_rc', payload: { appNo }, chatId: msg.chat.id });
-  });
-
-  bot.onText(/^\/stop(?:@[^\s]+)?(?:\s+.*)?$/i, async (msg) => {
-    if (!(await isTgAuthorized(msg, CONFIG))) return;
-    const chatId = getTelegramChatId(msg);
-    if (!hasActiveVahanSession(chatId, 'telegram')) {
-      await bot.sendMessage(chatId, 'No active Vahan session is running.');
+    if (type === 'help') {
+      await bot.sendMessage(chatId, normResult.message);
       return;
     }
-    await stopVahanSession(chatId, 'telegram');
-    await bot.sendMessage(chatId, 'Vahan session stopped.');
+
+    if (type === 'alive') {
+      try {
+        const meme = getRandomAliveMeme();
+        await bot.sendAnimation(chatId, meme.url, { caption: meme.caption });
+      } catch (_) {
+        await bot.sendMessage(chatId, 'Bot is alive, but the meme could not be loaded right now.');
+      }
+      return;
+    }
+
+    if (type === 'stop') {
+      if (hasActiveVahanSession(chatId, 'telegram')) {
+        await stopVahanSession(chatId, 'telegram');
+        await bot.sendMessage(chatId, 'Vahan session stopped.');
+      }
+      return;
+    }
+
+    if (type === 'llprint_start' || type === 'lledit_start' || type === 'dl_renewal_start' || type === 'apply_dl_start') {
+      // Resolve mobile number for llprint / lledit / dlrenewal / applydl
+      let mobile = payload.mobile || '';
+      if (!mobile) {
+        if (dbUser && dbUser.canonical_phone) {
+          const cp = String(dbUser.canonical_phone).replace(/\D/g, '');
+          if (cp.length >= 10) mobile = cp.length > 10 ? cp.slice(-10) : cp;
+        }
+      }
+      if (!mobile || mobile.length < 10) {
+        let cmdName = type === 'llprint_start' ? 'llprint' :
+                      type === 'lledit_start' ? 'lledit' :
+                      type === 'dl_renewal_start' ? 'dlrenewal' : 'applydl';
+        let placeholder = type === 'dl_renewal_start' ? '<DL_number> <dob> [RTO_code] <10_digit_mobile>' :
+                          type === 'apply_dl_start' ? '<LL_number> <dob> <10_digit_mobile>' :
+                          `<appl_no> <dob> <10_digit_mobile>`;
+        await bot.sendMessage(chatId, `❌ Mobile number not found in your profile. Please ask admin to link it or use: \`/${cmdName} ${placeholder}\``);
+        return;
+      }
+      const cleanMobile = mobile.length > 10 ? mobile.slice(-10) : mobile;
+      await enqueueOrReplyTg(bot, msg, { command: type, payload: { ...payload, mobile: cleanMobile }, chatId });
+      return;
+    }
+
+    // Map other actions directly to enqueueOrReplyTg
+    await enqueueOrReplyTg(bot, msg, { command: type, payload, chatId });
   });
 
   console.log('Telegram bot started.');

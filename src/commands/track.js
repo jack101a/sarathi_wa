@@ -14,7 +14,7 @@ async function trackCommand(client, message, MessageMedia, request = {}) {
     const dob = request.dob || parts[2];
 
     if (!appNo) {
-      await message.reply('Usage: track <application_number> [dob]');
+      await message.reply('Usage: track DL <appl_no> <DOB> OR track RC <appl_no>');
       return;
     }
 

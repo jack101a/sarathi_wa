@@ -12,7 +12,7 @@ async function applCommand(client, message, MessageMedia) {
   const dob = parts[2];
 
   if (!appNo || !dob) {
-    await message.reply('Usage: appl <application_number> <dob>');
+    await message.reply('Usage: appl <appl_no> <DOB>');
     return;
   }
 

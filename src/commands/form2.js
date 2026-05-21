@@ -12,7 +12,7 @@ async function form2Command(client, message, MessageMedia) {
   const dob = parts[2];
 
   if (!appNo || !dob) {
-    await message.reply('Usage: form2 <application_number> <dob>');
+    await message.reply('Usage: form2 <appl_no> <DOB>');
     return;
   }
 
