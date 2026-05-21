@@ -52,10 +52,14 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
         const media = MessageMedia.fromFilePath(slipPath);
         await client.sendMessage(message.from, media, { caption: '✅ DL Renewal Successful! Here is your acknowledgement reference slip.' });
         cleanupFile(slipPath);
+        if (flow.resolveJob) flow.resolveJob({ ok: true, slipPath });
       } catch (error) {
         await message.reply(`❌ DL Renewal failed: ${error.message || error}`);
-        if (flow.context) await flow.context.close().catch(() => {});
-        if (flow.browser) await flow.browser.close().catch(() => {});
+        if (flow.rejectJob) flow.rejectJob(error);
+        else {
+          if (flow.context) await flow.context.close().catch(() => {});
+          if (flow.browser) await flow.browser.close().catch(() => {});
+        }
       }
       return true;
     }
@@ -71,10 +75,14 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
       try {
         const details = await applyDlService.submitApplyDLOTP(flow.browser, flow.context, flow.page, otpCode);
         await message.reply(`✅ DL Application Submitted Successfully!\n📝 Application Details: ${details.extractedText}`);
+        if (flow.resolveJob) flow.resolveJob({ ok: true, details });
       } catch (error) {
         await message.reply(`❌ DL Application failed: ${error.message || error}`);
-        if (flow.context) await flow.context.close().catch(() => {});
-        if (flow.browser) await flow.browser.close().catch(() => {});
+        if (flow.rejectJob) flow.rejectJob(error);
+        else {
+          if (flow.context) await flow.context.close().catch(() => {});
+          if (flow.browser) await flow.browser.close().catch(() => {});
+        }
       }
       return true;
     }
@@ -91,10 +99,14 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
         const media = MessageMedia.fromFilePath(receiptPath);
         await client.sendMessage(message.from, media, { caption: `✅ Payment receipt downloaded successfully for Application No: ${flow.appNo}.` });
         cleanupFile(receiptPath);
+        if (flow.resolveJob) flow.resolveJob({ ok: true, receiptPath });
       } catch (error) {
         await message.reply(`❌ Failed to retrieve payment receipt: ${error.message || error}`);
-        if (flow.context) await flow.context.close().catch(() => {});
-        if (flow.browser) await flow.browser.close().catch(() => {});
+        if (flow.rejectJob) flow.rejectJob(error);
+        else {
+          if (flow.context) await flow.context.close().catch(() => {});
+          if (flow.browser) await flow.browser.close().catch(() => {});
+        }
       }
       return true;
     }
@@ -113,10 +125,14 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
           const media = MessageMedia.fromFilePath(docPath);
           await client.sendMessage(message.from, media, { caption: '🎉 Slot Booked Successfully! Here is your booking confirmation slip.' });
           cleanupFile(docPath);
+          if (flow.resolveJob) flow.resolveJob({ ok: true, docPath });
         } catch (error) {
           await message.reply(`❌ Booking OTP verification failed: ${error.message || error}`);
-          if (flow.context) await flow.context.close().catch(() => {});
-          if (flow.browser) await flow.browser.close().catch(() => {});
+          if (flow.rejectJob) flow.rejectJob(error);
+          else {
+            if (flow.context) await flow.context.close().catch(() => {});
+            if (flow.browser) await flow.browser.close().catch(() => {});
+          }
         }
         return true;
       }
@@ -134,8 +150,11 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
       } catch (error) {
         slotBookingSessions.delete(message.from);
         await message.reply(`❌ Failed to book slot: ${error.message || error}`);
-        if (flow.context) await flow.context.close().catch(() => {});
-        if (flow.browser) await flow.browser.close().catch(() => {});
+        if (flow.rejectJob) flow.rejectJob(error);
+        else {
+          if (flow.context) await flow.context.close().catch(() => {});
+          if (flow.browser) await flow.browser.close().catch(() => {});
+        }
       }
       return true;
     }
@@ -164,10 +183,14 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
         const slipPath = await dlRenewalService.submitDLRenewalOTP(flow.browser, flow.context, flow.page, otpCode);
         await bot.sendDocument(chatId, slipPath, { caption: '✅ DL Renewal Successful! Here is your acknowledgement reference slip.' });
         cleanupFile(slipPath);
+        if (flow.resolveJob) flow.resolveJob({ ok: true, slipPath });
       } catch (error) {
         await bot.sendMessage(chatId, `❌ DL Renewal failed: ${error.message || error}`);
-        if (flow.context) await flow.context.close().catch(() => {});
-        if (flow.browser) await flow.browser.close().catch(() => {});
+        if (flow.rejectJob) flow.rejectJob(error);
+        else {
+          if (flow.context) await flow.context.close().catch(() => {});
+          if (flow.browser) await flow.browser.close().catch(() => {});
+        }
       }
       return true;
     }
@@ -183,10 +206,14 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
       try {
         const details = await applyDlService.submitApplyDLOTP(flow.browser, flow.context, flow.page, otpCode);
         await bot.sendMessage(chatId, `✅ DL Application Submitted Successfully!\n📝 Application Details: ${details.extractedText}`);
+        if (flow.resolveJob) flow.resolveJob({ ok: true, details });
       } catch (error) {
         await bot.sendMessage(chatId, `❌ DL Application failed: ${error.message || error}`);
-        if (flow.context) await flow.context.close().catch(() => {});
-        if (flow.browser) await flow.browser.close().catch(() => {});
+        if (flow.rejectJob) flow.rejectJob(error);
+        else {
+          if (flow.context) await flow.context.close().catch(() => {});
+          if (flow.browser) await flow.browser.close().catch(() => {});
+        }
       }
       return true;
     }
@@ -202,10 +229,14 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
         const receiptPath = await paymentService.confirmPayment(flow.browser, flow.context, flow.page, flow.appNo);
         await bot.sendDocument(chatId, receiptPath, { caption: `✅ Payment receipt downloaded successfully for Application No: ${flow.appNo}.` });
         cleanupFile(receiptPath);
+        if (flow.resolveJob) flow.resolveJob({ ok: true, receiptPath });
       } catch (error) {
         await bot.sendMessage(chatId, `❌ Failed to retrieve payment receipt: ${error.message || error}`);
-        if (flow.context) await flow.context.close().catch(() => {});
-        if (flow.browser) await flow.browser.close().catch(() => {});
+        if (flow.rejectJob) flow.rejectJob(error);
+        else {
+          if (flow.context) await flow.context.close().catch(() => {});
+          if (flow.browser) await flow.browser.close().catch(() => {});
+        }
       }
       return true;
     }
@@ -223,10 +254,14 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
           const docPath = await slotBookingService.confirmSlotBookingOTP(flow.browser, flow.context, flow.page, otpCode);
           await bot.sendDocument(chatId, docPath, { caption: '🎉 Slot Booked Successfully! Here is your booking confirmation slip.' });
           cleanupFile(docPath);
+          if (flow.resolveJob) flow.resolveJob({ ok: true, docPath });
         } catch (error) {
           await bot.sendMessage(chatId, `❌ Booking OTP verification failed: ${error.message || error}`);
-          if (flow.context) await flow.context.close().catch(() => {});
-          if (flow.browser) await flow.browser.close().catch(() => {});
+          if (flow.rejectJob) flow.rejectJob(error);
+          else {
+            if (flow.context) await flow.context.close().catch(() => {});
+            if (flow.browser) await flow.browser.close().catch(() => {});
+          }
         }
         return true;
       }
@@ -244,8 +279,11 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
       } catch (error) {
         slotBookingSessions.delete(chatId);
         await bot.sendMessage(chatId, `❌ Failed to book slot: ${error.message || error}`);
-        if (flow.context) await flow.context.close().catch(() => {});
-        if (flow.browser) await flow.browser.close().catch(() => {});
+        if (flow.rejectJob) flow.rejectJob(error);
+        else {
+          if (flow.context) await flow.context.close().catch(() => {});
+          if (flow.browser) await flow.browser.close().catch(() => {});
+        }
       }
       return true;
     }

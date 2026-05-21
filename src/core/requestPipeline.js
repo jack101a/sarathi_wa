@@ -74,8 +74,6 @@ async function processRequest(message, transport, commandInfo) {
     chatId: commandInfo.chatId,
     transport,
   });
-  await authRepo.incrementUsage(user.id);
-  await rateLimiter.recordRequest(user.id, commandInfo.command);
 
   const job = {
     id: jobId,

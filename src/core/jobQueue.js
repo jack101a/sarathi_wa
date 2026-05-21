@@ -2,7 +2,7 @@ const CONFIG = require('../config/config');
 const jobRepository = require('../services/jobRepository');
 const logger = require('./logger');
 const { run } = require('./db');
-const { HEAVY_COMMANDS } = require('./rateLimiter');
+const { HEAVY_COMMANDS, recordRequest } = require('./rateLimiter');
 const authRepo = require('../services/authorizationRepository');
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
@@ -57,6 +57,15 @@ class JobQueue {
           logger.info('jobQueue', `Deducted ${cost} credits from user ${job.user_id} for ${job.command}`);
         } catch (err) {
           logger.error('jobQueue', `Credit deduction failed for user ${job.user_id}`, { error: err.message });
+        }
+      } else if (job.user_id) {
+        // ── Rate Limit consumption for light/medium commands ─────────────────────
+        try {
+          await authRepo.incrementUsage(job.user_id);
+          await recordRequest(job.user_id, job.command);
+          logger.debug('jobQueue', `Recorded rate limit usage for user ${job.user_id}`, { command: job.command });
+        } catch (err) {
+          logger.error('jobQueue', `Failed to record rate limit for user ${job.user_id}`, { error: err.message });
         }
       }
     } catch (error) {

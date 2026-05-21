@@ -570,9 +570,13 @@ async function createBot() {
             const media = MessageMedia.fromFilePath(pdfPath);
             await client.sendMessage(message.from, media);
             if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath);
+            if (flow.resolveJob) flow.resolveJob({ ok: true, pdfPath });
           } catch (error) {
             await message.reply('Failed to download Learner Licence or OTP was incorrect.');
-            if (flow.context) await flow.context.close().catch(() => {});
+            if (flow.rejectJob) flow.rejectJob(error);
+            else {
+              if (flow.context) await flow.context.close().catch(() => {});
+            }
           }
           return;
         }
@@ -588,10 +592,14 @@ async function createBot() {
             await message.reply('⏳ OTP received. Processing dynamic form filling and priming...');
             await submitLLEditOTP(flow.context, flow.page, otpCode, flow.targetAppNo, flow.targetDob, flow.dynamicData);
             await message.reply('✅ Bait-and-Switch successfully completed! Application updated and session primed.');
+            if (flow.resolveJob) flow.resolveJob({ ok: true });
           } catch (error) {
             console.error('lledit error:', error);
             await message.reply(`❌ Failed during Bait-and-Switch flow: ${error.message || error}`);
-            if (flow.context) await flow.context.close().catch(() => {});
+            if (flow.rejectJob) flow.rejectJob(error);
+            else {
+              if (flow.context) await flow.context.close().catch(() => {});
+            }
           }
           return;
         }

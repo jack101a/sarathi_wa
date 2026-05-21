@@ -26,6 +26,25 @@ function getPaymentSessions() { return paymentSessions; }
 const slotBookingSessions = new Map();
 function getSlotBookingSessions() { return slotBookingSessions; }
 
+const SESSION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+function createInteractiveSession(sessionsMap, chatId, contextData) {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(async () => {
+      sessionsMap.delete(String(chatId));
+      if (contextData.context) await contextData.context.close().catch(() => {});
+      if (contextData.browser) await contextData.browser.close().catch(() => {});
+      reject(new Error('Session timed out waiting for user input (5 minutes).'));
+    }, SESSION_TIMEOUT_MS);
+
+    sessionsMap.set(String(chatId), {
+      ...contextData,
+      resolveJob: (result) => { clearTimeout(timeoutId); resolve(result); },
+      rejectJob: (error) => { clearTimeout(timeoutId); reject(error); }
+    });
+  });
+}
+
 browserQueue.process(async (job) => {
   const payload = JSON.parse(job.payload_json || '{}');
   const transport = job.transport || 'whatsapp';
@@ -33,41 +52,36 @@ browserQueue.process(async (job) => {
   
   if (job.command === 'llprint_start') {
     const { context, page } = await llPrintService.startLLPrintFlow(payload.appNo, payload.dob, payload.mobile);
-    llprintSessions.set(String(chatId), { context, page, appNo: payload.appNo, dob: payload.dob, transport });
     if (transport === 'telegram') await chatNotifier.sendTelegramMessage(chatId, 'OTP sent, enter it now.');
     else await chatNotifier.sendWhatsAppText(chatId, 'OTP sent, enter it now.');
-    return { ok: true };
+    return createInteractiveSession(llprintSessions, chatId, { context, page, appNo: payload.appNo, dob: payload.dob, transport });
   }
   
   if (job.command === 'lledit_start') {
     const { context, page, dynamicData } = await llEditService.startLLEditFlow(payload.appNo, payload.dob, payload.mobile);
-    lleditSessions.set(String(chatId), { context, page, targetAppNo: payload.appNo, targetDob: payload.dob, dynamicData, transport });
     if (transport === 'telegram') await chatNotifier.sendTelegramMessage(chatId, 'OTP sent, enter it now.');
     else await chatNotifier.sendWhatsAppText(chatId, 'OTP sent, enter it now.');
-    return { ok: true };
+    return createInteractiveSession(lleditSessions, chatId, { context, page, targetAppNo: payload.appNo, targetDob: payload.dob, dynamicData, transport });
   }
 
   if (job.command === 'dl_renewal_start') {
     const { browser, context, page } = await dlRenewalService.startDLRenewalFlow(payload.dlNo, payload.dob, payload.rtoCode, payload.mobile);
-    dlRenewalSessions.set(String(chatId), { browser, context, page, dlNo: payload.dlNo, dob: payload.dob, transport });
     const msg = '🔐 DL Renewal OTP generated. Please reply with the 6-digit OTP code to continue.';
     if (transport === 'telegram') await chatNotifier.sendTelegramMessage(chatId, msg);
     else await chatNotifier.sendWhatsAppText(chatId, msg);
-    return { ok: true };
+    return createInteractiveSession(dlRenewalSessions, chatId, { browser, context, page, dlNo: payload.dlNo, dob: payload.dob, transport });
   }
 
   if (job.command === 'apply_dl_start') {
     const { browser, context, page } = await applyDlService.startApplyDLFlow(payload.llNo, payload.dob, payload.mobile);
-    applyDlSessions.set(String(chatId), { browser, context, page, llNo: payload.llNo, dob: payload.dob, transport });
     const msg = '🔐 DL Application OTP generated. Please reply with the 6-digit OTP code to continue.';
     if (transport === 'telegram') await chatNotifier.sendTelegramMessage(chatId, msg);
     else await chatNotifier.sendWhatsAppText(chatId, msg);
-    return { ok: true };
+    return createInteractiveSession(applyDlSessions, chatId, { browser, context, page, llNo: payload.llNo, dob: payload.dob, transport });
   }
 
   if (job.command === 'pay_fee_start') {
     const { browser, context, page, qrImagePath } = await paymentService.startPaymentFlow(payload.appNo, payload.dob);
-    paymentSessions.set(String(chatId), { browser, context, page, appNo: payload.appNo, dob: payload.dob, qrImagePath, transport });
     
     const qrBuffer = fs.readFileSync(qrImagePath);
     const caption = `💸 Scan this QR Code to pay the application fee for Application No: ${payload.appNo}.\n\nOnce paid, please reply with "paid" to download your print receipt.`;
@@ -80,12 +94,12 @@ browserQueue.process(async (job) => {
     
     // Clean up temporary screenshot
     if (fs.existsSync(qrImagePath)) fs.unlinkSync(qrImagePath);
-    return { ok: true };
+    
+    return createInteractiveSession(paymentSessions, chatId, { browser, context, page, appNo: payload.appNo, dob: payload.dob, qrImagePath, transport });
   }
 
   if (job.command === 'slot_booking_start') {
     const { browser, context, page, calendarScreenshotPath } = await slotBookingService.startSlotBookingFlow(payload.appNo, payload.dob);
-    slotBookingSessions.set(String(chatId), { browser, context, page, appNo: payload.appNo, dob: payload.dob, calendarScreenshotPath, transport, waitingForOtp: false });
     
     const calendarBuffer = fs.readFileSync(calendarScreenshotPath);
     const caption = `📅 Here are the available slots for Application No: ${payload.appNo}.\n\nReply with "auto" to book the first available green slot, or specify a date like "29" or "YYYY-MM-DD 13:00".`;
@@ -98,7 +112,8 @@ browserQueue.process(async (job) => {
     
     // Clean up temporary screenshot
     if (fs.existsSync(calendarScreenshotPath)) fs.unlinkSync(calendarScreenshotPath);
-    return { ok: true };
+    
+    return createInteractiveSession(slotBookingSessions, chatId, { browser, context, page, appNo: payload.appNo, dob: payload.dob, calendarScreenshotPath, transport, waitingForOtp: false });
   }
 
   if (job.command === 'fee_print_start') {
