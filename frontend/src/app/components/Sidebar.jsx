@@ -3,15 +3,18 @@ import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, MapPin, Activity,
   Settings, Sun, Moon, LogOut, Menu, X, Bot,
+  Gauge, Briefcase, UsersRound, ScrollText, Shield
 } from 'lucide-react';
 import { useThemeContext } from '../context/ThemeContext.jsx';
 
 const NAV_ITEMS = [
-  { path: '/dashboard', label: 'Dashboard',  icon: LayoutDashboard },
-  { path: '/users',     label: 'Users',      icon: Users },
-  { path: '/tracked',   label: 'Tracked',    icon: MapPin },
-  { path: '/queues',    label: 'Queues',     icon: Activity },
-  { path: '/settings',  label: 'Settings',   icon: Settings },
+  { path: '/dashboard',   label: 'Dashboard',   icon: LayoutDashboard },
+  { path: '/users',       label: 'Users',       icon: Users },
+  { path: '/plans',       label: 'Plans',       icon: Shield },
+  { path: '/jobs',        label: 'Jobs',        icon: Briefcase },
+  { path: '/groups',      label: 'Groups',      icon: UsersRound },
+  { path: '/activity',    label: 'Activity',    icon: ScrollText },
+  { path: '/settings',    label: 'Settings',    icon: Settings },
 ];
 
 export function Sidebar({ handleLogout }) {

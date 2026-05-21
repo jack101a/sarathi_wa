@@ -3,6 +3,7 @@ const jobRepository = require('../services/jobRepository');
 const logger = require('./logger');
 const { run } = require('./db');
 const { HEAVY_COMMANDS } = require('./rateLimiter');
+const authRepo = require('../services/authorizationRepository');
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -51,11 +52,12 @@ class JobQueue {
       // Deducted ONLY on successful completion, not on failure/cancellation.
       if (HEAVY_COMMANDS.has(job.command) && job.user_id) {
         const cost = CONFIG.CREDIT_COST.heavy || 50;
-        await run(
-          'UPDATE auth_users SET credits = MAX(0, COALESCE(credits,0) - ?) WHERE id = ?',
-          [cost, job.user_id]
-        );
-        logger.info('jobQueue', `Deducted ${cost} credits from user ${job.user_id} for ${job.command}`);
+        try {
+          await authRepo.deductCreditsAudited(job.user_id, cost, `Heavy job completion: ${job.command}`, job.id);
+          logger.info('jobQueue', `Deducted ${cost} credits from user ${job.user_id} for ${job.command}`);
+        } catch (err) {
+          logger.error('jobQueue', `Credit deduction failed for user ${job.user_id}`, { error: err.message });
+        }
       }
     } catch (error) {
       const errMsg = error.message || String(error);
@@ -74,6 +76,13 @@ class JobQueue {
       const job = this.pending.shift();
       this._runJob(job).catch(() => {});
     }
+  }
+
+  cancelPendingJob(jobId) {
+    const idx = this.pending.findIndex(j => j.id === jobId);
+    if (idx === -1) return false;
+    this.pending.splice(idx, 1);
+    return true;
   }
 
   stop() { this.stopped = true; }

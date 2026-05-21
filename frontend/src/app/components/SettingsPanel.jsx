@@ -1,5 +1,7 @@
 import React from 'react';
-import { Server, Cpu, HardDrive } from 'lucide-react';
+import { Server, Cpu, HardDrive, Settings } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { apiGet } from '../../api/client.js';
 
 function mb(bytes) {
   return bytes ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : '—';
@@ -14,9 +16,10 @@ function InfoRow({ label, value, isDark }) {
   );
 }
 
-function SectionCard({ title, icon: Icon, children, isDark, accentColor }) {
+function SectionCard({ title, icon: Icon, children, isDark, accentColor, span = 1 }) {
   return (
     <div style={{
+      gridColumn: span > 1 ? `span ${span}` : 'auto',
       background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.85)',
       border: `1px solid ${isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}`,
       borderRadius: '1rem', padding: '1.25rem',
@@ -40,6 +43,12 @@ export function SettingsPanel({ health, isDark }) {
 
   const uptimeH = Math.floor((health?.uptime || 0) / 3600);
   const uptimeM = Math.floor(((health?.uptime || 0) % 3600) / 60);
+
+  const { data: configData, isLoading } = useQuery({
+    queryKey: ['systemConfig'],
+    queryFn: () => apiGet('/admin/api/config'),
+    staleTime: 60_000,
+  });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -75,6 +84,24 @@ export function SettingsPanel({ health, isDark }) {
               } isDark={isDark} />
             </div>
           ))}
+        </SectionCard>
+
+        {/* Config Viewer */}
+        <SectionCard title="Backend Configuration" icon={Settings} isDark={isDark} accentColor="#a855f7" span={2}>
+          {isLoading ? (
+            <div style={{ color: isDark ? '#9ca3af' : '#6b7280', fontSize: '0.85rem' }}>Loading configuration...</div>
+          ) : (
+            <pre style={{
+              margin: 0, padding: '1rem',
+              background: isDark ? 'rgba(0,0,0,0.3)' : '#f1f5f9',
+              borderRadius: '0.5rem', fontSize: '0.75rem',
+              color: isDark ? '#e6edf3' : '#334155',
+              overflowX: 'auto',
+              border: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`
+            }}>
+              {JSON.stringify(configData?.config || {}, null, 2)}
+            </pre>
+          )}
         </SectionCard>
       </div>
     </div>

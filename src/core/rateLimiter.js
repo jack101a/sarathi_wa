@@ -104,10 +104,57 @@ async function _loadCounts(userId) {
  * Check all applicable limits for a user + command.
  * Returns { allowed: bool, reason: string }.
  */
-async function checkRateLimit(userId, plan, command) {
+async function checkRateLimit(userId, planId, command) {
   const category = getCommandCategory(command);
-  const planKey  = plan || 'standard';
-  const limits   = CONFIG.RATE_LIMITS[planKey] || CONFIG.RATE_LIMITS.standard;
+  const planKey  = planId || 'free';
+  
+  // ── Fetch dynamic plan from DB ──────────────────────────────────────────
+  const [plan] = await query('SELECT * FROM subscription_plans WHERE id = ?', [planKey]);
+  
+  if (!plan) {
+    // Fallback to config if DB plan doesn't exist yet
+    const fallbackLimits = CONFIG.RATE_LIMITS[planKey] || CONFIG.RATE_LIMITS.standard;
+    return applyLimits(userId, category, fallbackLimits, command);
+  }
+  
+  if (!plan.is_active) {
+    return { allowed: false, reason: 'plan_inactive', message: '⚠️ Your subscription plan is currently inactive.' };
+  }
+
+  // Check if service is included
+  let services = [];
+  try { services = JSON.parse(plan.services_json || '[]'); } catch(e) {}
+  if (!services.includes('*') && !services.includes(command)) {
+    return { 
+      allowed: false, 
+      reason: 'service_not_included', 
+      message: `🚫 Access Denied\n\nThe command '${command}' is not included in your current plan (*${plan.name}*).\nPlease upgrade your plan to use this service.`
+    };
+  }
+
+  // Parse limits
+  let limits = CONFIG.RATE_LIMITS.standard;
+  try { limits = JSON.parse(plan.limits_json || '{}'); } catch(e) {}
+  
+  return applyLimits(userId, category, limits, command);
+}
+
+async function applyLimits(userId, category, limits, command) {
+  let effectiveLimits = { ...limits };
+  try {
+    const [userRow] = await query('SELECT rate_limit_overrides FROM auth_users WHERE id = ?', [userId]);
+    if (userRow && userRow.rate_limit_overrides) {
+      const overrides = JSON.parse(userRow.rate_limit_overrides || '{}');
+      for (const cat of ['light', 'medium', 'heavy']) {
+        if (overrides[cat]) {
+          effectiveLimits[cat] = { ...(limits[cat] || {}), ...overrides[cat] };
+        }
+      }
+      if (typeof overrides.maxConcurrent === 'number') {
+        effectiveLimits.maxConcurrent = overrides.maxConcurrent;
+      }
+    }
+  } catch (_) { /* ignore parse errors, use plan defaults */ }
 
   // ── Heavy: credit balance check only ──────────────────────────────────────
   if (category === 'heavy') {
@@ -125,7 +172,7 @@ async function checkRateLimit(userId, plan, command) {
   }
 
   // ── Light / Medium: quota-based ────────────────────────────────────────────
-  const catLimits = limits[category];
+  const catLimits = effectiveLimits[category];
   if (!catLimits) return { allowed: true, reason: '', category };
 
   // Use cache if still fresh

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, MapPin, Activity, Clock, BarChart3, CheckCircle2, XCircle, Timer } from 'lucide-react';
+import { Users, MapPin, Activity, Clock, BarChart3, CheckCircle2, XCircle, Timer, IndianRupee, TrendingUp } from 'lucide-react';
 import { useThemeContext } from '../context/ThemeContext.jsx';
 import { SkeletonCard, SkeletonTableRow } from './Skeleton.jsx';
 
@@ -12,6 +12,7 @@ function StatCard({ label, value, icon: Icon, color, isDark }) {
       <div>
         <p style={{ fontSize: '0.75rem', fontWeight: 500, marginBottom: '0.25rem', color: isDark ? '#9ca3af' : '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</p>
         <p style={{ fontSize: '2rem', fontWeight: 700, letterSpacing: '-0.025em', color: isDark ? '#e6edf3' : '#111827', margin: 0 }}>{value}</p>
+        {arguments[0].subtitle && <p style={{ fontSize: '0.75rem', color: isDark ? '#9ca3af' : '#6b7280', marginTop: '0.25rem', margin: '0.25rem 0 0 0' }}>{arguments[0].subtitle}</p>}
       </div>
       <div style={{ padding: '0.75rem', borderRadius: '0.75rem', alignSelf: 'flex-end', background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)', color }}>
         <Icon size={22} />
@@ -41,12 +42,22 @@ function formatUptime(seconds) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
+const HEAVY_COMMANDS = ['lledit_start','dl_renewal_start','apply_dl_start'];
+const MEDIUM_COMMANDS = ['llprint_start','fee_print_start','pay_fee_start','slot_booking_start','resend_otp'];
+function getCategory(cmd) {
+  if (HEAVY_COMMANDS.includes(cmd)) return 'heavy';
+  if (MEDIUM_COMMANDS.includes(cmd)) return 'medium';
+  return 'light';
+}
+
 export function DashboardPanel({ stats, recentJobs, loading, isDark }) {
   const cards = [
     { label: 'Total Users',    value: stats.activeUsers  ?? stats.totalUsers ?? '—', icon: Users,       color: '#6366f1' },
     { label: 'Tracked Apps',  value: (Number(stats.sarathiTracked || 0) + Number(stats.vahanTracked || 0)) || '—', icon: MapPin, color: '#10b981' },
-    { label: 'Pending Jobs',  value: stats.pendingJobs  ?? '—',                        icon: Activity,    color: '#fbbf24' },
+    { label: 'Pending Jobs',  value: stats.pendingJobs  ?? '—',                        icon: Activity,    color: '#fbbf24', subtitle: stats.jobsToday != null ? `${stats.jobsToday} today` : undefined },
     { label: 'Uptime',        value: stats.uptime ? formatUptime(stats.uptime) : '—',   icon: Clock,       color: '#06b6d4' },
+    { label: 'Credits Pool',  value: stats.totalCredits != null ? `₹${stats.totalCredits}` : '—', icon: IndianRupee, color: '#a855f7' },
+    { label: 'Success Rate',  value: stats.successRate != null ? `${stats.successRate}%` : '—', icon: TrendingUp, color: '#f97316' },
   ];
 
   const panelStyle = isDark
@@ -76,26 +87,31 @@ export function DashboardPanel({ stats, recentJobs, loading, isDark }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
             <thead>
               <tr>
-                {['ID', 'Command', 'Queue', 'Status', 'Created'].map((h) => (
+                {['ID', 'User Phone', 'Command', 'Category', 'Queue', 'Status', 'Created'].map((h) => (
                   <th key={h} style={{ textAlign: 'left', padding: '0.5rem 0.75rem', color: thText, fontWeight: 600, borderBottom: `1px solid ${trBorder}` }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading
-                ? Array.from({ length: 5 }).map((_, i) => <SkeletonTableRow key={i} cols={5} />)
-                : (recentJobs || []).slice(0, 20).map((job, i) => (
+                ? Array.from({ length: 5 }).map((_, i) => <SkeletonTableRow key={i} cols={7} />)
+                : (recentJobs || []).slice(0, 20).map((job, i) => {
+                  const cat = getCategory(job.command);
+                  return (
                   <tr key={job.id || i} style={{ borderBottom: `1px solid ${trBorder}` }}>
                     <td style={{ padding: '0.6rem 0.75rem', color: tdText, fontFamily: 'monospace', fontSize: '0.7rem' }}>{String(job.id || '').slice(0, 8)}…</td>
+                    <td style={{ padding: '0.6rem 0.75rem', color: tdText, fontFamily: 'monospace', fontSize: '0.75rem' }}>{job.user_phone || '—'}</td>
                     <td style={{ padding: '0.6rem 0.75rem', color: tdText, fontWeight: 500 }}>{job.command || '—'}</td>
+                    <td style={{ padding: '0.6rem 0.75rem' }}><span className={`badge badge-${cat}`}>{cat}</span></td>
                     <td style={{ padding: '0.6rem 0.75rem', color: thText }}>{job.queue_type || '—'}</td>
                     <td style={{ padding: '0.6rem 0.75rem' }}>{statusBadge(job.status)}</td>
                     <td style={{ padding: '0.6rem 0.75rem', color: thText, whiteSpace: 'nowrap' }}>{job.created_at ? new Date(job.created_at).toLocaleString() : '—'}</td>
                   </tr>
-                ))
+                  );
+                })
               }
               {!loading && (!recentJobs || recentJobs.length === 0) && (
-                <tr><td colSpan={5} style={{ textAlign: 'center', padding: '2rem', color: thText }}>No recent jobs</td></tr>
+                <tr><td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: thText }}>No recent jobs</td></tr>
               )}
             </tbody>
           </table>

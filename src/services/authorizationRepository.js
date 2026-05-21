@@ -121,5 +121,93 @@ async function getCredits(userId) {
 async function queryAsync(sql, params = []) { return query(sql, params); }
 async function runAsync(sql, params = []) { return run(sql, params); }
 
+// ── Audited Credit Operations ─────────────────────────────────────────────
+async function addCreditsAudited(userId, amount, note = '', triggeredBy = 'admin', jobId = '') {
+  const n = Math.max(0, Number(amount) || 0);
+  const rows = await query('SELECT credits FROM auth_users WHERE id = ?', [userId]);
+  const before = Number((rows[0] && rows[0].credits) || 0);
+  await run('UPDATE auth_users SET credits = COALESCE(credits,0) + ?, updated_at = ? WHERE id = ?', [n, nowIso(), userId]);
+  const after = before + n;
+  await run('INSERT INTO credit_transactions (user_id, action, amount, balance_before, balance_after, note, triggered_by, job_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)',
+    [userId, 'add', n, before, after, note, triggeredBy, jobId, nowIso()]);
+  return { newBalance: after };
+}
+
+async function setCreditsAudited(userId, amount, note = '', triggeredBy = 'admin') {
+  const n = Math.max(0, Number(amount) || 0);
+  const rows = await query('SELECT credits FROM auth_users WHERE id = ?', [userId]);
+  const before = Number((rows[0] && rows[0].credits) || 0);
+  await run('UPDATE auth_users SET credits = ?, updated_at = ? WHERE id = ?', [n, nowIso(), userId]);
+  await run('INSERT INTO credit_transactions (user_id, action, amount, balance_before, balance_after, note, triggered_by, job_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)',
+    [userId, 'set', n, before, n, note, triggeredBy, '', nowIso()]);
+  return { newBalance: n };
+}
+
+async function deductCreditsAudited(userId, amount, note = '', jobId = '') {
+  const n = Math.max(0, Number(amount) || 0);
+  const rows = await query('SELECT credits FROM auth_users WHERE id = ?', [userId]);
+  const before = Number((rows[0] && rows[0].credits) || 0);
+  const after = Math.max(0, before - n);
+  await run('UPDATE auth_users SET credits = MAX(0, COALESCE(credits,0) - ?), updated_at = ? WHERE id = ?', [n, nowIso(), userId]);
+  await run('INSERT INTO credit_transactions (user_id, action, amount, balance_before, balance_after, note, triggered_by, job_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)',
+    [userId, 'deduct', n, before, after, note, 'job_completion', jobId, nowIso()]);
+  return { newBalance: after };
+}
+
+async function getCreditHistory(userId, limit = 50) {
+  return query('SELECT * FROM credit_transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT ?', [userId, limit]);
+}
+
+// ── Per-User Rate Limit Overrides ─────────────────────────────────────────
+async function getUserRateOverrides(userId) {
+  const rows = await query('SELECT rate_limit_overrides FROM auth_users WHERE id = ?', [userId]);
+  try { return JSON.parse((rows[0] && rows[0].rate_limit_overrides) || '{}'); } catch (_) { return {}; }
+}
+
+async function setUserRateOverrides(userId, overrides) {
+  const json = JSON.stringify(overrides || {});
+  await run('UPDATE auth_users SET rate_limit_overrides = ?, updated_at = ? WHERE id = ?', [json, nowIso(), userId]);
+  return overrides;
+}
+
+// ── Activity Log Queries ──────────────────────────────────────────────────
+async function getActivityLog(filters = {}) {
+  let sql = 'SELECT * FROM rate_limit_log WHERE 1=1';
+  const params = [];
+  if (filters.userId)   { sql += ' AND user_id = ?';   params.push(filters.userId); }
+  if (filters.category) { sql += ' AND category = ?';  params.push(filters.category); }
+  if (filters.from)     { sql += ' AND timestamp >= ?'; params.push(filters.from); }
+  if (filters.to)       { sql += ' AND timestamp <= ?'; params.push(filters.to); }
+  sql += ' ORDER BY timestamp DESC LIMIT ?';
+  params.push(Number(filters.limit) || 200);
+  return query(sql, params);
+}
+
+// ── Job Stats ─────────────────────────────────────────────────────────────
+async function getJobStats() {
+  const [total]     = await query('SELECT COUNT(*) AS c FROM jobs');
+  const [pending]   = await query("SELECT COUNT(*) AS c FROM jobs WHERE status = 'pending'");
+  const [running]   = await query("SELECT COUNT(*) AS c FROM jobs WHERE status = 'running'");
+  const [completed] = await query("SELECT COUNT(*) AS c FROM jobs WHERE status = 'completed'");
+  const [failed]    = await query("SELECT COUNT(*) AS c FROM jobs WHERE status = 'failed'");
+  const todayStart  = new Date(); todayStart.setHours(0,0,0,0);
+  const [today]     = await query('SELECT COUNT(*) AS c FROM jobs WHERE created_at >= ?', [todayStart.toISOString()]);
+  const [todayDone] = await query("SELECT COUNT(*) AS c FROM jobs WHERE status = 'completed' AND created_at >= ?", [todayStart.toISOString()]);
+  const todayCount  = Number(today?.c || 0);
+  const doneCount   = Number(todayDone?.c || 0);
+  return {
+    total: Number(total?.c || 0), pending: Number(pending?.c || 0), running: Number(running?.c || 0),
+    completed: Number(completed?.c || 0), failed: Number(failed?.c || 0),
+    todayCount, successRate: todayCount > 0 ? Math.round((doneCount / todayCount) * 100) : 100,
+  };
+}
+
+// ── Total Credits in System ───────────────────────────────────────────────
+async function getTotalCredits() {
+  const [row] = await query('SELECT COALESCE(SUM(credits),0) AS total FROM auth_users WHERE is_active = 1');
+  return Number(row?.total || 0);
+}
+
 initDb();
-module.exports = { initDb, query: queryAsync, run: runAsync, getUserByPhone, getUserById, listAllUsers, createUser, updateUserProfile, incrementUsage, resetMonthlyUsage, resetDailyCount, deactivateUserById, deactivateUser, createUserIdentity, getIdentity, createVerification, getPendingVerification, updateVerificationStatus, getAuthorizedGroups, addAuthorizedGroup, removeAuthorizedGroup, addCredits, setCredits, getCredits };
+module.exports = { initDb, query: queryAsync, run: runAsync, getUserByPhone, getUserById, listAllUsers, createUser, updateUserProfile, incrementUsage, resetMonthlyUsage, resetDailyCount, deactivateUserById, deactivateUser, createUserIdentity, getIdentity, createVerification, getPendingVerification, updateVerificationStatus, getAuthorizedGroups, addAuthorizedGroup, removeAuthorizedGroup, addCredits, setCredits, getCredits, addCreditsAudited, setCreditsAudited, deductCreditsAudited, getCreditHistory, getUserRateOverrides, setUserRateOverrides, getActivityLog, getJobStats, getTotalCredits };
+

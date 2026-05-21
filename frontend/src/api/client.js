@@ -54,3 +54,13 @@ export async function apiDelete(url, opts = {}) {
   const resp = await fetch(url, { method: 'DELETE', ...buildOpts(opts) });
   return handleResponse(resp);
 }
+
+export async function apiPut(url, body = {}, opts = {}) {
+  const resp = await fetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    body: JSON.stringify(body),
+    credentials: 'include',
+  });
+  return handleResponse(resp);
+}
