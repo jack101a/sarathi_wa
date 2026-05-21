@@ -567,6 +567,9 @@ function classifyVahanStatus(value) {
   }
 
   const date = extractDate(text);
+  if (text.includes('NOT INWARDED')) {
+    return { status: 'Pending', date: '' };
+  }
   if (text.includes('PENDING')) {
     return { status: 'Pending', date };
   }
@@ -608,7 +611,13 @@ function deriveVahanTimeline(card) {
     });
 
   const statusDates = relevantRows
-    .map((r) => extractDate(r.currentStatus))
+    .map((r) => {
+      const statusText = normalizeText(r.currentStatus).toUpperCase();
+      if (statusText.includes('NOT INWARDED')) {
+        return '';
+      }
+      return extractDate(r.currentStatus);
+    })
     .filter(Boolean);
   const parsedStatuses = relevantRows.map((r) => classifyVahanStatus(r.currentStatus));
   const approvedStatusDate = relevantRows

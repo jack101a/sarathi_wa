@@ -274,6 +274,36 @@ function testVahanKeepsTaxTransactionAsService() {
   assert.strictEqual(timeline.approvalAt, '18-04-2026');
 }
 
+function testVahanNotInwardedHasNoScrutinyOrApproval() {
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+    <partial-response>
+      <changes>
+        <update id="tb_showStatus"><![CDATA[
+          <div>
+            <h2>Application Status for Application Number MH260507V1745659 dated - 07-May-2026 13:59:11 against vehicle no - MH47BL6238</h2>
+            <table>
+              <tbody id="tb_appl_no_status_data">
+                <tr><td>1</td><td>Fitness Inspection/Certificate</td><td></td><td>ONLINE TRANSACTION SUCCESS ON 07-May-2026 13:59:11 BUT NOT INWARDED AT R.T.O.BORIVALI (MH-47)</td></tr>
+              </tbody>
+            </table>
+            <table>
+              <tbody id="tb_appl_no_status_detail_data">
+                <tr><td>Not Available</td><td>Not Available</td><td>Not Available</td><td>Not Available</td></tr>
+              </tbody>
+            </table>
+          </div>
+        ]]></update>
+      </changes>
+    </partial-response>`;
+
+  const card = __private.parseStatusCard(xml, 'fallback');
+  const timeline = __private.deriveVahanTimeline(card);
+  assert.strictEqual(timeline.serviceName, 'Fitness Inspection/Certificate');
+  assert.strictEqual(timeline.scrutinyAt, '', 'Expected empty scrutiny date for NOT INWARDED status');
+  assert.strictEqual(timeline.approvalAt, '', 'Expected empty approval date for NOT INWARDED status');
+  assert.strictEqual(timeline.dispatchedAt, '', 'Expected empty dispatch date for NOT INWARDED status');
+}
+
 async function testStartLookupFallsBackToManualCaptchaAfterEightSolverFailures() {
   const originalNotifyChatIds = CONFIG.TELEGRAM.NOTIFY_CHAT_IDS;
   const originalAttemptCount = CONFIG.VAHAN_TRACK.CAPTCHA_MAX_ATTEMPTS;
@@ -348,6 +378,7 @@ async function run() {
   testVahanSplitStatusAndGridFragmentsParseServiceName();
   testVahanFallbackTableParserWithoutKnownIds();
   testVahanKeepsTaxTransactionAsService();
+  testVahanNotInwardedHasNoScrutinyOrApproval();
   await testStartLookupReportsBootstrapFailures();
   await testStartLookupFallsBackToManualCaptchaAfterEightSolverFailures();
   console.log('PASS - vahan service retry, solver fallback, and bootstrap failure handling');

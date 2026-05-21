@@ -78,5 +78,21 @@
     "scrutinyAt": "",
     "approvalAt": "",
     "dispatchedAt": ""
+  },
+  {
+    "appNo": "2179944526",
+    "chatId": "251367440572459@lid",
+    "transport": "whatsapp",
+    "createdAt": "2026-05-21T06:30:29.755Z",
+    "lastStage": "",
+    "lastSnapshot": "{\"kind\":\"approved\",\"stage\":\"\",\"message\":\"Licence has been Approved.\",\"approvedAction\":\"\",\"approvedOn\":\"\",\"transaction\":\"\",\"counter\":\"\",\"dlNumber\":\"\",\"trackerNo\":\"\",\"completedActions\":[],\"furtherActions\":[]}",
+    "tag": "",
+    "dob": "04-08-1998",
+    "applicantName": "RAKESH MANGESH PANCHRASH",
+    "serviceName": "Issue of New LL Application",
+    "applicationDate": "20-05-2026",
+    "scrutinyAt": "",
+    "approvalAt": "",
+    "dispatchedAt": ""
   }
 ]

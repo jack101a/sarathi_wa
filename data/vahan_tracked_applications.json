@@ -11,8 +11,8 @@
     "serviceName": "Hypothecation Addition",
     "applicationDate": "30-Apr-2026 15:12:02",
     "vehicleNo": "MH03EV6333",
-    "scrutinyAt": "30-04-2026",
-    "approvalAt": "30-04-2026",
+    "scrutinyAt": "",
+    "approvalAt": "",
     "dispatchedAt": ""
   },
   {
@@ -62,5 +62,21 @@
     "scrutinyAt": "04-05-2026",
     "approvalAt": "04-05-2026",
     "dispatchedAt": "05-05-2026"
+  },
+  {
+    "transport": "whatsapp",
+    "chatId": "251367440572459@lid",
+    "applicationNumber": "MH260507V1745659",
+    "tag": "",
+    "createdAt": "2026-05-21T06:32:40.566Z",
+    "lastSnapshot": "{\"rows\":[{\"transactionPurpose\":\"Fitness Inspection/Certificate\",\"currentStatus\":\"ONLINE TRANSACTION SUCCESS ON 07-May-2026 13:59:11 BUT NOT INWARDED AT R.T.O.BORIVALI (MH-47)\"}],\"rcPrintOrSmartCardStatus\":\"Not Available\",\"dispatchRcStatus\":\"Not Available\"}",
+    "lastCheckedAt": "2026-05-21T06:32:48.078Z",
+    "applicantName": "",
+    "serviceName": "Fitness Inspection/Certificate",
+    "applicationDate": "07-May-2026 13:59:11",
+    "vehicleNo": "MH47BL6238",
+    "scrutinyAt": "",
+    "approvalAt": "",
+    "dispatchedAt": ""
   }
 ]
