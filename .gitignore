@@ -62,3 +62,8 @@ data/*.json
 data/*.yml
 data/*.log
 data/tmp/
+
+# Dev planning artifacts (agent-generated, not part of production codebase)
+implementation_plan.md
+task.md
+walkthrough.md

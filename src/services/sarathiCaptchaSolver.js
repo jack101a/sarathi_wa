@@ -1,7 +1,7 @@
 /**
  * Sarathi/Vahan mixed ONNX captcha solver.
  *
- * Model:   sarathi-vahan-217k_mixed_model_v1.onnx  (project root)
+ * Model:   sarathi-vahan-217k_mixed_model_v1.onnx  (models/ directory)
  * Input:   name="input_image"  shape=[1, 3, 54, 250]  float32  RGB NCHW  range [0,1]
  * Output:  name="log_softmax"  shape=[63, 1, 63]       float32  CTC time-first
  *
@@ -31,7 +31,7 @@ const { Jimp } = require('jimp');
 // ──────────────────────────────────────────────────────────────────────────────
 // Constants (must match model training config)
 // ──────────────────────────────────────────────────────────────────────────────
-const MODEL_PATH = path.join(process.cwd(), 'sarathi-vahan-217k_mixed_model_v1.onnx');
+const MODEL_PATH = path.join(__dirname, '..', '..', 'models', 'sarathi-vahan-217k_mixed_model_v1.onnx');
 const TARGET_H   = 54;
 const TARGET_W   = 250;
 const VOCAB      = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'; // 62 chars, blank=0

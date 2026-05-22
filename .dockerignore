@@ -44,3 +44,11 @@ LL_*.pdf
 testing_ground/
 *.test.js
 *.spec.js
+
+# Dev planning artifacts
+implementation_plan.md
+task.md
+walkthrough.md
+
+# Local development scripts (Windows-only, not needed in Linux container)
+scripts/

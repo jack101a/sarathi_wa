@@ -258,7 +258,7 @@ const CONFIG = {
       : path.join(
           PROJECT_ROOT,
           String(
-            getConfigValue('VAHAN_CAPTCHA_MODEL_PATH', 'vahan.captcha_model_path', 'godmode_solver.onnx')
+            getConfigValue('VAHAN_CAPTCHA_MODEL_PATH', 'vahan.captcha_model_path', 'models/godmode_solver.onnx')
           ).trim()
         ),
     CAPTCHA_AUTO_SOLVE: asBoolean(
