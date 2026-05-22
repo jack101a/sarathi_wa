@@ -12,7 +12,13 @@ function normalizeWaOutbound(phone) {
 
 function normalizeIdentity(identity) {
   if (!identity) return '';
-  return String(identity).trim().toLowerCase();
+  let clean = String(identity).trim().toLowerCase();
+  if (clean.includes('@')) {
+    const [localPart, domain] = clean.split('@');
+    const baseLocal = localPart.split(':')[0];
+    clean = `${baseLocal}@${domain}`;
+  }
+  return clean;
 }
 
 function extractIdentityFromMessage(message) {

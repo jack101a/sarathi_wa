@@ -35,12 +35,28 @@ async function isAuthorizedWhatsApp(message, config = CONFIG) {
     }
     const idObj = extractIdentityFromMessage(message);
     if (idObj && idObj.identities) {
-      for (const val of idObj.identities) { if (await repo.getIdentity(val)) return true; }
+      for (const val of idObj.identities) {
+        if (await repo.getIdentity(val)) return true;
+      }
     }
     const pureSender = getWhatsAppSenderId(message);
-    if (await repo.getUserByPhone(pureSender)) return true;
+    if (pureSender) {
+      const user = await repo.getUserByPhone(pureSender);
+      if (user && Number(user.is_active) === 1) return true;
+      if (pureSender.length > 10) {
+        const short10 = pureSender.slice(-10);
+        const user10 = await repo.getUserByPhone(short10);
+        if (user10 && Number(user10.is_active) === 1) return true;
+      }
+    }
     const envUsers = (config.SECURITY.AUTHORIZED_USERS || []).map((u) => String(u).replace(/\D/g, ''));
-    return envUsers.includes(pureSender);
+    if (envUsers.includes(pureSender)) return true;
+    if (pureSender && pureSender.length > 10) {
+      const short10 = pureSender.slice(-10);
+      const envUsers10 = envUsers.map(u => u.length > 10 ? u.slice(-10) : u);
+      if (envUsers10.includes(short10)) return true;
+    }
+    return false;
   } catch (_) { return false; }
 }
 
