@@ -133,8 +133,11 @@ function UserDrawer({ user, plans, isDark, sarathiTracked = [], vahanTracked = [
 
         showToast('User updated', 'success');
       } else {
-        await apiPostJson('/admin/api/users', form);
-        showToast('User created', 'success');
+        const res = await apiPostJson('/admin/api/users', form);
+        const msg = res.code 
+          ? `User created! Outbound activation code sent: ${res.code}` 
+          : 'User created successfully';
+        showToast(msg, 'success');
       }
       onRefresh();
       onClose();

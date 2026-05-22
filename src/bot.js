@@ -508,13 +508,14 @@ async function createBot() {
       return;
     }
 
-    if (/^auth\s+\d+\s+[a-z0-9]{6}$/i.test(normalizedBody)) {
+    const isVerificationFormat = /^(?:auth\s+\d+\s+[a-z0-9]{6,8}|[a-z0-9]{8})$/i.test(normalizedBody);
+    if (isVerificationFormat) {
       const { consumeVerificationMessage } = require('./services/waVerificationService');
       const { extractIdentityFromMessage } = require('./services/authorizationNormalizer');
       const idContext = extractIdentityFromMessage(message);
       const ok = await consumeVerificationMessage(normalizedBody, idContext);
       if (ok) {
-        await message.reply('Verification successful! You are now authorized.');
+        await message.reply('✅ Verification successful! Your WhatsApp account has been fully activated and linked.');
         return;
       }
     }

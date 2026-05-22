@@ -130,9 +130,35 @@ router.post('/users', async (req, res) => {
   try {
     const { phone, channel = 'wa', name = '', plan = 'standard', monthly_limit = 0, expiry_date = '' } = req.body || {};
     if (!phone) return res.status(400).json({ ok: false, message: 'phone is required' });
+    
+    // Step 1: Create/Add the authorized entry
     const user = await authService.addAuthorizedEntry(channel, 'user', phone, { name, plan, monthly_limit, expiry_date });
     logger.info('adminRouter', 'User created', { phone, channel });
-    res.json({ ok: true, user });
+
+    let verificationCode = null;
+
+    // Step 2: For WhatsApp channel, trigger outbound activation code message
+    if (channel === 'wa' || channel === 'whatsapp') {
+      const waVerificationService = require('../services/waVerificationService');
+      const chatNotifier = require('../services/chatNotifier');
+      
+      const verif = await waVerificationService.startVerification(phone, 'admin', 'wa');
+      if (verif) {
+        verificationCode = verif.code;
+        const digits = String(phone).trim().replace(/\D/g, '');
+        const targetJid = digits.endsWith('@c.us') ? digits : `${digits}@c.us`;
+        const messageText = `Welcome to Sarathi Bot! 🚀\n\nYour account activation code is: *${verificationCode}*\n\nPlease reply directly to this chat with this 8-digit code to activate and link your WhatsApp account.`;
+        
+        try {
+          await chatNotifier.sendWhatsAppText(targetJid, messageText);
+          logger.info('adminRouter', `Outbound activation WhatsApp code sent to ${targetJid}`);
+        } catch (sendErr) {
+          logger.error('adminRouter', `Failed to send outbound activation WhatsApp message to ${targetJid}`, { error: sendErr.message });
+        }
+      }
+    }
+
+    res.json({ ok: true, user, code: verificationCode });
   } catch (err) {
     res.status(500).json({ ok: false, message: err.message });
   }
