@@ -68,31 +68,73 @@ function deriveSarathiStatus(snapshotStr) {
   };
 }
 
+function classifyVahanStatus(value) {
+  const text = String(value || '').trim().toUpperCase();
+  if (!text) {
+    return { status: '', date: '' };
+  }
+
+  const date = extractDate(text);
+  if (text.includes('NOT INWARDED')) {
+    return { status: 'Pending', date: '' };
+  }
+  if (text.includes('PENDING')) {
+    return { status: 'Pending', date };
+  }
+  if (text.includes('SCRUTINY')) {
+    return { status: 'Scrutiny', date };
+  }
+  if (text.includes('APPROVED')) {
+    return { status: 'Approved', date };
+  }
+  if (text.includes('COMPLETED') || text.includes('SUCCESS')) {
+    return { status: 'Completed', date };
+  }
+
+  return { status: '', date };
+}
+
+function isMeaningfulValue(value) {
+  const text = String(value || '').trim().toUpperCase();
+  return Boolean(text) && text !== 'NOT AVAILABLE';
+}
+
 function deriveVahanStatus(snapshotStr) {
   const details = parseSnapshot(snapshotStr);
   const rows = Array.isArray(details.rows) ? details.rows : [];
-  const rowValues = rows.map((row) => {
-    if (typeof row === 'string') return row;
-    return `${row.transactionPurpose || ''} ${row.currentStatus || ''}`;
-  });
-  const rowsText = rowValues.join(' ').toUpperCase();
-  const rcPrint = String(details.rcPrintOrSmartCardStatus || '').toUpperCase();
-  const dispatch = String(details.dispatchRcStatus || '').toUpperCase();
-  const merged = `${rowsText} ${rcPrint} ${dispatch}`;
 
-  const dispatchedDone = isDispatchRcGenerated(dispatch);
-  const approvalDone = dispatchedDone || rcPrint.includes('PRINTED') || merged.includes('APPROVED') || merged.includes('COMPLETED');
-  const scrutinyDone = approvalDone || merged.includes('VERIFIED') || merged.includes('SUCCESS');
-  const approvedRowDate = rows
-    .filter((row) => {
-      const text = typeof row === 'string' ? row : `${row.transactionPurpose || ''} ${row.currentStatus || ''}`;
-      return /COMPLETED|APPROVED/i.test(text);
+  const dispatchedDone = isDispatchRcGenerated(details.dispatchRcStatus);
+  const dispatchedDate = dispatchedDone ? extractDate(details.dispatchRcStatus) : '';
+
+  const statusDates = rows
+    .map((r) => {
+      const statusText = String(r.currentStatus || '').toUpperCase();
+      if (statusText.includes('NOT INWARDED')) {
+        return '';
+      }
+      return extractDate(r.currentStatus);
     })
-    .map((row) => extractDate(typeof row === 'string' ? row : row.currentStatus || ''))
+    .filter(Boolean);
+
+  const parsedStatuses = rows.map((r) => classifyVahanStatus(r.currentStatus));
+
+  const approvedStatusDate = rows
+    .map((r, index) => ({ row: r, parsed: parsedStatuses[index] }))
+    .filter(({ parsed }) => parsed.status === 'Completed' || parsed.status === 'Approved')
+    .map(({ parsed }) => parsed.date)
     .find(Boolean) || '';
-  const scrutinyDate = extractDate(rowsText) || approvedRowDate;
-  const approvalDate = approvedRowDate || extractDate(rcPrint) || (approvalDone ? scrutinyDate : '');
-  const dispatchedDate = extractDate(dispatch);
+
+  const firstStatusDate = statusDates[0] || '';
+
+  const rcPrintDate = isMeaningfulValue(details.rcPrintOrSmartCardStatus)
+    ? extractDate(details.rcPrintOrSmartCardStatus)
+    : '';
+
+  const approvalDone = dispatchedDone || parsedStatuses.some(p => p.status === 'Completed' || p.status === 'Approved') || !!rcPrintDate;
+  const approvalDate = approvedStatusDate || rcPrintDate;
+
+  const scrutinyDone = approvalDone || statusDates.length > 0;
+  const scrutinyDate = firstStatusDate || approvalDate;
 
   return {
     scrutiny: fmtStatus(scrutinyDone, scrutinyDate),

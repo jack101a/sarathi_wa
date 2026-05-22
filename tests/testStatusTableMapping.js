@@ -25,7 +25,7 @@ function testVahanObjectRows() {
     rows: [
       {
         transactionPurpose: 'TRANSFER OF OWNERSHIP',
-        currentStatus: 'ONLINE TRANSACTION SUCCESS ON 10-Mar-2026 14:08:29 BUT NOT INWARDED',
+        currentStatus: 'ONLINE TRANSACTION SUCCESS ON 10-Mar-2026 14:08:29',
       },
     ],
     rcPrintOrSmartCardStatus: 'RC PRINTED ON 12-Mar-2026',
@@ -34,7 +34,25 @@ function testVahanObjectRows() {
 
   const status = deriveVahanStatus(snapshot);
   assert.match(status.scrutiny, /10-03-2026/);
-  assert.match(status.approval, /12-03-2026/);
+  assert.match(status.approval, /10-03-2026/);
+  assert.strictEqual(status.dispatched, 'Pending');
+}
+
+function testVahanNotInwardedIsPending() {
+  const snapshot = JSON.stringify({
+    rows: [
+      {
+        transactionPurpose: 'Fitness Inspection/Certificate',
+        currentStatus: 'ONLINE TRANSACTION SUCCESS ON 07-May-2026 13:59:11 BUT NOT INWARDED AT R.T.O.BORIVALI (MH-47)',
+      },
+    ],
+    rcPrintOrSmartCardStatus: 'Not Available',
+    dispatchRcStatus: 'Not Available',
+  });
+
+  const status = deriveVahanStatus(snapshot);
+  assert.strictEqual(status.scrutiny, 'Pending');
+  assert.strictEqual(status.approval, 'Pending');
   assert.strictEqual(status.dispatched, 'Pending');
 }
 
@@ -53,6 +71,7 @@ function testVahanServiceInferenceIgnoresFeeRows() {
 function run() {
   testSarathiApprovedHeading();
   testVahanObjectRows();
+  testVahanNotInwardedIsPending();
   testVahanServiceInferenceIgnoresFeeRows();
   console.log('PASS - status table mapping');
 }
