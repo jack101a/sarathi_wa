@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const CONFIG = require('../config/config');
 const { navigateToSarathiHome, smartSolveCaptcha, BASE_URL } = require('./sarathiCommon');
+const { captureFailureDiagnostics } = require('../utils/failureLogger');
 
 async function startDLRenewalFlow(dlNo, dob, rtoCode, mobile) {
     console.log(`🚀 [DLRenewal] Starting flow for DL: ${dlNo}, DOB: ${dob}`);
@@ -207,6 +208,7 @@ async function startDLRenewalFlow(dlNo, dob, rtoCode, mobile) {
 
     } catch (error) {
         console.error("❌ Error in startDLRenewalFlow:", error);
+        await captureFailureDiagnostics(page, error, { serviceType: 'startDLRenewalFlow', dlNo }).catch(() => {});
         if (headless) {
             await context.close().catch(() => {});
             await browser.close().catch(() => {});
@@ -553,6 +555,7 @@ async function submitDLRenewalOTP(browser, context, page, otpCode, serviceType =
 
     } catch (error) {
         console.error("❌ Error in submitDLRenewalOTP:", error);
+        await captureFailureDiagnostics(page, error, { serviceType, dlNo: 'submitOTPPhase' }).catch(() => {});
         throw error;
     } finally {
         if (headless) {
