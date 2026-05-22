@@ -477,65 +477,7 @@ async function submitDLRenewalOTP(browser, context, page, otpCode, serviceType =
                 console.error("[DLRenewal] Error checking submission page checkboxes:", err);
             }
 
-            // Interactive pause before final submission for this specific test
-            if (serviceType === 'REPLACEMENT OF DL' || serviceType === 'ISSUE OF DUPLICATE DL') {
-                console.log(`[DLRenewal] ℹ️ Service is ${serviceType}. Pausing flow before final submission for user approval...`);
-                if (!fs.existsSync(CONFIG.TEMP.DIR)) {
-                    fs.mkdirSync(CONFIG.TEMP.DIR, { recursive: true });
-                }
-                const serviceNameClean = serviceType.replace(/\s+/g, '_');
-                const pauseScreenshot = path.join(CONFIG.TEMP.DIR, `${serviceNameClean}_PreSubmit_${Date.now()}.png`);
-                await page.screenshot({ path: pauseScreenshot, fullPage: true }).catch(() => {});
-                console.log(`📸 [DLRenewal] Saved pre-submit screenshot to: ${pauseScreenshot}`);
-                
-                console.log("⚠️ [DLRenewal] FLOW PAUSED for final pre-submit inspection.");
-                console.log("👉 Please inspect the screenshot or the headed browser window.");
-                console.log("👉 Send 'continue' via chat to solve CAPTCHA and submit, or 'abort' to stop.");
-                
-                const scratchPath = path.join(__dirname, '../../scratch_input.txt');
-                if (fs.existsSync(scratchPath)) {
-                    try { fs.unlinkSync(scratchPath); } catch (e) {}
-                }
-                
-                let userInstruction = '';
-                let loopPaused = true;
-                while (loopPaused) {
-                    userInstruction = '';
-                    while (!userInstruction) {
-                        if (fs.existsSync(scratchPath)) {
-                            try {
-                                const content = fs.readFileSync(scratchPath, 'utf8').trim();
-                                if (content) {
-                                    userInstruction = content;
-                                    try { fs.unlinkSync(scratchPath); } catch (e) {}
-                                }
-                            } catch (e) {}
-                        }
-                        await page.waitForTimeout(1000);
-                    }
-                    console.log(`[DLRenewal] Received user instruction: "${userInstruction}"`);
-                    const lowerInstr = userInstruction.toLowerCase();
-                    if (lowerInstr === 'abort' || lowerInstr === 'exit') {
-                        throw new Error("Flow aborted by user before final submission.");
-                    } else if (lowerInstr.includes('fill') || lowerInstr.includes('captcha')) {
-                        console.log("[DLRenewal] User requested to solve and fill Captcha without submitting...");
-                        await smartSolveCaptcha(page, `Pre-Submit Solved Captcha`, 'DLRenewal');
-                        await page.waitForTimeout(1500);
-                        // Save a new screenshot
-                        const serviceNameClean = serviceType.replace(/\s+/g, '_');
-                        const filledScreenshot = path.join(CONFIG.TEMP.DIR, `${serviceNameClean}_CaptchaFilled_${Date.now()}.png`);
-                        await page.screenshot({ path: filledScreenshot, fullPage: true }).catch(() => {});
-                        console.log(`📸 [DLRenewal] Saved captcha-filled screenshot to: ${filledScreenshot}`);
-                        console.log("⚠️ [DLRenewal] FLOW PAUSED after filling captcha.");
-                        console.log("👉 Please inspect the new screenshot or the headed browser window.");
-                        console.log("👉 Send 'continue' via chat to solve CAPTCHA and submit, or 'abort' to stop.");
-                    } else if (lowerInstr === 'continue') {
-                        loopPaused = false;
-                    } else {
-                        console.log(`[DLRenewal] Unknown instruction "${userInstruction}". Supported: continue, fill, abort`);
-                    }
-                }
-            }
+            // Interactive pause before final submission has been disabled to make all flows fully automated
 
             // Solve the captcha now that the input box has been enabled
             await smartSolveCaptcha(page, `Final Submission Attempt ${submitAttempts}`, 'DLRenewal');
