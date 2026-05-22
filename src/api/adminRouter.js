@@ -187,6 +187,34 @@ router.delete('/users/:phone', async (req, res) => {
   }
 });
 
+router.post('/users/:phone/resend-activation', async (req, res) => {
+  try {
+    const { phone } = req.params;
+    const waVerificationService = require('../services/waVerificationService');
+    const chatNotifier = require('../services/chatNotifier');
+    
+    const verif = await waVerificationService.resendVerification(phone);
+    if (!verif) {
+      return res.status(400).json({ ok: false, message: 'Failed to generate verification code' });
+    }
+    
+    const digits = String(phone).trim().replace(/\D/g, '');
+    const targetJid = digits.endsWith('@c.us') ? digits : `${digits}@c.us`;
+    const messageText = `Sarathi Bot Activation Code 🚀\n\nYour new account activation code is: *${verif.code}*\n\nPlease reply directly to this chat with this 8-digit code to activate and link your WhatsApp account.`;
+    
+    try {
+      await chatNotifier.sendWhatsAppText(targetJid, messageText);
+      logger.info('adminRouter', `Resent activation WhatsApp code to ${targetJid}`);
+      res.json({ ok: true, code: verif.code });
+    } catch (sendErr) {
+      logger.error('adminRouter', `Failed to resend activation WhatsApp message to ${targetJid}`, { error: sendErr.message });
+      res.json({ ok: true, code: verif.code, warning: 'Failed to send outbound WhatsApp message' });
+    }
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
 // ── User Credits (audited) ────────────────────────────────────────────────
 router.post('/users/:phone/credits', async (req, res) => {
   try {

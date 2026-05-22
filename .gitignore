@@ -46,7 +46,19 @@ Thumbs.db
 
 # Local data and profiles
 firefox_profiles/
-data/tmp/
-data/*.sqlite-shm
-data/*.sqlite-wal
+firefox_permanent_profile/
 scratch/
+test-results/
+
+# Sandbox / Trash
+trash/
+
+# Local databases, tracking stores, logs, and custom configurations
+data/authz.sqlite*
+data/authorized_entities.db*
+data/*.sqlite*
+data/*.db*
+data/*.json
+data/*.yml
+data/*.log
+data/tmp/

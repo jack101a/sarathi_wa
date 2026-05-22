@@ -2,10 +2,13 @@
 node_modules
 frontend/node_modules
 
-# Local development auth sessions (volume-mounted at runtime)
+# Local development auth sessions and profiles (volume-mounted or unused)
 .wwebjs_auth
 .wwebjs_cache
+firefox_profiles/
 firefox_permanent_profile/
+scratch/
+trash/
 
 # Local data directory (volume-mounted at runtime)
 data/

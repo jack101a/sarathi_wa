@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
-import { Plus, Pencil, Trash2, X, Check, Search, Coins, Power, PowerOff } from 'lucide-react';
+import { Plus, Pencil, Trash2, X, Check, Search, Coins, Power, PowerOff, RefreshCw } from 'lucide-react';
 import { apiPostJson, apiPatchJson, apiDelete, apiPut } from '../../api/client.js';
 
-function badge(is_active) {
+function badge(is_active, pending_otp) {
+  if (pending_otp) {
+    return <span style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '0.15rem 0.5rem', borderRadius: '999px', fontSize: '0.7rem', fontWeight: 700 }}>Pending Activation</span>;
+  }
   return Number(is_active) === 1
     ? <span style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981', padding: '0.15rem 0.5rem', borderRadius: '999px', fontSize: '0.7rem', fontWeight: 700 }}>Active</span>
     : <span style={{ background: 'rgba(244,63,94,0.15)',  color: '#f43f5e', padding: '0.15rem 0.5rem', borderRadius: '999px', fontSize: '0.7rem', fontWeight: 700 }}>Inactive</span>;
@@ -325,6 +328,19 @@ export function UsersPanel({ users, plans = [], sarathiTracked = [], vahanTracke
     } catch (err) { showToast(err.message, 'error'); }
   }
 
+  async function handleResendActivation(u) {
+    if (!confirm(`Resend activation WhatsApp message with a new OTP to ${u.canonical_phone}?`)) return;
+    try {
+      const res = await apiPostJson(`/admin/api/users/${encodeURIComponent(u.canonical_phone)}/resend-activation`);
+      if (res.ok) {
+        showToast(res.warning ? `OTP generated: ${res.code}. ${res.warning}` : `Activation code resent: ${res.code}`, res.warning ? 'warning' : 'success');
+        onRefresh();
+      }
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  }
+
   const filteredUsers = users.filter(u => {
     if (!search) return true;
     const s = search.toLowerCase();
@@ -368,7 +384,21 @@ export function UsersPanel({ users, plans = [], sarathiTracked = [], vahanTracke
                 <tr key={u.canonical_phone || u.id} className="hover-row" style={{ borderBottom: `1px solid ${trBorder}` }}>
                   <td style={{ padding: '0.8rem 1rem', color: tdText, fontFamily: 'monospace', fontSize: '0.85rem' }}>
                     {u.canonical_phone}
-                    <div style={{ fontSize: '0.65rem', color: thText, marginTop: '0.2rem', textTransform: 'uppercase' }}>{u.channel}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
+                      <span style={{ fontSize: '0.65rem', color: thText, textTransform: 'uppercase' }}>{u.channel}</span>
+                      {u.pending_otp && (
+                        <span 
+                          title="Click to copy pending activation OTP"
+                          onClick={() => {
+                            navigator.clipboard.writeText(u.pending_otp);
+                            showToast(`OTP ${u.pending_otp} copied to clipboard!`, 'info');
+                          }}
+                          style={{ background: isDark ? 'rgba(245,158,11,0.1)' : '#fef3c7', color: '#d97706', padding: '0.05rem 0.3rem', borderRadius: '4px', fontSize: '0.65rem', cursor: 'pointer', fontFamily: 'monospace', border: '1px solid rgba(245,158,11,0.2)' }}
+                        >
+                          OTP: {u.pending_otp}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td style={{ padding: '0.8rem 1rem', color: tdText, fontWeight: 500 }}>{u.name || '—'}</td>
                   <td style={{ padding: '0.8rem 1rem' }}>{planBadge(u.subscription_plan, plans)}</td>
@@ -379,13 +409,18 @@ export function UsersPanel({ users, plans = [], sarathiTracked = [], vahanTracke
                     </div>
                   </td>
                   <td style={{ padding: '0.8rem 1rem', color: thText, whiteSpace: 'nowrap' }}>{u.expiry_date || 'Lifetime'}</td>
-                  <td style={{ padding: '0.8rem 1rem' }}>{badge(u.is_active)}</td>
+                  <td style={{ padding: '0.8rem 1rem' }}>{badge(u.is_active, u.pending_otp)}</td>
                   <td style={{ padding: '0.8rem 1rem' }}>
                     <div style={{ display: 'flex', gap: '0.4rem' }}>
                       <button style={btnGhost} onClick={() => setDrawerUser(u)} title="Edit"><Pencil size={14} /></button>
                       <button style={Number(u.is_active) === 1 ? btnDanger : btnGhost} onClick={() => handleToggleActive(u)} title={Number(u.is_active) === 1 ? "Deactivate" : "Activate"}>
                         {Number(u.is_active) === 1 ? <PowerOff size={14} /> : <Power size={14} />}
                       </button>
+                      {u.pending_otp && (
+                        <button style={btnGhost} onClick={() => handleResendActivation(u)} title="Resend Activation Code">
+                          <RefreshCw size={14} color="#f59e0b" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

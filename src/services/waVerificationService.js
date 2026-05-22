@@ -69,6 +69,16 @@ async function consumeVerificationMessage(messageText, identityContext) {
   if (!verif) return false;
 
   await repo.updateVerificationStatus(verif.id, 'verified', identityContext.from);
+
+  // Cancel ALL other pending verifications for this phone so hasPendingVerification() returns false
+  const otherPending = await repo.query(
+    'SELECT id FROM auth_verifications WHERE canonical_phone = ? AND status = "pending" AND id != ?',
+    [phone, verif.id]
+  );
+  for (const r of otherPending) {
+    await repo.updateVerificationStatus(r.id, 'cancelled', '');
+  }
+
   const user = await repo.createUser(phone, 'wa');
   const identities = [...new Set(identityContext.identities || [])];
   for (const val of identities) {

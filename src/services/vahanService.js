@@ -1302,6 +1302,9 @@ function startPolling(client, transport = 'whatsapp') {
 
   pollJob = cron.schedule(CONFIG.VAHAN_TRACK.CRON, () => {
     pollTrackedApplications().catch(() => {});
+  }, {
+    scheduled: true,
+    timezone: 'Asia/Kolkata'
   });
 
   return pollJob;

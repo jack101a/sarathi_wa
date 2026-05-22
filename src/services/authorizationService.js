@@ -36,17 +36,36 @@ async function isAuthorizedWhatsApp(message, config = CONFIG) {
     const idObj = extractIdentityFromMessage(message);
     if (idObj && idObj.identities) {
       for (const val of idObj.identities) {
-        if (await repo.getIdentity(val)) return true;
+        const identity = await repo.getIdentity(val);
+        if (identity && identity.auth_user_id) {
+          const user = await repo.getUserById(identity.auth_user_id);
+          if (user && Number(user.is_active) === 1) {
+            if (await repo.hasPendingVerification(user.canonical_phone)) {
+              return false;
+            }
+            return true;
+          }
+        }
       }
     }
     const pureSender = getWhatsAppSenderId(message);
     if (pureSender) {
       const user = await repo.getUserByPhone(pureSender);
-      if (user && Number(user.is_active) === 1) return true;
+      if (user && Number(user.is_active) === 1) {
+        if (await repo.hasPendingVerification(user.canonical_phone)) {
+          return false;
+        }
+        return true;
+      }
       if (pureSender.length > 10) {
         const short10 = pureSender.slice(-10);
         const user10 = await repo.getUserByPhone(short10);
-        if (user10 && Number(user10.is_active) === 1) return true;
+        if (user10 && Number(user10.is_active) === 1) {
+          if (await repo.hasPendingVerification(user10.canonical_phone)) {
+            return false;
+          }
+          return true;
+        }
       }
     }
     const envUsers = (config.SECURITY.AUTHORIZED_USERS || []).map((u) => String(u).replace(/\D/g, ''));
@@ -116,7 +135,12 @@ async function getUserForRequest(message, transport) {
       }
       if (identity && identity.auth_user_id) {
         const user = await repo.getUserById(identity.auth_user_id);
-        if (user && Number(user.is_active) === 1) return user;
+        if (user && Number(user.is_active) === 1) {
+          if (await repo.hasPendingVerification(user.canonical_phone)) {
+            return null;
+          }
+          return user;
+        }
       }
     }
   }
@@ -125,12 +149,22 @@ async function getUserForRequest(message, transport) {
   const phone = getWhatsAppSenderId(message); // already digits-only
   if (phone) {
     const user = await repo.getUserByPhone(phone);
-    if (user && Number(user.is_active) === 1) return user;
+    if (user && Number(user.is_active) === 1) {
+      if (await repo.hasPendingVerification(user.canonical_phone)) {
+        return null;
+      }
+      return user;
+    }
     // Try last-10 variant in case DB stores without country code
     if (phone.length > 10) {
       const short10 = phone.slice(-10);
       const user10 = await repo.getUserByPhone(short10);
-      if (user10 && Number(user10.is_active) === 1) return user10;
+      if (user10 && Number(user10.is_active) === 1) {
+        if (await repo.hasPendingVerification(user10.canonical_phone)) {
+          return null;
+        }
+        return user10;
+      }
     }
   }
   return null;
@@ -152,18 +186,6 @@ async function addAuthorizedEntry(channel, type, id, extras = {}) {
   if ((c === 'wa' || c === 'whatsapp') && t === 'user') {
     const digits = normalizePhone(id); if (!digits) return null;
     const u = await repo.createUser(digits, 'wa');
-    // Save raw digits@c.us alias (e.g. 9660930674@c.us)
-    const rawCus = `${digits}@c.us`;
-    const rawCusExists = await repo.getIdentity(rawCus);
-    if (!rawCusExists) await repo.createUserIdentity(u.id, 'wa_cus', rawCus);
-    // Also save 91+digits@c.us alias for reliability (e.g. 919660930674@c.us)
-    // WhatsApp often sends the full international format with country code
-    const withCountryCode = digits.startsWith('91') ? digits : `91${digits}`;
-    const canonicalCus = `${withCountryCode}@c.us`;
-    if (canonicalCus !== rawCus) {
-      const canonicalCusExists = await repo.getIdentity(canonicalCus);
-      if (!canonicalCusExists) await repo.createUserIdentity(u.id, 'wa_cus', canonicalCus);
-    }
     await repo.updateUserProfile(digits, { name: extras.name || '', subscription_plan: extras.plan || extras.subscription_plan || 'free', monthly_limit: Number(extras.monthly_limit || 50), expiry_date: extras.expiry_date || '' });
     return u;
   }

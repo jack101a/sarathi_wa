@@ -154,11 +154,9 @@ async function startTelegramBot(config) {
 
     const chatId = getTelegramChatId(msg);
     const text = String((msg && msg.text) || '').trim();
-    if (CONFIG.DAILY_FILLING.ENABLED) {
-      const dailyFillingRouter = require('./services/dailyFillingRouter');
-      if (await dailyFillingRouter.handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg)) {
-        return;
-      }
+    const dailyFillingRouter = require('./services/dailyFillingRouter');
+    if (await dailyFillingRouter.handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg)) {
+      return;
     }
 
     if (/^\/?auth\b/i.test(text)) {

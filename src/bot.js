@@ -521,6 +521,25 @@ async function createBot() {
     }
 
     if (!(await isAuthorized(message, CONFIG))) {
+      const { getWhatsAppSenderId } = require('./services/authorizationService');
+      const repo = require('./services/authorizationRepository');
+      const pureSender = getWhatsAppSenderId(message);
+      if (pureSender) {
+        const user = await repo.getUserByPhone(pureSender) || 
+                     (pureSender.length > 10 ? await repo.getUserByPhone(pureSender.slice(-10)) : null);
+        if (user && Number(user.is_active) === 1) {
+          const hasPending = await repo.hasPendingVerification(user.canonical_phone);
+          if (hasPending) {
+            const nowStr = new Date().toISOString();
+            const rows = await repo.query('SELECT code FROM auth_verifications WHERE canonical_phone = ? AND status = "pending" AND expires_at > ? LIMIT 1', [user.canonical_phone, nowStr]);
+            const code = (rows && rows[0] && rows[0].code) || '';
+            if (code) {
+              await message.reply(`⚠️ *Account Pending Activation*\n\nYour account has been created by the administrator but is not active yet.\n\nPlease reply directly to this chat with your 8-character activation code: *${code}* to link and activate your WhatsApp account.`);
+              return;
+            }
+          }
+        }
+      }
       console.log(`[whatsapp] Unauthorized message from ${message.from} blocked.`);
       return;
     }
@@ -555,11 +574,9 @@ async function createBot() {
         return;
       }
 
-      if (CONFIG.DAILY_FILLING.ENABLED) {
-        const dailyFillingRouter = require('./services/dailyFillingRouter');
-        if (await dailyFillingRouter.handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply)) {
-          return;
-        }
+      const dailyFillingRouter = require('./services/dailyFillingRouter');
+      if (await dailyFillingRouter.handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply)) {
+        return;
       }
 
       if (llprintSessions.has(message.from) && !normalizedBody.startsWith('/llprint')) {

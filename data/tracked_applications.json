@@ -48,36 +48,20 @@
     "dispatchedAt": ""
   },
   {
-    "appNo": "543064526",
-    "chatId": "917715055466@c.us",
-    "transport": "whatsapp",
-    "createdAt": "2026-05-07T13:47:17.323Z",
-    "lastStage": "SCRUTINY - (Verification of Proof Documents)",
-    "lastSnapshot": "{\"kind\":\"pending\",\"stage\":\"SCRUTINY - (Verification of Proof Documents)\",\"message\":\"\",\"approvedAction\":\"\",\"approvedOn\":\"\",\"transaction\":\"ISSUE OF DRIVING LICENCE\",\"counter\":\"AIMV2 COUNTER MH47\",\"dlNumber\":\"\",\"trackerNo\":\"\",\"completedActions\":[],\"furtherActions\":[]}",
-    "tag": "",
-    "dob": "03-05-2004",
-    "applicantName": "MAGLESH MAURYA",
-    "serviceName": "ISSUE OF NEW DL",
-    "applicationDate": "03-02-2026",
-    "scrutinyAt": "",
-    "approvalAt": "",
-    "dispatchedAt": ""
-  },
-  {
     "appNo": "1750019026",
     "chatId": "917715055466@c.us",
     "transport": "whatsapp",
     "createdAt": "2026-05-07T13:47:17.323Z",
-    "lastStage": "",
-    "lastSnapshot": "{\"kind\":\"pending-counter\",\"stage\":\"\",\"message\":\"This Application is serviceable but not pending at your counter\",\"approvedAction\":\"\",\"approvedOn\":\"\",\"transaction\":\"\",\"counter\":\"\",\"dlNumber\":\"\",\"trackerNo\":\"\",\"completedActions\":[],\"furtherActions\":[]}",
+    "lastStage": "SCRUTINY - (Verification of Proof Documents)",
+    "lastSnapshot": "{\"kind\":\"approved\",\"stage\":\"SCRUTINY - (Verification of Proof Documents)\",\"message\":\"\",\"approvedAction\":\"APPROVAL OF LL BY LICENCING AUTHORITY\",\"approvedOn\":\"20-05-2026\",\"transaction\":\"ISSUE OF DRIVING LICENCE\",\"counter\":\"AIMV22\",\"dlNumber\":\"\",\"trackerNo\":\"\",\"completedActions\":[{\"actionName\":\"FEE PAYMENT\",\"status\":\"COMPLETED\",\"processedOn\":\"20-05-2026\"},{\"actionName\":\"RECORDING LL TEST RESULTS\",\"status\":\"COMPLETED\",\"processedOn\":\"20-05-2026\"},{\"actionName\":\"APPROVAL OF LL BY LICENCING AUTHORITY\",\"status\":\"COMPLETED\",\"processedOn\":\"20-05-2026\"},{\"actionName\":\"PRINTING OF LEARNING LICENCE\",\"status\":\"COMPLETED\",\"processedOn\":\"20-05-2026\"}],\"furtherActions\":[]}",
     "tag": "",
     "dob": "21-08-2007",
     "applicantName": "NITESH SANJAY GUPTA",
-    "serviceName": "ISSUE OF NEW DL",
+    "serviceName": "ISSUE OF DRIVING LICENCE",
     "applicationDate": "22-04-2026",
-    "scrutinyAt": "",
-    "approvalAt": "",
-    "dispatchedAt": ""
+    "scrutinyAt": "14-05-2026",
+    "approvalAt": "20-05-2026",
+    "dispatchedAt": "20-05-2026"
   },
   {
     "appNo": "2179944526",

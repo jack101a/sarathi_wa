@@ -98,8 +98,8 @@ services:
           memory: 2g
 
     volumes:
-      - ${CONFIG_PATH}/sarathi_new/auth_data:/app/.wwebjs_auth
-      - ${CONFIG_PATH}/sarathi_new/data:/app/data
+      - ${CONFIG_PATH:-.}/sarathi_new/auth_data:/app/.wwebjs_auth
+      - ${CONFIG_PATH:-.}/sarathi_new/data:/app/data
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${PORT:-3000}/health"]

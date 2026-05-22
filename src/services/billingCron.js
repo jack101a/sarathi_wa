@@ -61,22 +61,24 @@ function cleanupTempFiles() {
 }
 
 function startBillingCron() {
+  const cronOptions = { scheduled: true, timezone: 'Asia/Kolkata' };
+
   // Reset daily usage counts at midnight
-  cron.schedule('0 0 * * *', () => resetAllDailyCountsJob().catch(() => {}));
+  cron.schedule('0 0 * * *', () => resetAllDailyCountsJob().catch(() => {}), cronOptions);
 
   // Reset monthly usage when billing cycle ends
-  cron.schedule('0 * * * *', () => resetExpiredMonthlyCountsJob().catch(() => {}));
+  cron.schedule('0 * * * *', () => resetExpiredMonthlyCountsJob().catch(() => {}), cronOptions);
 
   // Cleanup completed/failed jobs older than 30 days (weekly on Sunday 2am)
-  cron.schedule('0 2 * * 0', () => jobRepository.cleanupOldJobs(30).catch(() => {}));
+  cron.schedule('0 2 * * 0', () => jobRepository.cleanupOldJobs(30).catch(() => {}), cronOptions);
 
   // Cleanup rate limit log (hourly — moved from per-request to here)
-  cron.schedule('15 * * * *', () => cleanupRateLimitLog().catch(() => {}));
+  cron.schedule('15 * * * *', () => cleanupRateLimitLog().catch(() => {}), cronOptions);
 
   // Cleanup temp files (every hour)
   cron.schedule('30 * * * *', () => {
     try { cleanupTempFiles(); } catch (_) {}
-  });
+  }, cronOptions);
 
   logger.info('billingCron', 'Billing & cleanup crons started');
 }

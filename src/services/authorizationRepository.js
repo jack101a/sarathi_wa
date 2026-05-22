@@ -39,7 +39,19 @@ async function getUserById(id) {
   const rows = await query('SELECT * FROM auth_users WHERE id = ?', [id]);
   return rows[0] || null;
 }
-async function listAllUsers() { return query('SELECT * FROM auth_users WHERE is_active = 1 ORDER BY created_at DESC'); }
+async function listAllUsers() {
+  return query(`
+    SELECT u.*, 
+           GROUP_CONCAT(DISTINCT i.identity_value) AS identities, 
+           v.code AS pending_otp 
+    FROM auth_users u 
+    LEFT JOIN auth_user_identities i ON u.id = i.auth_user_id AND i.is_active = 1 
+    LEFT JOIN auth_verifications v ON u.canonical_phone = v.canonical_phone AND v.status = 'pending' 
+    WHERE u.is_active = 1 
+    GROUP BY u.id 
+    ORDER BY u.created_at DESC
+  `);
+}
 
 async function createUser(phone, channel = 'wa') {
   const existing = await getUserByPhone(phone);
@@ -93,6 +105,12 @@ async function createVerification(phone, code, requestedBy, requestedVia = 'wa')
 }
 async function getPendingVerification(phone, code) { const rows = await query('SELECT * FROM auth_verifications WHERE canonical_phone = ? AND code = ? AND status = "pending" AND expires_at > ?', [phone, code, nowIso()]); return rows[0] || null; }
 async function updateVerificationStatus(id, status, verifiedIdentity) { await run('UPDATE auth_verifications SET status = ?, verified_at = ?, verified_identity = ? WHERE id = ?', [status, nowIso(), verifiedIdentity, id]); }
+async function hasPendingVerification(phone) {
+  const nowStr = nowIso();
+  const rows = await query('SELECT 1 FROM auth_verifications WHERE canonical_phone = ? AND status = "pending" AND expires_at > ? LIMIT 1', [phone, nowStr]);
+  return rows && rows.length > 0;
+}
+
 
 async function getAuthorizedGroups(channel) { return query('SELECT * FROM authorized_groups WHERE channel = ? AND is_active = 1', [channel]); }
 async function addAuthorizedGroup(groupId, channel, createdBy = 'admin') {
@@ -209,5 +227,5 @@ async function getTotalCredits() {
 }
 
 initDb();
-module.exports = { initDb, query: queryAsync, run: runAsync, getUserByPhone, getUserById, listAllUsers, createUser, updateUserProfile, incrementUsage, resetMonthlyUsage, resetDailyCount, deactivateUserById, deactivateUser, createUserIdentity, getIdentity, createVerification, getPendingVerification, updateVerificationStatus, getAuthorizedGroups, addAuthorizedGroup, removeAuthorizedGroup, addCredits, setCredits, getCredits, addCreditsAudited, setCreditsAudited, deductCreditsAudited, getCreditHistory, getUserRateOverrides, setUserRateOverrides, getActivityLog, getJobStats, getTotalCredits };
+module.exports = { initDb, query: queryAsync, run: runAsync, getUserByPhone, getUserById, listAllUsers, createUser, updateUserProfile, incrementUsage, resetMonthlyUsage, resetDailyCount, deactivateUserById, deactivateUser, createUserIdentity, getIdentity, createVerification, getPendingVerification, updateVerificationStatus, hasPendingVerification, getAuthorizedGroups, addAuthorizedGroup, removeAuthorizedGroup, addCredits, setCredits, getCredits, addCreditsAudited, setCreditsAudited, deductCreditsAudited, getCreditHistory, getUserRateOverrides, setUserRateOverrides, getActivityLog, getJobStats, getTotalCredits };
 

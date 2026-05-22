@@ -400,6 +400,9 @@ function startAutoTrackScheduler() {
     checkTrackedApplications().catch((error) => {
       console.error(`Auto-track scheduler failed: ${error.message}`);
     });
+  }, {
+    scheduled: true,
+    timezone: 'Asia/Kolkata'
   });
 
   return autoTrackJob;

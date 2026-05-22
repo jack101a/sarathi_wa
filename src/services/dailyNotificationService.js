@@ -49,6 +49,9 @@ function startDailyNotificationScheduler() {
   return cron.schedule('0 20 * * *', () => {
     console.log('Running daily 8 PM status report broadcast...');
     sendDailyReports().catch(err => console.error('Daily notification scheduler error:', err));
+  }, {
+    scheduled: true,
+    timezone: 'Asia/Kolkata'
   });
 }
 
