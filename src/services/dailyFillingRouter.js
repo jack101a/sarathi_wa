@@ -41,20 +41,25 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
 
   // 1. Session Resumption
   const dlRenewalSessions = getDlRenewalSessions();
-  if (dlRenewalSessions.has(message.from) && !normalizedBody.startsWith('/dlrenewal')) {
+  if (dlRenewalSessions.has(message.from) && !/^\/(?:dlrenewal|renewal|duplicate|replacement|dlextract|dl)\b/i.test(normalizedBody)) {
     const flow = dlRenewalSessions.get(message.from);
     const otpCode = normalizedBody.trim();
     if (otpCode.length > 0 && otpCode.length <= 8) {
       dlRenewalSessions.delete(message.from);
-      await message.reply('⏳ OTP received. Filling Self-Declaration Form 1 popup and submitting DL Renewal...');
+      
+      const serviceType = flow.serviceType || 'RENEWAL OF DL';
+      const serviceName = serviceType.replace('OF DL', '').replace('ISSUE OF', '').trim().toLowerCase();
+      const formattedServiceName = serviceName.charAt(0).toUpperCase() + serviceName.slice(1);
+      
+      await message.reply(`⏳ OTP received. Filling Self-Declaration Form 1 popup and submitting DL ${formattedServiceName}...`);
       try {
-        const slipPath = await dlRenewalService.submitDLRenewalOTP(flow.browser, flow.context, flow.page, otpCode);
+        const slipPath = await dlRenewalService.submitDLRenewalOTP(flow.browser, flow.context, flow.page, otpCode, flow.serviceType);
         const media = MessageMedia.fromFilePath(slipPath);
-        await client.sendMessage(message.from, media, { caption: '✅ DL Renewal Successful! Here is your acknowledgement reference slip.' });
+        await client.sendMessage(message.from, media, { caption: `✅ DL ${formattedServiceName} Successful! Here is your acknowledgement reference slip.` });
         cleanupFile(slipPath);
         if (flow.resolveJob) flow.resolveJob({ ok: true, slipPath });
       } catch (error) {
-        await message.reply(`❌ DL Renewal failed: ${error.message || error}`);
+        await message.reply(`❌ DL ${formattedServiceName} failed: ${error.message || error}`);
         if (flow.rejectJob) flow.rejectJob(error);
         else {
           if (flow.context) await flow.context.close().catch(() => {});
@@ -66,7 +71,7 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
   }
 
   const applyDlSessions = getApplyDlSessions();
-  if (applyDlSessions.has(message.from) && !normalizedBody.startsWith('/applydl')) {
+  if (applyDlSessions.has(message.from) && !normalizedBody.startsWith('/dlapp')) {
     const flow = applyDlSessions.get(message.from);
     const otpCode = normalizedBody.trim();
     if (otpCode.length > 0 && otpCode.length <= 8) {
@@ -75,6 +80,15 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
       try {
         const details = await applyDlService.submitApplyDLOTP(flow.browser, flow.context, flow.page, otpCode);
         await message.reply(`✅ DL Application Submitted Successfully!\n📝 Application Details: ${details.extractedText}`);
+        if (details.screenshotPath) {
+          try {
+            const media = MessageMedia.fromFilePath(details.screenshotPath);
+            await client.sendMessage(message.from, media, { caption: '📄 Here is your DL Application Acknowledgment Slip.' });
+          } catch (e) {
+            console.error('Failed to send acknowledgment screenshot to WhatsApp:', e);
+          }
+          cleanupFile(details.screenshotPath);
+        }
         if (flow.resolveJob) flow.resolveJob({ ok: true, details });
       } catch (error) {
         await message.reply(`❌ DL Application failed: ${error.message || error}`);
@@ -173,19 +187,24 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
 
   // 1. Session Resumption
   const dlRenewalSessions = getDlRenewalSessions();
-  if (dlRenewalSessions.has(chatId) && !text.startsWith('/dlrenewal')) {
+  if (dlRenewalSessions.has(chatId) && !/^\/(?:dlrenewal|renewal|duplicate|replacement|dlextract|dl)\b/i.test(text)) {
     const flow = dlRenewalSessions.get(chatId);
     const otpCode = text.trim();
     if (otpCode.length > 0 && otpCode.length <= 8) {
       dlRenewalSessions.delete(chatId);
-      await bot.sendMessage(chatId, '⏳ OTP received. Filling Self-Declaration Form 1 popup and submitting DL Renewal...');
+      
+      const serviceType = flow.serviceType || 'RENEWAL OF DL';
+      const serviceName = serviceType.replace('OF DL', '').replace('ISSUE OF', '').trim().toLowerCase();
+      const formattedServiceName = serviceName.charAt(0).toUpperCase() + serviceName.slice(1);
+      
+      await bot.sendMessage(chatId, `⏳ OTP received. Filling Self-Declaration Form 1 popup and submitting DL ${formattedServiceName}...`);
       try {
-        const slipPath = await dlRenewalService.submitDLRenewalOTP(flow.browser, flow.context, flow.page, otpCode);
-        await bot.sendDocument(chatId, slipPath, { caption: '✅ DL Renewal Successful! Here is your acknowledgement reference slip.' });
+        const slipPath = await dlRenewalService.submitDLRenewalOTP(flow.browser, flow.context, flow.page, otpCode, flow.serviceType);
+        await bot.sendDocument(chatId, slipPath, { caption: `✅ DL ${formattedServiceName} Successful! Here is your acknowledgement reference slip.` });
         cleanupFile(slipPath);
         if (flow.resolveJob) flow.resolveJob({ ok: true, slipPath });
       } catch (error) {
-        await bot.sendMessage(chatId, `❌ DL Renewal failed: ${error.message || error}`);
+        await bot.sendMessage(chatId, `❌ DL ${formattedServiceName} failed: ${error.message || error}`);
         if (flow.rejectJob) flow.rejectJob(error);
         else {
           if (flow.context) await flow.context.close().catch(() => {});
@@ -197,7 +216,7 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
   }
 
   const applyDlSessions = getApplyDlSessions();
-  if (applyDlSessions.has(chatId) && !text.startsWith('/applydl')) {
+  if (applyDlSessions.has(chatId) && !text.startsWith('/dlapp')) {
     const flow = applyDlSessions.get(chatId);
     const otpCode = text.trim();
     if (otpCode.length > 0 && otpCode.length <= 8) {
@@ -206,6 +225,14 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
       try {
         const details = await applyDlService.submitApplyDLOTP(flow.browser, flow.context, flow.page, otpCode);
         await bot.sendMessage(chatId, `✅ DL Application Submitted Successfully!\n📝 Application Details: ${details.extractedText}`);
+        if (details.screenshotPath) {
+          try {
+            await bot.sendPhoto(chatId, details.screenshotPath, { caption: '📄 Here is your DL Application Acknowledgment Slip.' });
+          } catch (e) {
+            console.error('Failed to send acknowledgment screenshot to Telegram:', e);
+          }
+          cleanupFile(details.screenshotPath);
+        }
         if (flow.resolveJob) flow.resolveJob({ ok: true, details });
       } catch (error) {
         await bot.sendMessage(chatId, `❌ DL Application failed: ${error.message || error}`);

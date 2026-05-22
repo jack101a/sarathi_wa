@@ -55,6 +55,7 @@ apiQueue.process(async (job) => {
       skipAck
     });
     const p = s.filePath;
+
     await sendImageFile(transport, chatId, p);
     cleanup(p);
     return { ok: true };
@@ -63,6 +64,7 @@ apiQueue.process(async (job) => {
  if (job.command === 'formset') { const r = await formsetService.getFormset(payload.appNo, payload.dob); if (transport === 'telegram') await chatNotifier.sendTelegramDocument(chatId, r.buffer, r.filename, '', 'application/pdf'); else await chatNotifier.sendWhatsAppMedia(chatId, r.buffer, 'application/pdf', r.filename, ''); return { ok: true }; }
  if (job.command === 'appl_image') { const p = await ackService.getAckImage(payload.appNo, payload.dob); await sendImageFile(transport, chatId, p); cleanup(p); return { ok: true }; }
  if (job.command === 'appl_pdf') { const p = await ackService.getAckPDF(payload.appNo, payload.dob); await sendPdfFile(transport, chatId, p); cleanup(p); return { ok: true }; }
+ if (job.command === 'slot_pdf') { const p = await ackService.getSlotAckPDF(payload.appNo, payload.dob); await sendPdfFile(transport, chatId, p); cleanup(p); return { ok: true }; }
  if (job.command === 'track_rc') { const vahanClient = makeVahanClient(transport, chatId); await vahanService.startLookup(vahanClient, chatId, payload.appNo, transport, { expectedVehicleNo: payload.vehicleNo || '' }); return { ok: true }; }
  if (job.command === 'add_track') { const entry = { appNo: payload.appNo, transport, chatId, dob: payload.dob || '', tag: payload.tag || '' }; const r = addAutoTrack(entry); if (r.created && entry.dob) { try { await autoTrackService.enrichTrackedApplicationFromAck(entry); } catch (_) {} } await sendText(transport, chatId, r.created ? `Tracking added for ${payload.appNo}.` : `Tracking already exists for ${payload.appNo}.`); return { ok: true }; }
  if (job.command === 'add_track_rc') {

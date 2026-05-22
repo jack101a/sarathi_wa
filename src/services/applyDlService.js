@@ -24,18 +24,58 @@ async function startApplyDLFlow(llNo, dob, mobile) {
         await page.getByRole('link', { name: 'Apply for Driving Licence Apply for Driving Licence' }).click();
         await page.getByRole('button', { name: 'Continue' }).click();
 
-        console.log("[ApplyDL] Entering Learning Licence number & DOB...");
-        await page.locator('#learningLicence').fill(llNo);
-        await page.locator('#DOB').fill(dob);
-
         let detailsLoaded = false;
         let attempts = 0;
+        let lastDialogMessage = null;
+
+        const dialogHandler = async dialog => {
+            lastDialogMessage = dialog.message();
+            console.log(`💬 [ApplyDL Dialog] ${dialog.type()}: ${lastDialogMessage}`);
+            await dialog.dismiss().catch(() => {});
+        };
+        page.on('dialog', dialogHandler);
 
         while (!detailsLoaded && attempts < 5) {
             attempts++;
+            lastDialogMessage = null;
+
+            console.log(`[ApplyDL] Attempt ${attempts}: Entering LL and DOB with human-like sequence...`);
+
+            const llInput = page.locator('#learningLicence').first();
+            await llInput.waitFor({ state: 'visible', timeout: 15000 });
+
+            // Dynamically remove maxlength attribute on the input field once attached to prevent truncation issues
+            await llInput.evaluate(el => el.removeAttribute('maxlength'));
+
+            // Simulating human typing for LL Number
+            await llInput.click();
+            await llInput.focus();
+            await llInput.fill('');
+            await llInput.pressSequentially(llNo, { delay: 100 });
+            await page.waitForTimeout(500);
+
+            // Simulating human typing for DOB
+            const dobInput = page.locator('#DOB').first();
+            await dobInput.waitFor({ state: 'visible', timeout: 5000 });
+            await dobInput.click();
+            await dobInput.focus();
+            await dobInput.fill('');
+            await dobInput.pressSequentially(dob, { delay: 100 });
+            await page.waitForTimeout(1000);
+
             await smartSolveCaptcha(page, `Initial LL Login Attempt ${attempts}`, 'ApplyDL');
             await page.getByRole('button', { name: 'OK' }).click();
             await page.waitForTimeout(2000);
+
+            // Check if dialog appeared with a validation message
+            if (lastDialogMessage) {
+                console.log(`❌ [ApplyDL] Dialog appeared: "${lastDialogMessage}"`);
+                const fatalKeywords = ['invalid', 'not found', 'expired', 'incorrect', 'exist', 'record', 'not match', 'cannot', 'already'];
+                if (fatalKeywords.some(kw => lastDialogMessage.toLowerCase().includes(kw))) {
+                    throw new Error(`Govt Portal Dialog Error: ${lastDialogMessage}`);
+                }
+                lastDialogMessage = null; // Clear if ignorable
+            }
 
             // Check if it loaded details or went to the generate OTP page
             const genBtn = page.getByRole('button', { name: 'Generate OTP' }).first();
@@ -53,15 +93,32 @@ async function startApplyDLFlow(llNo, dob, mobile) {
             }
         }
 
+        // Remove the temporary login dialog handler
+        page.off('dialog', dialogHandler);
+
         console.log("[ApplyDL] Generating OTP...");
         let otpSent = false;
         attempts = 0;
+        let otpDialogMessage = null;
+
+        const otpDialogHandler = async dialog => {
+            otpDialogMessage = dialog.message();
+            console.log(`💬 [ApplyDL OTP Dialog] ${dialog.type()}: ${otpDialogMessage}`);
+            await dialog.dismiss().catch(() => {});
+        };
+        page.on('dialog', otpDialogHandler);
 
         while (!otpSent && attempts < 5) {
             attempts++;
+            otpDialogMessage = null;
             await smartSolveCaptcha(page, `OTP Generation Attempt ${attempts}`, 'ApplyDL');
             await page.getByRole('button', { name: 'Generate OTP' }).click();
             await page.waitForTimeout(2000);
+
+            if (otpDialogMessage) {
+                console.log(`❌ [ApplyDL] Dialog appeared on OTP generation: "${otpDialogMessage}"`);
+                throw new Error(`Govt Portal OTP Error: ${otpDialogMessage}`);
+            }
 
             if (await page.locator('#otpNumberSarathi').isVisible()) {
                 otpSent = true;
@@ -72,6 +129,9 @@ async function startApplyDLFlow(llNo, dob, mobile) {
             }
         }
 
+        // Clean up the OTP dialog handler
+        page.off('dialog', otpDialogHandler);
+
         if (!otpSent) {
             throw new Error("Failed to trigger SMS OTP for DL application.");
         }
@@ -80,8 +140,12 @@ async function startApplyDLFlow(llNo, dob, mobile) {
 
     } catch (error) {
         console.error("❌ Error in startApplyDLFlow:", error);
-        await context.close().catch(() => {});
-        await browser.close().catch(() => {});
+        if (headless) {
+            await context.close().catch(() => {});
+            await browser.close().catch(() => {});
+        } else {
+            console.log("⚠️ Headless mode is disabled; keeping browser open for inspection.");
+        }
         throw error;
     }
 }
@@ -121,6 +185,7 @@ async function submitApplyDLOTP(browser, context, page, otpCode) {
         });
         await page1.getByRole('button', { name: 'Submit' }).click();
         await page1.waitForTimeout(1000);
+        await page1.getByRole('button', { name: 'Okay' }).click().catch(() => {});
         await page1.close().catch(() => {});
 
         console.log("[ApplyDL] Back to main page. Submitting form...");
@@ -129,17 +194,25 @@ async function submitApplyDLOTP(browser, context, page, otpCode) {
         let submissionSuccessful = false;
         let submitAttempts = 0;
 
+        const submitDialogHandler = async dialog => {
+            console.log(`[ApplyDL - Submit Dialog] ${dialog.type()}: ${dialog.message()}`);
+            await dialog.accept().catch(() => {});
+        };
+        page.on('dialog', submitDialogHandler);
+
         while (!submissionSuccessful && submitAttempts < 5) {
             submitAttempts++;
             await smartSolveCaptcha(page, `Final Submission Attempt ${submitAttempts}`, 'ApplyDL');
-            
-            page.once('dialog', dialog => {
-                console.log(`[ApplyDL - Submit] Dialog: ${dialog.message()}`);
-                dialog.accept().catch(() => {});
-            });
 
             await page.getByRole('button', { name: 'Submit' }).click();
-            await page.waitForTimeout(5000);
+            
+            // Wait up to 15 seconds for redirection to complete
+            console.log("[ApplyDL] Waiting for page redirection...");
+            try {
+                await page.waitForURL('**/applNoRedirect.do', { timeout: 15000 });
+            } catch (e) {
+                // If it times out, the redirect may not have happened yet or there was a validation error
+            }
 
             // Check if we are redirected or if application number is visible
             if (page.url().includes('applNoRedirect.do') || await page.locator('text=/Application No/i').first().isVisible().catch(() => false)) {
@@ -150,6 +223,8 @@ async function submitApplyDLOTP(browser, context, page, otpCode) {
                 await page.waitForTimeout(1500);
             }
         }
+
+        page.off('dialog', submitDialogHandler);
 
         if (!submissionSuccessful) {
             throw new Error("Application submission failed due to persistent captcha issues or portal timeouts.");
@@ -170,17 +245,33 @@ async function submitApplyDLOTP(browser, context, page, otpCode) {
             console.log(`🎉 [ApplyDL] Extracted: ${extractedText}`);
         }
 
+        // Take a full-page screenshot of the acknowledgment slip page
+        if (!fs.existsSync(CONFIG.TEMP.DIR)) {
+            fs.mkdirSync(CONFIG.TEMP.DIR, { recursive: true });
+        }
+        const screenshotPath = path.join(CONFIG.TEMP.DIR, `ApplyDL_Ack_${Date.now()}.png`);
+        console.log(`[ApplyDL] Saving acknowledgment slip screenshot to: ${screenshotPath}`);
+        await page.screenshot({ path: screenshotPath, fullPage: true }).catch(err => {
+            console.error("[ApplyDL] Failed to take acknowledgment screenshot:", err);
+        });
+
         return {
             success: true,
-            extractedText
+            extractedText,
+            screenshotPath: fs.existsSync(screenshotPath) ? screenshotPath : null
         };
 
     } catch (error) {
         console.error("❌ Error in submitApplyDLOTP:", error);
         throw error;
     } finally {
-        await context.close().catch(() => {});
-        await browser.close().catch(() => {});
+        const headless = CONFIG.PUPPETEER.HEADLESS === 'new' || CONFIG.PUPPETEER.HEADLESS === true;
+        if (headless) {
+            await context.close().catch(() => {});
+            await browser.close().catch(() => {});
+        } else {
+            console.log("⚠️ Headless mode is disabled; keeping browser open for inspection.");
+        }
     }
 }
 

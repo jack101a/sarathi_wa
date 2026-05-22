@@ -111,7 +111,7 @@ function buildHelpText() {
     '/llprint <appl_no> <DOB> [10_digit_mobile]',
     '/lledit <appl_no> <DOB> [10_digit_mobile]',
     '/dlrenewal <DL_number> <DOB> [RTO_code] [10_digit_mobile]',
-    '/applydl <LL_number> <DOB> [10_digit_mobile]',
+    '/dlapp <LL_number> <DOB> [10_digit_mobile]',
     '/payfee <appl_no> <DOB>',
     '/feeprint <appl_no> <DOB>',
     '/bookslot <appl_no> <DOB>',
@@ -298,7 +298,7 @@ async function startTelegramBot(config) {
       if (!mobile || mobile.length < 10) {
         let cmdName = type === 'llprint_start' ? 'llprint' :
                       type === 'lledit_start' ? 'lledit' :
-                      type === 'dl_renewal_start' ? 'dlrenewal' : 'applydl';
+                      type === 'dl_renewal_start' ? 'dlrenewal' : 'dlapp';
         let placeholder = type === 'dl_renewal_start' ? '<DL_number> <dob> [RTO_code] <10_digit_mobile>' :
                           type === 'apply_dl_start' ? '<LL_number> <dob> <10_digit_mobile>' :
                           `<appl_no> <dob> <10_digit_mobile>`;

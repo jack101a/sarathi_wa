@@ -28,6 +28,7 @@ const form1aCommand = require('./commands/form1a');
 const form2Command = require('./commands/form2');
 const formsetCommand = require('./commands/formset');
 const removeTrackCommand = require('./commands/removeTrack');
+const slotCommand = require('./commands/slot');
 const {
   extractAppNoAndDob,
   decodeAppNoAndDobFromImage,
@@ -739,7 +740,7 @@ async function createBot() {
     // Allow self-issued command messages, but ignore self echo chatter/status texts.
     if (message.fromMe) {
       const ownBody = normalizeText(message.body || '');
-      const looksLikeCommand = /^(help|track|add|remove|refresh|list|alive|suno|appl|form1|form1a|form2|formset|stop|auth|resend|\/?llprint|\/?lledit|\/?payfee|\/?feeprint|\/?dlrenewal|\/?applydl|\/?bookslot|\/?send(?:_|\s+)chatid)\b/i.test(ownBody);
+      const looksLikeCommand = /^(help|track|add|remove|refresh|list|alive|suno|appl|slot|form1|form1a|form2|formset|stop|auth|resend|\/?llprint|\/?lledit|\/?payfee|\/?feeprint|\/?dlrenewal|\/?dlapp|\/?bookslot|\/?send(?:_|\s+)chatid)\b/i.test(ownBody);
       if (!looksLikeCommand) {
         return;
       }

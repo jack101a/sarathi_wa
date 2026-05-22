@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Ack service responsibility:
  * Fetch acknowledgement receipt using browser session and export PDF.
  */
@@ -315,6 +315,9 @@ async function getAckSnapshot(appNo, dob, options = {}) {
       fullPage: true,
     });
 
+
+
+
     const buffer = fs.readFileSync(outputPath);
     if (!keepFile) {
       fs.unlinkSync(outputPath);
@@ -345,9 +348,166 @@ async function getAckImage(appNo, dob) {
   return snapshot.filePath;
 }
 
+async function getSlotAckPDF(appNo, dob) {
+  if (!String(appNo || '').trim()) {
+    throw new Error('Application number is required.');
+  }
+
+  if (!String(dob || '').trim()) {
+    throw new Error('DOB is required.');
+  }
+
+  let page;
+  let browser;
+  let targetListener;
+
+  try {
+    browser = await getBrowser();
+    page = await browser.newPage();
+
+    page.on('dialog', async (dialog) => {
+      await dialog.accept();
+    });
+
+    console.log('🔗 [SlotAck] Navigating to state selection to establish session cookies...');
+    await page.goto(`${CONFIG.URLS.HOME}stateSelection.do`, {
+      waitUntil: 'networkidle2',
+      timeout: 60000,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    const closeButton = await page.$(
+      '.close, button.close, .modal .btn-close, .modal button[data-dismiss="modal"]'
+    );
+    if (closeButton) {
+      await closeButton.click();
+    }
+
+    const selector = 'select.form-control.input-sm';
+    await page.waitForSelector(selector, { timeout: 60000 });
+    await page.select(selector, CONFIG.STATE_CODE);
+
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    console.log('🔄 [SlotAck] Fetching slot print page via browser fetch context...');
+    const result = await page.evaluate(
+      async ({ ackBaseUrl, appNoArg, dobArg }) => {
+        const url = `${ackBaseUrl}?applNum=${encodeURIComponent(
+          appNoArg
+        )}&dateOfBirth=${encodeURIComponent(dobArg)}&type=dlslotack`;
+
+        const res = await fetch(url, {
+          credentials: 'include',
+        });
+
+        const html = await res.text();
+        return {
+          status: res.status,
+          html,
+        };
+      },
+      {
+        ackBaseUrl: CONFIG.URLS.ACK,
+        appNoArg: appNo,
+        dobArg: dob,
+      }
+    );
+
+    if (result.status !== 200) {
+      throw new Error(`Failed to fetch acknowledgement page, status: ${result.status}`);
+    }
+
+    // Inject <base> tag pointing to /slots/ context so relative links resolve correctly
+    let finalHtml = result.html;
+    const baseTag = `<base href="https://sarathi.parivahan.gov.in/slots/">`;
+    if (finalHtml.includes('<head>')) {
+      finalHtml = finalHtml.replace('<head>', `<head>${baseTag}`);
+    } else if (finalHtml.includes('<HEAD>')) {
+      finalHtml = finalHtml.replace('<HEAD>', `<HEAD>${baseTag}`);
+    } else {
+      finalHtml = baseTag + finalHtml;
+    }
+
+    // Set content of Puppeteer page
+    await page.setContent(finalHtml, { waitUntil: 'domcontentloaded' });
+
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    let pdfBuffer = null;
+    let popupPageInstance = null;
+
+    // Register target listener on browser BEFORE clicking the button
+    targetListener = async (target) => {
+      if (target.type() === 'page') {
+        const popupPage = await target.page();
+        if (popupPage) {
+          popupPageInstance = popupPage;
+          popupPage.on('response', async (response) => {
+            const url = response.url();
+            const contentType = response.headers()['content-type'] || '';
+            
+            if (url.includes('DLApmntRptPdf.jsp') || contentType.includes('application/pdf')) {
+              try {
+                pdfBuffer = await response.buffer();
+              } catch (err) {
+                console.log(`   ⚠️ Could not read response buffer: ${err.message}`);
+              }
+            }
+          });
+        }
+      }
+    };
+
+    browser.on('targetcreated', targetListener);
+
+    await page.waitForSelector('#dlreportform_SAVE', { timeout: 30000 });
+    await page.click('#dlreportform_SAVE');
+
+    // Wait for the pdfBuffer to be captured
+    let attempts = 0;
+    const maxAttempts = 15; // 15 seconds
+    while (!pdfBuffer && attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      attempts++;
+    }
+
+    if (!pdfBuffer) {
+      throw new Error('Failed to intercept the native PDF stream from the server (timeout).');
+    }
+
+    const filename = `Slot_${appNo}.pdf`;
+    const outputPath = getTempFilePath(filename);
+
+    if (fs.existsSync(outputPath)) {
+      fs.unlinkSync(outputPath);
+    }
+
+    fs.writeFileSync(outputPath, pdfBuffer);
+
+    // Close popup if it's open
+    if (popupPageInstance) {
+      await popupPageInstance.close().catch(() => {});
+    }
+
+    return outputPath;
+  } catch (error) {
+    throw new Error(`Failed to fetch clean slot PDF: ${error.message}`);
+  } finally {
+    // Cleanup listeners
+    if (browser && targetListener) {
+      browser.off('targetcreated', targetListener);
+    }
+    if (page) {
+      await page.close().catch(() => {});
+    }
+  }
+}
+
 module.exports = {
   getAckPDF,
   getAckImage,
   getAckSnapshot,
   parseAckDetails,
+  getSlotAckPDF,
 };

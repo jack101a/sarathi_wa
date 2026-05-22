@@ -154,8 +154,8 @@ function testCommandNormalizer() {
   assert.strictEqual(res.payload.dob, '04-08-1998');
   assert.strictEqual(res.payload.rtoCode, 'MH26');
 
-  // applydl correct format
-  res = parseCommand('applydl 2179944526 04-08-1998', false, standardUser, false);
+  // dlapp correct format
+  res = parseCommand('dlapp 2179944526 04-08-1998', false, standardUser, false);
   assert.strictEqual(res.success, true);
   assert.strictEqual(res.type, 'apply_dl_start');
   assert.strictEqual(res.payload.llNo, '2179944526');

@@ -33,6 +33,7 @@ const HELP_TEXT = `📋 *Sarathi Bot Help (मदद)*
 
 *फॉर्म डाउनलोड करें (Download Forms):*
 • \`appl <appl_no> <DOB>\` - रसीद (Acknowledgement) डाउनलोड करने के लिए
+• \`slot <appl_no> <DOB>\` - स्लॉट बुकिंग रसीद (Slot Acknowledgement) डाउनलोड करने के लिए
 • \`form1 <appl_no> <DOB>\` - स्व-घोषणा फॉर्म (Self Declaration) डाउनलोड करने के लिए
 • \`form1a <appl_no> <DOB>\` - मेडिकल सर्टिफिकेट फॉर्म डाउनलोड करने के लिए
 • \`form2 <appl_no> <DOB>\` - फॉर्म 2 एप्लीकेशन डाउनलोड करने के लिए
@@ -42,8 +43,11 @@ const HELP_TEXT = `📋 *Sarathi Bot Help (मदद)*
 
 *अन्य कमांड्स (Others):*
 • \`resend <appl_no> <DOB>\` - पासवर्ड/OTP दोबारा भेजने के लिए
-• \`dlrenewal <appl_no> <DOB> [RTO_code]\` - DL रिन्यूअल के लिए
-• \`applydl <appl_no> <DOB>\` - नया DL अप्लाई करने के लिए
+• \`renewal <dl_no> <DOB> [RTO]\` - DL रिन्यूअल (Renewal of DL) के लिए
+• \`duplicate <dl_no> <DOB> [RTO]\` - डुप्लीकेट DL (Duplicate DL) के लिए
+• \`replacement <dl_no> <DOB> [RTO]\` - DL रिप्लेसमेंट (Replacement of DL) के लिए
+• \`dl extract <dl_no> <DOB> [RTO]\` - DL एक्सट्रैक्ट (DL Extract) के लिए
+• \`dlapp <ll_no> <DOB>\` - नया DL अप्लाई करने के लिए
 • \`payfee <appl_no> <DOB>\` - फीस पेमेंट करने के लिए
 • \`bookslot <appl_no> <DOB>\` - स्लॉट बुकिंग के लिए
 • \`alive\` - बॉट का स्टेटस चेक करने के लिए
@@ -80,8 +84,25 @@ function parseCommand(rawText, hasMedia, user, isAdmin) {
     textToParse = textToParse.slice(1);
   }
 
+  // Normalize multi-word "dl extract" or "dl_extract" to "dlextract"
+  if (textToParse.toLowerCase().startsWith('dl extract')) {
+    textToParse = textToParse.replace(/dl\s+extract/i, 'dlextract');
+  }
+
   const parts = textToParse.split(' ');
   const cmd = parts[0].toLowerCase();
+
+  // Pre-process and merge split DL number parts (e.g. "MH47 20150008844")
+  if (['dlrenewal', 'renewal', 'duplicate', 'replacement', 'dlextract'].includes(cmd)) {
+    if (parts[1] && parts[2]) {
+      const p1Clean = parts[1].replace(/[-\s]/g, '').toUpperCase();
+      const p2Clean = parts[2].replace(/[-\s]/g, '').toUpperCase();
+      if (/^[A-Z]{2}\d{2}$/.test(p1Clean) && /^\d+$/.test(p2Clean)) {
+        parts[1] = p1Clean + p2Clean;
+        parts.splice(2, 1); // remove the merged part
+      }
+    }
+  }
 
   // 1. HELP COMMANDS
   if (/^(?:help|मदद|maddad|hi|hello)$/i.test(cmd)) {
@@ -345,7 +366,12 @@ function parseCommand(rawText, hasMedia, user, isAdmin) {
     payfee: 'pay_fee_start',
     bookslot: 'slot_booking_start',
     dlrenewal: 'dl_renewal_start',
-    applydl: 'apply_dl_start'
+    renewal: 'dl_renewal_start',
+    duplicate: 'dl_renewal_start',
+    replacement: 'dl_renewal_start',
+    dlextract: 'dl_renewal_start',
+    dlapp: 'apply_dl_start',
+    slot: 'slot_pdf'
   };
 
   if (FORM_MAP[cmd]) {
@@ -362,8 +388,13 @@ function parseCommand(rawText, hasMedia, user, isAdmin) {
       return { success: false, error: ERRORS.INVALID_DOB };
     }
 
-    if (cmd === 'dlrenewal') {
-      const dlNo = appNo;
+    if (cmd === 'dlrenewal' || cmd === 'renewal' || cmd === 'duplicate' || cmd === 'replacement' || cmd === 'dlextract') {
+      let dlNo = appNo;
+      // Clean and format DL number with space after the 4th character (State + RTO) in uppercase
+      const cleanedDL = dlNo.replace(/[-\s]/g, '').toUpperCase();
+      if (/^[A-Z]{2}\d{2}/.test(cleanedDL)) {
+        dlNo = cleanedDL.slice(0, 4) + ' ' + cleanedDL.slice(4);
+      }
       const rtoCode = parts[3] && parts[3].length !== 10 && isNaN(Number(parts[3])) ? parts[3] : '';
       let mobile = '';
       if (parts[3] && (parts[3].length === 10 || !isNaN(Number(parts[3])))) {
@@ -371,10 +402,16 @@ function parseCommand(rawText, hasMedia, user, isAdmin) {
       } else if (parts[4]) {
         mobile = parts[4];
       }
-      return { success: true, type: 'dl_renewal_start', payload: { dlNo, dob: normalizedDob, rtoCode, mobile } };
+      
+      let serviceType = 'RENEWAL OF DL';
+      if (cmd === 'duplicate') serviceType = 'ISSUE OF DUPLICATE DL';
+      else if (cmd === 'replacement') serviceType = 'REPLACEMENT OF DL';
+      else if (cmd === 'dlextract') serviceType = 'DL EXTRACT';
+
+      return { success: true, type: 'dl_renewal_start', payload: { dlNo, dob: normalizedDob, rtoCode, mobile, serviceType } };
     }
 
-    if (cmd === 'applydl') {
+    if (cmd === 'dlapp') {
       const llNo = appNo;
       const mobile = parts[3] || '';
       return { success: true, type: 'apply_dl_start', payload: { llNo, dob: normalizedDob, mobile } };

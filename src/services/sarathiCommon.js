@@ -3,6 +3,7 @@ const { solveSarathiCaptcha } = require('./sarathiCaptchaSolver');
 const BASE_URL = "https://sarathi.parivahan.gov.in/sarathiservice";
 
 const CAPTCHA_RULES = [
+    { src: "#capimg", tgt: "#captchaByApplicant" },
     { src: "#capimg1", tgt: "#entcaptxt1" },
     { src: "#capimg", tgt: "#captxt1" },
     { src: "#capimg", tgt: "#entCaptha" },
@@ -34,6 +35,15 @@ async function navigateToSarathiHome(page, state = 'MH') {
 
     try {
         await page.getByRole('button', { name: 'x' }).click({ timeout: 3000 });
+    } catch (e) {}
+
+    try {
+        const modalClose = page.locator('#contactless_statepopup button[data-dismiss="modal"], #contactless_statepopup .close, button.close, [data-dismiss="modal"]').first();
+        if (await modalClose.isVisible()) {
+            console.log("[SarathiCommon] Closing contactless state popup modal...");
+            await modalClose.click();
+            await page.waitForTimeout(1000);
+        }
     } catch (e) {}
 }
 
