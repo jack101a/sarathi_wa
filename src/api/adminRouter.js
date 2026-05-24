@@ -21,6 +21,7 @@ const planRepository = require('../services/planRepository');
 const { apiQueue, browserQueue } = require('../core/jobQueue');
 const { getPoolStatus } = require('../core/sessionManager');
 const { getPageStats } = require('../core/puppeteerEngine');
+const { createBackup, listBackups } = require('../core/dbBackup');
 
 // ── Public routes (no auth required) ──────────────────────────────────────
 
@@ -509,6 +510,26 @@ router.get('/health', (req, res) => {
       maxBrowserPages: CONFIG.MAX_BROWSER_PAGES,
     },
   });
+});
+
+// ── Database Backup ────────────────────────────────────────────────────────
+router.post('/backup', async (req, res) => {
+  try {
+    const result = await createBackup();
+    logger.info('adminRouter', 'Manual backup created', { fileName: result.fileName });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+router.get('/backups', (req, res) => {
+  try {
+    const backups = listBackups();
+    res.json({ ok: true, backups });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
 });
 
 module.exports = router;

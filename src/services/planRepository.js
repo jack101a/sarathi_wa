@@ -44,6 +44,12 @@ async function updatePlan(id, updates) {
 }
 
 async function deletePlan(id) {
+  // Guard: prevent deleting plans that users are assigned to
+  const users = await query("SELECT COUNT(*) as count FROM auth_users WHERE subscription_plan = ? AND is_active = 1", [id]);
+  const count = Number((users[0] && users[0].count) || 0);
+  if (count > 0) {
+    throw new Error(`Cannot delete plan '${id}': ${count} active user(s) are assigned to it. Reassign them first.`);
+  }
   await run('DELETE FROM subscription_plans WHERE id = ?', [id]);
 }
 

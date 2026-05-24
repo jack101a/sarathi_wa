@@ -14,6 +14,8 @@ const {
 const { closeBrowser } = require('./src/core/puppeteerEngine');
 const { startWorkers, stopWorkers } = require('./src/workers');
 const { startBillingCron } = require('./src/services/billingCron');
+const { close: closeDb, checkpoint: checkpointDb } = require('./src/core/db');
+const { createBackup } = require('./src/core/dbBackup');
 
 let shutdownInFlight = false;
 const WA_START_MAX_ATTEMPTS = 3;
@@ -51,6 +53,9 @@ function registerSignalHandlers({ waClient, telegramBot }) {
     await shutdownService('Telegram bot',    async () => { if (telegramBot && typeof telegramBot.stopPolling === 'function') await telegramBot.stopPolling({ cancel: true }); });
     await shutdownService('Workers',         stopWorkers);
     await shutdownService('Puppeteer',       closeBrowser);
+    await shutdownService('DB backup',       async () => { await createBackup(); });
+    await shutdownService('DB checkpoint',   checkpointDb);
+    await shutdownService('DB close',        closeDb);
     process.exit(0);
   }
 
@@ -167,6 +172,15 @@ async function startServer() {
     startDailyNotificationScheduler();
     await startWorkers();
     startBillingCron();
+
+    // Create a startup backup
+    try {
+      await createBackup();
+      logger.info('server', 'Startup database backup created');
+    } catch (err) {
+      logger.warn('server', 'Startup backup failed (non-fatal)', { error: err.message });
+    }
+
     logger.info('server', 'All services started');
   } catch (error) {
     logger.error('server', 'Schedulers/Workers failed to start', { error: error.message });

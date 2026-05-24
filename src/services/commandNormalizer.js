@@ -21,7 +21,7 @@ const ERRORS = {
   MISSING_APP_NO: (cmd, requiresDob = false) => `❌ *आवेदन संख्या (Application Number) नहीं मिली!*\n\n*सही तरीका (Format):*\n👉 \`${cmd} <appl_no>${requiresDob ? ' <DOB>' : ''}\``
 };
 
-const HELP_TEXT = `📋 *Sarathi Bot Help (मदद)*
+const USER_HELP_TEXT = `📋 *Sarathi Bot Help (मदद)*
 
 *DL/RC की जानकारी (Tracking):*
 • \`track DL <appl_no> <DOB>\` - DL का स्टेटस देखने के लिए
@@ -42,7 +42,39 @@ const HELP_TEXT = `📋 *Sarathi Bot Help (मदद)*
 • \`llprint <appl_no> <DOB>\` - लर्निंग लाइसेंस डाउनलोड करने के लिए
 
 *अन्य कमांड्स (Others):*
-• \`resend <appl_no> <DOB>\` - पासवर्ड/OTP दोबारा भेजने के लिए
+• \`resend <appl_no> <DOB>\` - लर्निंग लाइसेंस (LL) का पासवर्ड दोबारा भेजने के लिए
+• \`renewal <dl_no> <DOB> [RTO]\` - DL रिन्यूअल (Renewal of DL) के लिए
+• \`duplicate <dl_no> <DOB> [RTO]\` - डुप्लीकेट DL (Duplicate DL) के लिए
+• \`replacement <dl_no> <DOB> [RTO]\` - DL रिप्लेसमेंट (Replacement of DL) के लिए
+• \`dl extract <dl_no> <DOB> [RTO]\` - DL एक्सट्रैक्ट (DL Extract) के लिए
+• \`dlapp <ll_no> <DOB>\` - नया DL अप्लाई करने के लिए
+• \`alive\` - बॉट का स्टेटस चेक करने के लिए
+• \`stop\` - चल रहे काम को रोकने के लिए
+
+💡 _नोट: जन्मतिथि (DOB) हमेशा DD-MM-YYYY फॉर्मेट में लिखें (जैसे: 04-08-1998)_`;
+
+const ADMIN_HELP_TEXT = `📋 *Sarathi Bot Help (मदद) - Admin Mode*
+
+*DL/RC की जानकारी (Tracking):*
+• \`track DL <appl_no> <DOB>\` - DL का स्टेटस देखने के लिए
+• \`track RC <appl_no>\` - गाड़ी का RC स्टेटस देखने के लिए
+• \`track status\` - आपकी सक्रिय ट्रैकिंग लिस्ट देखने के लिए
+• \`track add <appl_no> <DOB>\` - DL ऑटो-ट्रैकिंग चालू करने के लिए
+• \`track add <appl_no>\` - RC ऑटो-ट्रैकिंग चालू करने के लिए
+• \`track remove <appl_no>\` - ऑटो-ट्रैकिंग बंद करने के लिए
+
+*फॉर्म डाउनलोड करें (Download Forms):*
+• \`appl <appl_no> <DOB>\` - रसीद (Acknowledgement) डाउनलोड करने के लिए
+• \`slot <appl_no> <DOB>\` - स्लॉट बुकिंग रसीद (Slot Acknowledgement) डाउनलोड करने के लिए
+• \`form1 <appl_no> <DOB>\` - स्व-घोषणा फॉर्म (Self Declaration) डाउनलोड करने के लिए
+• \`form1a <appl_no> <DOB>\` - मेडिकल सर्टिफिकेट फॉर्म डाउनलोड करने के लिए
+• \`form2 <appl_no> <DOB>\` - फॉर्म 2 एप्लीकेशन डाउनलोड करने के लिए
+• \`formset <appl_no> <DOB>\` - सारे फॉर्म एक साथ (Combined Set) डाउनलोड करने के लिए
+• \`feeprint <appl_no> <DOB>\` - फीस की रसीद प्रिंट करने के लिए
+• \`llprint <appl_no> <DOB>\` - लर्निंग लाइसेंस डाउनलोड करने के लिए
+
+*अन्य कमांड्स (Others):*
+• \`resend <appl_no> <DOB>\` - लर्निंग लाइसेंस (LL) का पासवर्ड दोबारा भेजने के लिए
 • \`renewal <dl_no> <DOB> [RTO]\` - DL रिन्यूअल (Renewal of DL) के लिए
 • \`duplicate <dl_no> <DOB> [RTO]\` - डुप्लीकेट DL (Duplicate DL) के लिए
 • \`replacement <dl_no> <DOB> [RTO]\` - DL रिप्लेसमेंट (Replacement of DL) के लिए
@@ -106,7 +138,7 @@ function parseCommand(rawText, hasMedia, user, isAdmin) {
 
   // 1. HELP COMMANDS
   if (/^(?:help|मदद|maddad|hi|hello)$/i.test(cmd)) {
-    return { success: true, type: 'help', message: HELP_TEXT };
+    return { success: true, type: 'help', message: isAdmin ? ADMIN_HELP_TEXT : USER_HELP_TEXT };
   }
 
   // 2. ALIVE/SUNO
@@ -375,6 +407,9 @@ function parseCommand(rawText, hasMedia, user, isAdmin) {
   };
 
   if (FORM_MAP[cmd]) {
+    if ((cmd === 'payfee' || cmd === 'bookslot') && !isAdmin) {
+      return { success: false, silent: true };
+    }
     const appNo = parts[1] || '';
     if (!appNo) {
       return { success: false, error: ERRORS.MISSING_APP_NO(cmd, true) };
@@ -427,6 +462,7 @@ function parseCommand(rawText, hasMedia, user, isAdmin) {
 
 module.exports = {
   parseCommand,
-  HELP_TEXT,
+  USER_HELP_TEXT,
+  ADMIN_HELP_TEXT,
   ERRORS
 };

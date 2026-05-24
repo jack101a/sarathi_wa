@@ -5,6 +5,7 @@ const authRepo = require('./authorizationRepository');
 const jobRepository = require('./jobRepository');
 const { cleanupRateLimitLog } = require('../core/rateLimiter');
 const logger = require('../core/logger');
+const { createBackup } = require('../core/dbBackup');
 
 const TEMP_DIR = path.resolve(__dirname, '../../data/tmp');
 const ROOT_DIR = path.resolve(__dirname, '../..');
@@ -78,6 +79,13 @@ function startBillingCron() {
   // Cleanup temp files (every hour)
   cron.schedule('30 * * * *', () => {
     try { cleanupTempFiles(); } catch (_) {}
+  }, cronOptions);
+
+  // Database backup every 6 hours
+  cron.schedule('0 */6 * * *', () => {
+    createBackup().catch((err) => {
+      logger.error('billingCron', 'Scheduled backup failed', { error: err.message });
+    });
   }, cronOptions);
 
   logger.info('billingCron', 'Billing & cleanup crons started');

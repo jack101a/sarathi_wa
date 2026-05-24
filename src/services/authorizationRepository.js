@@ -1,6 +1,4 @@
-const { execSync } = require('child_process');
-const path = require('path');
-const { query, run } = require('../core/db');
+const { query, run, runTransaction } = require('../core/db');
 
 let initialized = false;
 
@@ -10,9 +8,63 @@ function makeId(prefix) { return `${prefix}_${Date.now()}_${Math.floor(Math.rand
 async function initDb() {
   if (initialized) return true;
   try {
-    const helperPath = path.resolve(__dirname, 'authzHelper.js');
-    execSync(`node "${helperPath}" init`, { encoding: 'utf8' });
+    // Schema creation — directly in-process, no child process needed
+    await run(`CREATE TABLE IF NOT EXISTS auth_users (id TEXT PRIMARY KEY, channel TEXT, canonical_phone TEXT UNIQUE, is_active INTEGER, created_at TEXT, updated_at TEXT)`);
+    await run(`CREATE TABLE IF NOT EXISTS auth_user_identities (id TEXT PRIMARY KEY, auth_user_id TEXT, identity_type TEXT, identity_value TEXT UNIQUE, verified_at TEXT, last_seen_at TEXT, is_active INTEGER)`);
+    await run(`CREATE TABLE IF NOT EXISTS auth_verifications (id TEXT PRIMARY KEY, channel TEXT, canonical_phone TEXT, code TEXT, status TEXT, requested_by TEXT, requested_via TEXT, expires_at TEXT, verified_at TEXT, verified_identity TEXT, meta_json TEXT)`);
+    await run(`CREATE TABLE IF NOT EXISTS authorized_groups (id TEXT PRIMARY KEY, channel TEXT, group_id TEXT, is_active INTEGER, created_by TEXT, created_at TEXT)`);
+    await run(`CREATE TABLE IF NOT EXISTS subscription_plans (id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT DEFAULT '', services_json TEXT DEFAULT '["*"]', limits_json TEXT DEFAULT '{}', is_active INTEGER DEFAULT 1, created_at TEXT NOT NULL)`);
 
+    // Seed default plans if empty
+    const planRows = await query('SELECT COUNT(*) as count FROM subscription_plans');
+    if (planRows[0] && planRows[0].count === 0) {
+      const now = nowIso();
+      const freeLimits = JSON.stringify({ light: { perDay: 20, perMonth: 300 }, medium: { perDay: 5, perMonth: 60 } });
+      const premLimits = JSON.stringify({ light: { perDay: 100, perMonth: 3000 }, medium: { perDay: 20, perMonth: 600 } });
+      const freeServices = JSON.stringify(['track', 'status', 'llprint', 'feeprint', 'pay_fee_start']);
+      await run('INSERT INTO subscription_plans (id, name, description, services_json, limits_json, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)', ['free', 'Free Tier', 'Basic access to status and tracking', freeServices, freeLimits, now]);
+      await run('INSERT INTO subscription_plans (id, name, description, services_json, limits_json, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)', ['premium', 'Premium Tier', 'Full access to all services', '["*"]', premLimits, now]);
+    }
+
+    // Column migrations — log failures instead of silently swallowing
+    const migrations = [
+      "ALTER TABLE auth_users ADD COLUMN name TEXT DEFAULT ''",
+      "ALTER TABLE auth_users ADD COLUMN subscription_plan TEXT DEFAULT 'standard'",
+      "ALTER TABLE auth_users ADD COLUMN monthly_limit INTEGER DEFAULT 0",
+      "ALTER TABLE auth_users ADD COLUMN used_count INTEGER DEFAULT 0",
+      "ALTER TABLE auth_users ADD COLUMN daily_count INTEGER DEFAULT 0",
+      "ALTER TABLE auth_users ADD COLUMN expiry_date TEXT DEFAULT ''",
+      "ALTER TABLE auth_users ADD COLUMN billing_cycle_start TEXT DEFAULT ''",
+      "ALTER TABLE auth_users ADD COLUMN last_daily_reset TEXT DEFAULT ''",
+      "ALTER TABLE auth_users ADD COLUMN credits INTEGER DEFAULT 0",
+      "ALTER TABLE auth_users ADD COLUMN rate_limit_overrides TEXT DEFAULT '{}'",
+    ];
+    for (const sql of migrations) {
+      try { await run(sql); } catch (e) {
+        // "duplicate column name" is expected on subsequent runs — only that is OK to ignore
+        if (!String(e.message || '').includes('duplicate column')) {
+          console.error(`[authRepo] Migration warning: ${e.message}`);
+        }
+      }
+    }
+
+    await run(`CREATE TABLE IF NOT EXISTS credit_transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, action TEXT NOT NULL, amount INTEGER NOT NULL, balance_before INTEGER DEFAULT 0, balance_after INTEGER DEFAULT 0, note TEXT DEFAULT '', triggered_by TEXT DEFAULT 'admin', job_id TEXT DEFAULT '', created_at TEXT NOT NULL)`);
+    await run('CREATE INDEX IF NOT EXISTS idx_credit_tx_user ON credit_transactions(user_id, created_at)');
+    await run(`CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, user_phone TEXT NOT NULL, queue_type TEXT NOT NULL, command TEXT NOT NULL, payload_json TEXT DEFAULT '{}', status TEXT DEFAULT 'pending', result_json TEXT DEFAULT '{}', error_text TEXT DEFAULT '', chat_id TEXT NOT NULL, transport TEXT DEFAULT 'whatsapp', priority INTEGER DEFAULT 0, created_at TEXT NOT NULL, started_at TEXT DEFAULT '', completed_at TEXT DEFAULT '')`);
+    await run('CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)');
+    await run('CREATE INDEX IF NOT EXISTS idx_jobs_user ON jobs(user_id, status)');
+    await run('CREATE INDEX IF NOT EXISTS idx_jobs_queue ON jobs(queue_type, status)');
+    await run(`CREATE TABLE IF NOT EXISTS rate_limit_log (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, timestamp TEXT NOT NULL, command TEXT NOT NULL, category TEXT NOT NULL DEFAULT 'light')`);
+    try { await run("ALTER TABLE rate_limit_log ADD COLUMN category TEXT NOT NULL DEFAULT 'light'"); } catch (_) {}
+    await run('CREATE INDEX IF NOT EXISTS idx_rate_log_user ON rate_limit_log(user_id, timestamp)');
+    await run('CREATE INDEX IF NOT EXISTS idx_rate_log_cat ON rate_limit_log(user_id, category, timestamp)');
+
+    // Foreign-key indexes
+    await run('CREATE INDEX IF NOT EXISTS idx_credit_tx_user_fk ON credit_transactions(user_id)');
+    await run('CREATE INDEX IF NOT EXISTS idx_identities_user_fk ON auth_user_identities(auth_user_id)');
+    await run('CREATE INDEX IF NOT EXISTS idx_jobs_user_fk ON jobs(user_id)');
+
+    // Seed config users
     const CONFIG = require('../config/config');
     const users = (CONFIG.SECURITY && CONFIG.SECURITY.AUTHORIZED_USERS) || [];
     for (const phone of users) {
@@ -24,9 +76,11 @@ async function initDb() {
         await createUserIdentity(user.id, 'wa_cus', `${digits}@c.us`);
       }
     }
+
     initialized = true;
     return true;
-  } catch (_) {
+  } catch (err) {
+    console.error('[authRepo] Database initialization failed:', err.message);
     return false;
   }
 }
@@ -58,7 +112,7 @@ async function createUser(phone, channel = 'wa') {
   if (existing) return existing;
   const id = makeId('user');
   const now = nowIso();
-  await run('INSERT OR REPLACE INTO auth_users (id, channel, canonical_phone, is_active, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)', [id, channel, phone, now, now]);
+  await run('INSERT INTO auth_users (id, channel, canonical_phone, is_active, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?) ON CONFLICT(canonical_phone) DO UPDATE SET updated_at = excluded.updated_at', [id, channel, phone, now, now]);
   return { id, channel, canonical_phone: phone, is_active: 1, created_at: now, updated_at: now };
 }
 
@@ -92,7 +146,7 @@ async function deactivateUser(phone) {
 async function createUserIdentity(userId, type, value) {
   const id = makeId('ident');
   const now = nowIso();
-  await run('INSERT OR REPLACE INTO auth_user_identities (id, auth_user_id, identity_type, identity_value, verified_at, last_seen_at, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)', [id, userId, type, value, now, now]);
+  await run('INSERT INTO auth_user_identities (id, auth_user_id, identity_type, identity_value, verified_at, last_seen_at, is_active) VALUES (?, ?, ?, ?, ?, ?, 1) ON CONFLICT(identity_value) DO UPDATE SET last_seen_at = excluded.last_seen_at, is_active = 1', [id, userId, type, value, now, now]);
   return { id, auth_user_id: userId, identity_type: type, identity_value: value, verified_at: now, last_seen_at: now, is_active: 1 };
 }
 async function getIdentity(value) { const rows = await query('SELECT * FROM auth_user_identities WHERE identity_value = ? AND is_active = 1', [value]); return rows[0] || null; }
@@ -142,34 +196,40 @@ async function runAsync(sql, params = []) { return run(sql, params); }
 // ── Audited Credit Operations ─────────────────────────────────────────────
 async function addCreditsAudited(userId, amount, note = '', triggeredBy = 'admin', jobId = '') {
   const n = Math.max(0, Number(amount) || 0);
-  const rows = await query('SELECT credits FROM auth_users WHERE id = ?', [userId]);
-  const before = Number((rows[0] && rows[0].credits) || 0);
-  await run('UPDATE auth_users SET credits = COALESCE(credits,0) + ?, updated_at = ? WHERE id = ?', [n, nowIso(), userId]);
-  const after = before + n;
-  await run('INSERT INTO credit_transactions (user_id, action, amount, balance_before, balance_after, note, triggered_by, job_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)',
-    [userId, 'add', n, before, after, note, triggeredBy, jobId, nowIso()]);
-  return { newBalance: after };
+  return runTransaction(async ({ query: txQ, run: txR }) => {
+    const rows = await txQ('SELECT credits FROM auth_users WHERE id = ?', [userId]);
+    const before = Number((rows[0] && rows[0].credits) || 0);
+    const after = before + n;
+    await txR('UPDATE auth_users SET credits = ?, updated_at = ? WHERE id = ?', [after, nowIso(), userId]);
+    await txR('INSERT INTO credit_transactions (user_id, action, amount, balance_before, balance_after, note, triggered_by, job_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)',
+      [userId, 'add', n, before, after, note, triggeredBy, jobId, nowIso()]);
+    return { newBalance: after };
+  });
 }
 
 async function setCreditsAudited(userId, amount, note = '', triggeredBy = 'admin') {
   const n = Math.max(0, Number(amount) || 0);
-  const rows = await query('SELECT credits FROM auth_users WHERE id = ?', [userId]);
-  const before = Number((rows[0] && rows[0].credits) || 0);
-  await run('UPDATE auth_users SET credits = ?, updated_at = ? WHERE id = ?', [n, nowIso(), userId]);
-  await run('INSERT INTO credit_transactions (user_id, action, amount, balance_before, balance_after, note, triggered_by, job_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)',
-    [userId, 'set', n, before, n, note, triggeredBy, '', nowIso()]);
-  return { newBalance: n };
+  return runTransaction(async ({ query: txQ, run: txR }) => {
+    const rows = await txQ('SELECT credits FROM auth_users WHERE id = ?', [userId]);
+    const before = Number((rows[0] && rows[0].credits) || 0);
+    await txR('UPDATE auth_users SET credits = ?, updated_at = ? WHERE id = ?', [n, nowIso(), userId]);
+    await txR('INSERT INTO credit_transactions (user_id, action, amount, balance_before, balance_after, note, triggered_by, job_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)',
+      [userId, 'set', n, before, n, note, triggeredBy, '', nowIso()]);
+    return { newBalance: n };
+  });
 }
 
 async function deductCreditsAudited(userId, amount, note = '', jobId = '') {
   const n = Math.max(0, Number(amount) || 0);
-  const rows = await query('SELECT credits FROM auth_users WHERE id = ?', [userId]);
-  const before = Number((rows[0] && rows[0].credits) || 0);
-  const after = Math.max(0, before - n);
-  await run('UPDATE auth_users SET credits = MAX(0, COALESCE(credits,0) - ?), updated_at = ? WHERE id = ?', [n, nowIso(), userId]);
-  await run('INSERT INTO credit_transactions (user_id, action, amount, balance_before, balance_after, note, triggered_by, job_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)',
-    [userId, 'deduct', n, before, after, note, 'job_completion', jobId, nowIso()]);
-  return { newBalance: after };
+  return runTransaction(async ({ query: txQ, run: txR }) => {
+    const rows = await txQ('SELECT credits FROM auth_users WHERE id = ?', [userId]);
+    const before = Number((rows[0] && rows[0].credits) || 0);
+    const after = Math.max(0, before - n);
+    await txR('UPDATE auth_users SET credits = ?, updated_at = ? WHERE id = ?', [after, nowIso(), userId]);
+    await txR('INSERT INTO credit_transactions (user_id, action, amount, balance_before, balance_after, note, triggered_by, job_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)',
+      [userId, 'deduct', n, before, after, note, 'job_completion', jobId, nowIso()]);
+    return { newBalance: after };
+  });
 }
 
 async function getCreditHistory(userId, limit = 50) {

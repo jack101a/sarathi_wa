@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const CONFIG = require('../config/config');
 const db = require('../core/db');
+const { runTransaction } = require('../core/db');
 
 function getLegacyStorePath() {
   return CONFIG.AUTO_TRACK.STORE_PATH;
@@ -118,13 +119,16 @@ async function initSqlite() {
     sqliteReady = true;
     persistLegacy(cache);
   } catch (e) {
+    console.error('[autoTrackStore] SQLite init failed:', e.message);
     sqliteReady = false;
   }
 }
 
 function queueSqlWrite(task) {
   if (!sqliteReady) return;
-  writeQueue = writeQueue.then(task).catch(() => {});
+  writeQueue = writeQueue.then(task).catch((err) => {
+    console.error('[autoTrackStore] SQLite write failed:', err.message);
+  });
 }
 
 function readTrackedApplications() {
@@ -136,16 +140,18 @@ function writeTrackedApplications(entries) {
   cache = safe;
   persistLegacy(cache);
   queueSqlWrite(async () => {
-    await db.run('DELETE FROM tracked_sarathi');
-    for (const e of safe) {
-      await db.run(
-        `INSERT INTO tracked_sarathi (
-          app_no, chat_id, transport, created_at, last_stage, last_snapshot, tag, dob,
-          applicant_name, service_name, application_date, scrutiny_at, approval_at, dispatched_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [e.appNo, e.chatId, e.transport, e.createdAt, e.lastStage, e.lastSnapshot, e.tag, e.dob, e.applicantName, e.serviceName, e.applicationDate, e.scrutinyAt, e.approvalAt, e.dispatchedAt]
-      );
-    }
+    await runTransaction(async ({ run: txR }) => {
+      await txR('DELETE FROM tracked_sarathi');
+      for (const e of safe) {
+        await txR(
+          `INSERT INTO tracked_sarathi (
+            app_no, chat_id, transport, created_at, last_stage, last_snapshot, tag, dob,
+            applicant_name, service_name, application_date, scrutiny_at, approval_at, dispatched_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [e.appNo, e.chatId, e.transport, e.createdAt, e.lastStage, e.lastSnapshot, e.tag, e.dob, e.applicantName, e.serviceName, e.applicationDate, e.scrutinyAt, e.approvalAt, e.dispatchedAt]
+        );
+      }
+    });
   });
   return safe;
 }

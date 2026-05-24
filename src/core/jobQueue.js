@@ -52,11 +52,24 @@ class JobQueue {
       // Deducted ONLY on successful completion, not on failure/cancellation.
       if (HEAVY_COMMANDS.has(job.command) && job.user_id) {
         const cost = CONFIG.CREDIT_COST.heavy || 50;
-        try {
-          await authRepo.deductCreditsAudited(job.user_id, cost, `Heavy job completion: ${job.command}`, job.id);
-          logger.info('jobQueue', `Deducted ${cost} credits from user ${job.user_id} for ${job.command}`);
-        } catch (err) {
-          logger.error('jobQueue', `Credit deduction failed for user ${job.user_id}`, { error: err.message });
+        let deducted = false;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            await authRepo.deductCreditsAudited(job.user_id, cost, `Heavy job completion: ${job.command}`, job.id);
+            logger.info('jobQueue', `Deducted ${cost} credits from user ${job.user_id} for ${job.command}`);
+            deducted = true;
+            break;
+          } catch (err) {
+            logger.error('jobQueue', `Credit deduction attempt ${attempt}/3 failed for user ${job.user_id}`, { error: err.message });
+            if (attempt < 3) await sleep(1000 * attempt);
+          }
+        }
+        if (!deducted) {
+          logger.error('jobQueue', `CRITICAL: Credit deduction FAILED after 3 attempts for user ${job.user_id}, job ${job.id}. Manual reconciliation needed.`);
+          // Mark the job with billing failure for admin review
+          try {
+            await jobRepository.updateJobStatus(job.id, 'completed', JSON.stringify({ ...(result || {}), billing_failed: true }), '');
+          } catch (_) {}
         }
       } else if (job.user_id) {
         // ── Rate Limit consumption for light/medium commands ─────────────────────

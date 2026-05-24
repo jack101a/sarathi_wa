@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const CONFIG = require('../config/config');
 const db = require('../core/db');
+const { runTransaction } = require('../core/db');
 
 function normalizeText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
@@ -119,14 +120,17 @@ async function initSqlite() {
 
     sqliteReady = true;
     persistLegacy(cache);
-  } catch (_) {
+  } catch (e) {
+    console.error('[vahanTrackStore] SQLite init failed:', e.message);
     sqliteReady = false;
   }
 }
 
 function queueSqlWrite(task) {
   if (!sqliteReady) return;
-  writeQueue = writeQueue.then(task).catch(() => {});
+  writeQueue = writeQueue.then(task).catch((err) => {
+    console.error('[vahanTrackStore] SQLite write failed:', err.message);
+  });
 }
 
 function readEntries() {
@@ -138,16 +142,18 @@ function writeEntries(entries) {
   cache = safe;
   persistLegacy(cache);
   queueSqlWrite(async () => {
-    await db.run('DELETE FROM tracked_vahan');
-    for (const e of safe) {
-      await db.run(
-        `INSERT INTO tracked_vahan (
-          transport, chat_id, application_number, tag, created_at, last_snapshot, last_checked_at,
-          applicant_name, service_name, application_date, vehicle_no, scrutiny_at, approval_at, dispatched_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [e.transport, e.chatId, e.applicationNumber, e.tag, e.createdAt, e.lastSnapshot, e.lastCheckedAt, e.applicantName, e.serviceName, e.applicationDate, e.vehicleNo, e.scrutinyAt, e.approvalAt, e.dispatchedAt]
-      );
-    }
+    await runTransaction(async ({ run: txR }) => {
+      await txR('DELETE FROM tracked_vahan');
+      for (const e of safe) {
+        await txR(
+          `INSERT INTO tracked_vahan (
+            transport, chat_id, application_number, tag, created_at, last_snapshot, last_checked_at,
+            applicant_name, service_name, application_date, vehicle_no, scrutiny_at, approval_at, dispatched_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [e.transport, e.chatId, e.applicationNumber, e.tag, e.createdAt, e.lastSnapshot, e.lastCheckedAt, e.applicantName, e.serviceName, e.applicationDate, e.vehicleNo, e.scrutinyAt, e.approvalAt, e.dispatchedAt]
+        );
+      }
+    });
   });
   return safe;
 }

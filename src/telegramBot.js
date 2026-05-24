@@ -59,17 +59,27 @@ function getTelegramChatId(msg) {
   return String(msg && msg.chat && msg.chat.id || '').trim();
 }
 
-function getFirstAuthorizedChatId(config) {
+async function getFirstAuthorizedChatId(config) {
   const security = (config && config.SECURITY) || {};
   const users = Array.isArray(security.AUTHORIZED_TG_USERS) ? security.AUTHORIZED_TG_USERS : [];
   const groups = Array.isArray(security.AUTHORIZED_TG_GROUPS) ? security.AUTHORIZED_TG_GROUPS : [];
 
-  const { readStore } = require('./services/authorizationStore');
-  const store = readStore();
-  const storeUsers = store.telegram.users || [];
-  const storeGroups = store.telegram.groups || [];
+  if (users[0]) return users[0];
 
-  return users[0] || storeUsers[0] || groups[0] || storeGroups[0] || null;
+  const repo = require('./services/authorizationRepository');
+  try {
+    const tgUsers = await repo.query("SELECT canonical_phone FROM auth_users WHERE channel = 'tg' AND is_active = 1 LIMIT 1");
+    if (tgUsers && tgUsers[0]) return tgUsers[0].canonical_phone;
+  } catch (_) {}
+
+  if (groups[0]) return groups[0];
+
+  try {
+    const tgGroups = await repo.getAuthorizedGroups('tg');
+    if (tgGroups && tgGroups[0]) return tgGroups[0].group_id;
+  } catch (_) {}
+
+  return null;
 }
 
 function cleanupFile(filePath) {
@@ -317,7 +327,7 @@ async function startTelegramBot(config) {
 }
 async function notifyFirstAuthorizedChat(config, text) {
   const telegramConfig = getTelegramConfig(config || CONFIG);
-  const chatId = getFirstAuthorizedChatId(config || CONFIG);
+  const chatId = await getFirstAuthorizedChatId(config || CONFIG);
   const message = String(text || '').trim();
 
   if (!telegramConfig.token || !chatId || !message) {

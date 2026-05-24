@@ -13,6 +13,8 @@ function getDb() {
   db = new sqlite3.Database(dbPath);
   db.serialize(() => {
     db.run('PRAGMA journal_mode=WAL');
+    db.run('PRAGMA busy_timeout=5000');
+    db.run('PRAGMA foreign_keys=ON');
     db.run(`CREATE TABLE IF NOT EXISTS ai_layout_mappings (
       layout_hash TEXT PRIMARY KEY,
       portal_type TEXT NOT NULL,
@@ -41,6 +43,49 @@ function run(sql, params = []) {
   });
 }
 
+let txQueue = Promise.resolve();
+
+function runTransaction(fn) {
+  return new Promise((resolve, reject) => {
+    const _db = getDb();
+    txQueue = txQueue.then(() => {
+      return new Promise((res, rej) => {
+        _db.run('BEGIN IMMEDIATE', (beginErr) => {
+          if (beginErr) return rej(beginErr);
+          
+          const txQuery = (sql, params = []) => new Promise((qRes, qRej) => {
+            _db.all(sql, params, (err, rows) => err ? qRej(err) : qRes(rows || []));
+          });
+          const txRun = (sql, params = []) => new Promise((rRes, rRej) => {
+            _db.run(sql, params, function(err) { err ? rRej(err) : rRes({ lastID: this.lastID, changes: this.changes }); });
+          });
+
+          fn({ query: txQuery, run: txRun })
+            .then((result) => {
+              _db.run('COMMIT', (commitErr) => {
+                if (commitErr) rej(commitErr);
+                else res(result);
+              });
+            })
+            .catch((fnErr) => {
+              _db.run('ROLLBACK', () => rej(fnErr));
+            });
+        });
+      });
+    }).then(resolve, reject);
+  });
+}
+
+function checkpoint() {
+  return new Promise((resolve, reject) => {
+    if (!db) return resolve();
+    db.run('PRAGMA wal_checkpoint(TRUNCATE)', (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
 function close() {
   return new Promise((resolve, reject) => {
     if (!db) return resolve();
@@ -54,4 +99,4 @@ function close() {
   });
 }
 
-module.exports = { query, run, close, getDb };
+module.exports = { query, run, close, getDb, runTransaction, checkpoint };
