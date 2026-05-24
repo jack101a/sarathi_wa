@@ -6,6 +6,7 @@ const applyDlService = require('../services/applyDlService');
 const paymentService = require('../services/paymentService');
 const slotBookingService = require('../services/slotBookingService');
 const chatNotifier = require('../services/chatNotifier');
+const dlInfoService = require('../services/dlInfoService');
 const fs = require('fs');
 
 const llprintSessions = new Map();
@@ -145,6 +146,22 @@ browserQueue.process(async (job) => {
     }
 
     if (fs.existsSync(receiptPath)) fs.unlinkSync(receiptPath);
+    return { ok: true };
+  }
+
+  if (job.command === 'dl_info_start') {
+    const resultPath = await dlInfoService.fetchAndRenderDLInfo(payload.dlNo, payload.dob);
+    const caption = `✅ Driving Licence Details for DL No: ${payload.dlNo}`;
+    const filename = `DL_Details_${payload.dlNo.replace(/[-\s]/g, '_')}.jpg`;
+    const imgBuffer = fs.readFileSync(resultPath);
+
+    if (transport === 'telegram') {
+      await chatNotifier.sendTelegramPhoto(chatId, imgBuffer, filename, caption, 'image/jpeg');
+    } else {
+      await chatNotifier.sendWhatsAppImage(chatId, imgBuffer, filename, caption);
+    }
+
+    if (fs.existsSync(resultPath)) fs.unlinkSync(resultPath);
     return { ok: true };
   }
   

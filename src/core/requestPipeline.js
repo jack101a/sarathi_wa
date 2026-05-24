@@ -20,6 +20,7 @@ function getQueueType(command) {
     'slot_booking_start',
     'fee_print_start',
     'resend_otp',
+    'dl_info_start',
   ];
   return browserCommands.includes(command) ? 'browser' : 'api';
 }

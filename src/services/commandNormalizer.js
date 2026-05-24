@@ -47,6 +47,7 @@ const USER_HELP_TEXT = `📋 *Sarathi Bot Help (मदद)*
 • \`duplicate <dl_no> <DOB> [RTO]\` - डुप्लीकेट DL (Duplicate DL) के लिए
 • \`replacement <dl_no> <DOB> [RTO]\` - DL रिप्लेसमेंट (Replacement of DL) के लिए
 • \`dl extract <dl_no> <DOB> [RTO]\` - DL एक्सट्रैक्ट (DL Extract) के लिए
+• \`dlinfo <dl_no> <DOB>\` - DL की जानकारी देखने के लिए
 • \`dlapp <ll_no> <DOB>\` - नया DL अप्लाई करने के लिए
 • \`alive\` - बॉट का स्टेटस चेक करने के लिए
 • \`stop\` - चल रहे काम को रोकने के लिए
@@ -79,6 +80,7 @@ const ADMIN_HELP_TEXT = `📋 *Sarathi Bot Help (मदद) - Admin Mode*
 • \`duplicate <dl_no> <DOB> [RTO]\` - डुप्लीकेट DL (Duplicate DL) के लिए
 • \`replacement <dl_no> <DOB> [RTO]\` - DL रिप्लेसमेंट (Replacement of DL) के लिए
 • \`dl extract <dl_no> <DOB> [RTO]\` - DL एक्सट्रैक्ट (DL Extract) के लिए
+• \`dlinfo <dl_no> <DOB>\` - DL की जानकारी देखने के लिए
 • \`dlapp <ll_no> <DOB>\` - नया DL अप्लाई करने के लिए
 • \`payfee <appl_no> <DOB>\` - फीस पेमेंट करने के लिए
 • \`bookslot <appl_no> <DOB>\` - स्लॉट बुकिंग के लिए
@@ -125,7 +127,7 @@ function parseCommand(rawText, hasMedia, user, isAdmin) {
   const cmd = parts[0].toLowerCase();
 
   // Pre-process and merge split DL number parts (e.g. "MH47 20150008844")
-  if (['dlrenewal', 'renewal', 'duplicate', 'replacement', 'dlextract'].includes(cmd)) {
+  if (['dlrenewal', 'renewal', 'duplicate', 'replacement', 'dlextract', 'dlinfo'].includes(cmd)) {
     if (parts[1] && parts[2]) {
       const p1Clean = parts[1].replace(/[-\s]/g, '').toUpperCase();
       const p2Clean = parts[2].replace(/[-\s]/g, '').toUpperCase();
@@ -403,6 +405,7 @@ function parseCommand(rawText, hasMedia, user, isAdmin) {
     replacement: 'dl_renewal_start',
     dlextract: 'dl_renewal_start',
     dlapp: 'apply_dl_start',
+    dlinfo: 'dl_info_start',
     slot: 'slot_pdf'
   };
 
@@ -423,7 +426,7 @@ function parseCommand(rawText, hasMedia, user, isAdmin) {
       return { success: false, error: ERRORS.INVALID_DOB };
     }
 
-    if (cmd === 'dlrenewal' || cmd === 'renewal' || cmd === 'duplicate' || cmd === 'replacement' || cmd === 'dlextract') {
+    if (cmd === 'dlrenewal' || cmd === 'renewal' || cmd === 'duplicate' || cmd === 'replacement' || cmd === 'dlextract' || cmd === 'dlinfo') {
       let dlNo = appNo;
       // Clean and format DL number with space after the 4th character (State + RTO) in uppercase
       const cleanedDL = dlNo.replace(/[-\s]/g, '').toUpperCase();
@@ -438,6 +441,10 @@ function parseCommand(rawText, hasMedia, user, isAdmin) {
         mobile = parts[4];
       }
       
+      if (cmd === 'dlinfo') {
+        return { success: true, type: 'dl_info_start', payload: { dlNo, dob: normalizedDob, mobile } };
+      }
+
       let serviceType = 'RENEWAL OF DL';
       if (cmd === 'duplicate') serviceType = 'ISSUE OF DUPLICATE DL';
       else if (cmd === 'replacement') serviceType = 'REPLACEMENT OF DL';

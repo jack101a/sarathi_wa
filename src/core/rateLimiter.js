@@ -43,6 +43,7 @@ const MEDIUM_COMMANDS = new Set([
   'pay_fee_start',
   'slot_booking_start',
   'resend_otp',
+  'dl_info_start',
 ]);
 
 const HEAVY_COMMANDS = new Set([
