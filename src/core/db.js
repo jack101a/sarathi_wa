@@ -72,7 +72,10 @@ function runTransaction(fn) {
             });
         });
       });
-    }).then(resolve, reject);
+    });
+
+    txQueue.then(resolve, reject);
+    txQueue = txQueue.catch(() => {});
   });
 }
 
