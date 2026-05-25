@@ -155,6 +155,17 @@ function parseCommand(rawText, hasMedia, user, isAdmin) {
     }
   }
 
+  // Pre-process and merge split LL number parts (e.g. "MH47 /0050138/2026")
+  if (cmd === 'dlapp') {
+    if (parts[1] && parts[2]) {
+      const p1Clean = parts[1].replace(/[-\s]/g, '').toUpperCase();
+      if (/^[A-Z]{2}\d{2}$/.test(p1Clean) && parts[2].startsWith('/')) {
+        parts[1] = p1Clean + parts[2];
+        parts.splice(2, 1); // remove the merged part
+      }
+    }
+  }
+
   // 1. HELP COMMANDS
   if (/^(?:help|मदद|maddad|hi|hello)$/i.test(cmd)) {
     return { success: true, type: 'help', message: isAdmin ? ADMIN_HELP_TEXT : USER_HELP_TEXT };
@@ -473,7 +484,15 @@ function parseCommand(rawText, hasMedia, user, isAdmin) {
     }
 
     if (cmd === 'dlapp') {
-      const llNo = appNo;
+      let llNo = appNo.trim().toUpperCase();
+      const llPattern = /^([A-Z]{2}\d{2})[-\s]?\/?(.*)$/;
+      const match = llNo.match(llPattern);
+      if (match) {
+        const prefix = match[1];
+        const rest = match[2];
+        const cleanRest = rest.startsWith('/') ? rest : '/' + rest;
+        llNo = `${prefix} ${cleanRest}`;
+      }
       const mobile = parts[3] || '';
       return { success: true, type: 'apply_dl_start', payload: { llNo, dob: normalizedDob, mobile } };
     }

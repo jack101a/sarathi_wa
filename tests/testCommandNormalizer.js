@@ -175,6 +175,20 @@ function testCommandNormalizer() {
   assert.strictEqual(res.payload.llNo, '2982778275');
   assert.strictEqual(res.payload.dob, '01-02-2003');
 
+  // dlapp mixed format without space
+  res = parseCommand('dlapp MH47/0050138/2026 02-01-2002', false, standardUser, false);
+  assert.strictEqual(res.success, true);
+  assert.strictEqual(res.type, 'apply_dl_start');
+  assert.strictEqual(res.payload.llNo, 'MH47 /0050138/2026');
+  assert.strictEqual(res.payload.dob, '02-01-2002');
+
+  // dlapp split format with space
+  res = parseCommand('dlapp MH47 /0050138/2026 02-01-2002', false, standardUser, false);
+  assert.strictEqual(res.success, true);
+  assert.strictEqual(res.type, 'apply_dl_start');
+  assert.strictEqual(res.payload.llNo, 'MH47 /0050138/2026');
+  assert.strictEqual(res.payload.dob, '02-01-2002');
+
   // payfee missing DOB -> error
   res = parseCommand('payfee 2982778275', false, null, true);
   assert.strictEqual(res.success, false);
@@ -297,6 +311,20 @@ function testCommandNormalizer() {
   assert.strictEqual(res.type, 'apply_dl_start');
   assert.strictEqual(res.payload.llNo, '2982778275');
   assert.strictEqual(res.payload.dob, '01-02-2003');
+
+  // apply dl with unspaced LL number
+  res = parseCommand('apply dl MH47/0050138/2026 02-01-2002', false, standardUser, false);
+  assert.strictEqual(res.success, true);
+  assert.strictEqual(res.type, 'apply_dl_start');
+  assert.strictEqual(res.payload.llNo, 'MH47 /0050138/2026');
+  assert.strictEqual(res.payload.dob, '02-01-2002');
+
+  // apply dl with spaced LL number
+  res = parseCommand('apply dl MH47 /0050138/2026 02-01-2002', false, standardUser, false);
+  assert.strictEqual(res.success, true);
+  assert.strictEqual(res.type, 'apply_dl_start');
+  assert.strictEqual(res.payload.llNo, 'MH47 /0050138/2026');
+  assert.strictEqual(res.payload.dob, '02-01-2002');
 
   // book slot
   res = parseCommand('book slot 2982778275 01-02-2003', false, null, true);
