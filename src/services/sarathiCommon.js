@@ -3,6 +3,7 @@ const { solveSarathiCaptcha } = require('./sarathiCaptchaSolver');
 const BASE_URL = "https://sarathi.parivahan.gov.in/sarathiservice";
 
 const CAPTCHA_RULES = [
+    { src: "#capimgatsubmit", tgt: "#entcaptxtatsubmit" },
     { src: "#capimg", tgt: "#captchaByApplicant" },
     { src: "#capimg1", tgt: "#entcaptxt1" },
     { src: "#capimg", tgt: "#captxt1" },
