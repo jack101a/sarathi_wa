@@ -2,6 +2,15 @@ const { normalizeDob } = require('./commandInputService');
 
 const sessions = new Map();
 
+const COMMAND_KEYWORDS = new Set([
+  'help', 'मदद', 'maddad', 'hi', 'hello',
+  'alive', 'suno', 'stop',
+  'track', 'listtrack', 'trackrc', 'addtrackrc', 'removetrackrc', 'trackdl', 'addtrack', 'removetrack',
+  'form1', 'form1a', 'form2', 'appl', 'app', 'formset', 'feeprint', 'fees', 'llprint', 'lledit',
+  'resend', 'payfee', 'bookslot', 'dlrenewal', 'renewal', 'duplicate', 'replacement', 'dlextract',
+  'dlapp', 'applydl', 'dlinfo', 'slot'
+]);
+
 // Automatic cleanup of expired sessions every 30 seconds
 setInterval(() => {
   const now = Date.now();
@@ -82,9 +91,21 @@ function detectAndHandle(chatId, normalizedBody) {
     sessions.delete(chatId);
   }
 
-  // 2. Detect start of new flow
   const parts = text.split(' ');
   const cmdPrefix = parts[0].toLowerCase();
+
+  // Bypass interactive flow if message starts with a direct command keyword
+  if (COMMAND_KEYWORDS.has(cmdPrefix)) {
+    return { handled: false };
+  }
+
+  // Bypass if first word is 'dl' or 'll' and the second word is a specific DL/LL action command
+  if ((cmdPrefix === 'dl' || cmdPrefix === 'll') && parts[1]) {
+    const secondWord = parts[1].toLowerCase();
+    if (['renewal', 'extract', 'info', 'duplicate', 'replacement', 'print', 'edit', 'app', 'dlapp', 'apply'].includes(secondWord)) {
+      return { handled: false };
+    }
+  }
 
   // Find if any part of the message is a valid DOB
   let dob = '';
@@ -123,15 +144,19 @@ function detectAndHandle(chatId, normalizedBody) {
       }
     } else {
       // Check if the part before the DOB is a numeric application number (8 to 15 digits)
-      const appNo = parts.slice(0, dobIndex).join('').replace(/\D/g, '');
-      if (appNo && appNo.length >= 8 && appNo.length <= 15) {
-        sessions.set(chatId, {
-          type: 'app',
-          identifier: appNo,
-          dob,
-          expiresAt: now + 120000,
-        });
-        return { handled: true, replyText: APP_MENU };
+      // Must not contain letters or other command-like text before the DOB
+      const preDobText = parts.slice(0, dobIndex).join('');
+      if (/^[0-9\s\-/]+$/.test(preDobText)) {
+        const appNo = preDobText.replace(/\D/g, '');
+        if (appNo && appNo.length >= 8 && appNo.length <= 15) {
+          sessions.set(chatId, {
+            type: 'app',
+            identifier: appNo,
+            dob,
+            expiresAt: now + 120000,
+          });
+          return { handled: true, replyText: APP_MENU };
+        }
       }
     }
   }
