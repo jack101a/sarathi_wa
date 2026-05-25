@@ -87,6 +87,20 @@ function testCommandNormalizer() {
   assert.strictEqual(res.payload.appNo, '2982778275');
   assert.strictEqual(res.payload.dob, '01-02-2003');
 
+  // Test appl command
+  res = parseCommand('appl 2982778275 01-02-2003', false, standardUser, false);
+  assert.strictEqual(res.success, true);
+  assert.strictEqual(res.type, 'appl_pdf');
+  assert.strictEqual(res.payload.appNo, '2982778275');
+  assert.strictEqual(res.payload.dob, '01-02-2003');
+
+  // Test app command (tweak)
+  res = parseCommand('app 2982778275 01-02-2003', false, standardUser, false);
+  assert.strictEqual(res.success, true);
+  assert.strictEqual(res.type, 'appl_pdf');
+  assert.strictEqual(res.payload.appNo, '2982778275');
+  assert.strictEqual(res.payload.dob, '01-02-2003');
+
   res = parseCommand('form1 2982778275', false, standardUser, false);
   assert.strictEqual(res.success, false);
   assert.ok(res.error.includes('जन्मतिथि'));
@@ -216,7 +230,105 @@ function testCommandNormalizer() {
   assert.strictEqual(res.payload.appNo, 'DL1320180000000');
   assert.strictEqual(res.payload.dob, '01-02-2003');
 
+  // 12. RESTORED NATURAL MULTI-WORD COMMAND STRUCTURES
+  // add track <appl> <dob>
+  res = parseCommand('add track 2982778275 01-02-2003', false, standardUser, false);
+  assert.strictEqual(res.success, true);
+  assert.strictEqual(res.type, 'add_track');
+  assert.strictEqual(res.payload.appNo, '2982778275');
+  assert.strictEqual(res.payload.dob, '01-02-2003');
+
+  // remove track <appl>
+  res = parseCommand('remove track 2982778275', false, standardUser, false);
+  assert.strictEqual(res.success, true);
+  assert.strictEqual(res.type, 'remove_track');
+  assert.strictEqual(res.payload.appNo, '2982778275');
+
+  // add track rc <rc>
+  res = parseCommand('add track rc MH26021234567', false, standardUser, false);
+  assert.strictEqual(res.success, true);
+  assert.strictEqual(res.type, 'add_track_rc');
+  assert.strictEqual(res.payload.appNo, 'MH26021234567');
+
+  // remove track rc <rc>
+  res = parseCommand('remove track rc MH26021234567', false, standardUser, false);
+  assert.strictEqual(res.success, true);
+  assert.strictEqual(res.type, 'remove_track_rc');
+  assert.strictEqual(res.payload.appNo, 'MH26021234567');
+
+  // track rc <rc>
+  res = parseCommand('track rc MH26021234567', false, standardUser, false);
+  assert.strictEqual(res.success, true);
+  assert.strictEqual(res.type, 'track_rc');
+  assert.strictEqual(res.payload.appNo, 'MH26021234567');
+
+  // list track
+  res = parseCommand('list track', false, standardUser, false);
+  assert.strictEqual(res.success, true);
+  assert.strictEqual(res.type, 'track_status');
+
+  // dl renewal
+  res = parseCommand('dl renewal 2982778275 01-02-2003 MH26', false, standardUser, false);
+  assert.strictEqual(res.success, true);
+  assert.strictEqual(res.type, 'dl_renewal_start');
+  assert.strictEqual(res.payload.dlNo, '2982778275');
+  assert.strictEqual(res.payload.dob, '01-02-2003');
+  assert.strictEqual(res.payload.rtoCode, 'MH26');
+
+  // dl extract
+  res = parseCommand('dl extract 2982778275 01-02-2003 MH26', false, standardUser, false);
+  assert.strictEqual(res.success, true);
+  assert.strictEqual(res.type, 'dl_renewal_start');
+  assert.strictEqual(res.payload.dlNo, '2982778275');
+  assert.strictEqual(res.payload.dob, '01-02-2003');
+  assert.strictEqual(res.payload.rtoCode, 'MH26');
+  assert.strictEqual(res.payload.serviceType, 'DL EXTRACT');
+
+  // dl info
+  res = parseCommand('dl info 2982778275 01-02-2003', false, standardUser, false);
+  assert.strictEqual(res.success, true);
+  assert.strictEqual(res.type, 'dl_info_start');
+  assert.strictEqual(res.payload.dlNo, '2982778275');
+  assert.strictEqual(res.payload.dob, '01-02-2003');
+
+  // apply dl
+  res = parseCommand('apply dl 2982778275 01-02-2003', false, standardUser, false);
+  assert.strictEqual(res.success, true);
+  assert.strictEqual(res.type, 'apply_dl_start');
+  assert.strictEqual(res.payload.llNo, '2982778275');
+  assert.strictEqual(res.payload.dob, '01-02-2003');
+
+  // book slot
+  res = parseCommand('book slot 2982778275 01-02-2003', false, null, true);
+  assert.strictEqual(res.success, true);
+  assert.strictEqual(res.type, 'slot_booking_start');
+  assert.strictEqual(res.payload.appNo, '2982778275');
+  assert.strictEqual(res.payload.dob, '01-02-2003');
+
+  // pay fee
+  res = parseCommand('pay fee 2982778275 01-02-2003', false, null, true);
+  assert.strictEqual(res.success, true);
+  assert.strictEqual(res.type, 'pay_fee_start');
+  assert.strictEqual(res.payload.appNo, '2982778275');
+  assert.strictEqual(res.payload.dob, '01-02-2003');
+
+  // fee print
+  res = parseCommand('fee print 2982778275 01-02-2003', false, standardUser, false);
+  assert.strictEqual(res.success, true);
+  assert.strictEqual(res.type, 'fee_print_start');
+
+  // ll print
+  res = parseCommand('ll print 2982778275 01-02-2003', false, standardUser, false);
+  assert.strictEqual(res.success, true);
+  assert.strictEqual(res.type, 'llprint_start');
+
+  // ll edit
+  res = parseCommand('ll edit 2982778275 01-02-2003', false, standardUser, false);
+  assert.strictEqual(res.success, true);
+  assert.strictEqual(res.type, 'lledit_start');
+
   console.log('PASS - Command Normalizer tests passed!');
 }
 
 testCommandNormalizer();
+

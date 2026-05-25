@@ -32,7 +32,7 @@ const USER_HELP_TEXT = `📋 *Sarathi Bot Help (मदद)*
 • \`track remove <appl_no>\` - ऑटो-ट्रैकिंग बंद करने के लिए
 
 *फॉर्म डाउनलोड करें (Download Forms):*
-• \`appl <appl_no> <DOB>\` - रसीद (Acknowledgement) डाउनलोड करने के लिए
+• \`app <appl_no> <DOB>\` - रसीद (Acknowledgement) डाउनलोड करने के लिए
 • \`slot <appl_no> <DOB>\` - स्लॉट बुकिंग रसीद (Slot Acknowledgement) डाउनलोड करने के लिए
 • \`form1 <appl_no> <DOB>\` - स्व-घोषणा फॉर्म (Self Declaration) डाउनलोड करने के लिए
 • \`form1a <appl_no> <DOB>\` - मेडिकल सर्टिफिकेट फॉर्म डाउनलोड करने के लिए
@@ -65,7 +65,7 @@ const ADMIN_HELP_TEXT = `📋 *Sarathi Bot Help (मदद) - Admin Mode*
 • \`track remove <appl_no>\` - ऑटो-ट्रैकिंग बंद करने के लिए
 
 *फॉर्म डाउनलोड करें (Download Forms):*
-• \`appl <appl_no> <DOB>\` - रसीद (Acknowledgement) डाउनलोड करने के लिए
+• \`app <appl_no> <DOB>\` - रसीद (Acknowledgement) डाउनलोड करने के लिए
 • \`slot <appl_no> <DOB>\` - स्लॉट बुकिंग रसीद (Slot Acknowledgement) डाउनलोड करने के लिए
 • \`form1 <appl_no> <DOB>\` - स्व-घोषणा फॉर्म (Self Declaration) डाउनलोड करने के लिए
 • \`form1a <appl_no> <DOB>\` - मेडिकल सर्टिफिकेट फॉर्म डाउनलोड करने के लिए
@@ -118,10 +118,27 @@ function parseCommand(rawText, hasMedia, user, isAdmin) {
     textToParse = textToParse.slice(1);
   }
 
-  // Normalize multi-word "dl extract" or "dl_extract" to "dlextract"
-  if (textToParse.toLowerCase().startsWith('dl extract')) {
-    textToParse = textToParse.replace(/dl\s+extract/i, 'dlextract');
-  }
+  // Normalize multi-word phrases to their single-word equivalents
+  textToParse = textToParse
+    .replace(/^add\s+track\s+rc\b/i, 'addtrackrc')
+    .replace(/^remove\s+track\s+rc\b/i, 'removetrackrc')
+    .replace(/^add\s+track\b/i, 'addtrack')
+    .replace(/^remove\s+track\b/i, 'removetrack')
+    .replace(/^track\s+rc\b/i, 'trackrc')
+    .replace(/^track\s+dl\b/i, 'trackdl')
+    .replace(/^list\s+track\b/i, 'listtrack')
+    .replace(/^dl\s+renewal\b/i, 'dlrenewal')
+    .replace(/^dl\s+extract\b/i, 'dlextract')
+    .replace(/^dl\s+info\b/i, 'dlinfo')
+    .replace(/^dl\s+duplicate\b/i, 'duplicate')
+    .replace(/^dl\s+replacement\b/i, 'replacement')
+    .replace(/^apply\s+dl\b/i, 'dlapp')
+    .replace(/^book\s+slot\b/i, 'bookslot')
+    .replace(/^pay\s+fee\b/i, 'payfee')
+    .replace(/^fee\s+print\b/i, 'feeprint')
+    .replace(/^print\s+fee\b/i, 'feeprint')
+    .replace(/^ll\s+print\b/i, 'llprint')
+    .replace(/^ll\s+edit\b/i, 'lledit');
 
   const parts = textToParse.split(' ');
   const cmd = parts[0].toLowerCase();
