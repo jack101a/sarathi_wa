@@ -1,7 +1,8 @@
 @echo off
 setlocal
 
-set "ROOT=%~dp0"
+rem Get the parent folder of scripts (which is the project root)
+for %%i in ("%~dp0..") do set "ROOT=%%~fi"
 cd /d "%ROOT%"
 
 echo [restart] Working directory: %ROOT%
