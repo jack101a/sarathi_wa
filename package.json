@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1053.0",
     "@zxing/library": "^0.21.3",
     "axios": "^1.13.1",
     "axios-cookiejar-support": "^6.0.5",

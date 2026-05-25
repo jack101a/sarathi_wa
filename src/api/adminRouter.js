@@ -5,6 +5,7 @@
  */
 
 const express = require('express');
+const path = require('path');
 const router = express.Router();
 const { query: dbQuery } = require('../core/db');
 const logger = require('../core/logger');
@@ -21,7 +22,9 @@ const planRepository = require('../services/planRepository');
 const { apiQueue, browserQueue } = require('../core/jobQueue');
 const { getPoolStatus } = require('../core/sessionManager');
 const { getPageStats } = require('../core/puppeteerEngine');
-const { createBackup, listBackups } = require('../core/dbBackup');
+const { createBackup, listBackups, restoreBackup, getBackupHealth } = require('../core/dbBackup');
+const cloudBackupSettings = require('../services/cloudBackupSettings');
+const { uploadToCloud, testProvider, checkRcloneInstalled } = require('../core/cloudBackup');
 
 // ── Public routes (no auth required) ──────────────────────────────────────
 
@@ -38,10 +41,11 @@ router.use(requireAdminAuth);
 // ── Bootstrap (single call that loads everything the dashboard needs) ──────
 router.get('/bootstrap', async (req, res) => {
   try {
-    const [users, waGroups, tgGroups] = await Promise.all([
-      authRepo.listAllUsers(),
+    const [users, waGroups, tgGroups, totalCreditsSpent] = await Promise.all([
+      authRepo.getUsersWithSpentCredits(),
       authRepo.getAuthorizedGroups('wa'),
       authRepo.getAuthorizedGroups('tg'),
+      authRepo.getTotalCreditsSpent(),
     ]);
 
     const sarathi = readTrackedApplications();
@@ -61,6 +65,7 @@ router.get('/bootstrap', async (req, res) => {
         uptime:        Math.floor(process.uptime()),
         memory:        process.memoryUsage(),
         totalCredits,
+        totalCreditsSpent,
         jobsToday:     jobStats.todayCount,
         successRate:   jobStats.successRate,
       },
@@ -120,7 +125,7 @@ router.delete('/plans/:id', async (req, res) => {
 // ── Users ──────────────────────────────────────────────────────────────────
 router.get('/users', async (req, res) => {
   try {
-    const users = await authRepo.listAllUsers();
+    const users = await authRepo.getUsersWithSpentCredits();
     res.json({ ok: true, users });
   } catch (err) {
     res.status(500).json({ ok: false, message: err.message });
@@ -474,11 +479,13 @@ router.get('/stats/summary', async (req, res) => {
   try {
     const jobStats = await authRepo.getJobStats();
     const totalCredits = await authRepo.getTotalCredits();
-    const users = await authRepo.listAllUsers();
+    const totalCreditsSpent = await authRepo.getTotalCreditsSpent();
+    const users = await authRepo.getUsersWithSpentCredits();
     res.json({
       ok: true,
       ...jobStats,
       totalCredits,
+      totalCreditsSpent,
       totalUsers: users.length,
       activeUsers: users.filter(u => Number(u.is_active) === 1).length,
     });
@@ -515,7 +522,7 @@ router.get('/health', (req, res) => {
 // ── Database Backup ────────────────────────────────────────────────────────
 router.post('/backup', async (req, res) => {
   try {
-    const result = await createBackup();
+    const result = await createBackup('manual');
     logger.info('adminRouter', 'Manual backup created', { fileName: result.fileName });
     res.json({ ok: true, ...result });
   } catch (err) {
@@ -527,6 +534,149 @@ router.get('/backups', (req, res) => {
   try {
     const backups = listBackups();
     res.json({ ok: true, backups });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+/** GET /admin/api/backups/health — real-time backup health status */
+router.get('/backups/health', (req, res) => {
+  try {
+    const health = getBackupHealth();
+    res.json({ ok: true, ...health });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+/** POST /admin/api/backups/:fileName/restore — restore from a backup file */
+router.post('/backups/:fileName/restore', async (req, res) => {
+  try {
+    const fileName = path.basename(req.params.fileName);
+    if (!fileName.startsWith('authz_backup_') || !fileName.endsWith('.sqlite')) {
+      return res.status(400).json({ ok: false, message: 'Invalid backup file name' });
+    }
+    logger.warn('adminRouter', 'Restore initiated', { fileName, ip: req.ip });
+    const result = await restoreBackup(fileName);
+    logger.info('adminRouter', 'Restore completed successfully', { restoredFrom: result.restoredFrom });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    logger.error('adminRouter', 'Restore failed', { error: err.message });
+    res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+router.get('/backups/:fileName/download', (req, res) => {
+  const fs = require('fs');
+  const BACKUP_DIR = path.resolve(__dirname, '../../data/backups');
+  const fileName = path.basename(req.params.fileName);
+  if (!fileName.startsWith('authz_backup_') || !fileName.endsWith('.sqlite')) {
+    return res.status(400).json({ ok: false, message: 'Invalid backup file name' });
+  }
+  const filePath = path.join(BACKUP_DIR, fileName);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ ok: false, message: 'Backup not found' });
+  }
+  res.download(filePath, fileName);
+});
+
+/** GET /admin/api/stats/credits — enhanced credit breakdown */
+router.get('/stats/credits', async (req, res) => {
+  try {
+    const [totalCredits, totalCreditsSpent, users] = await Promise.all([
+      authRepo.getTotalCredits(),
+      authRepo.getTotalCreditsSpent(),
+      authRepo.getUsersWithSpentCredits(),
+    ]);
+
+    // Credits spent today (from credit_transactions table)
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const [todayRow] = await dbQuery(
+      `SELECT COALESCE(SUM(amount),0) AS total FROM credit_transactions WHERE action='deduct' AND created_at >= ?`,
+      [todayStart.toISOString()]
+    );
+    const creditsSpentToday = Number(todayRow?.total || 0);
+
+    // Top 5 users by spend
+    const topSpenders = [...users]
+      .sort((a, b) => Number(b.credits_spent || 0) - Number(a.credits_spent || 0))
+      .slice(0, 5)
+      .map(u => ({ phone: u.phone, name: u.name, credits_spent: Number(u.credits_spent || 0), credits: Number(u.credits || 0) }));
+
+    res.json({
+      ok: true,
+      totalCredits,
+      totalCreditsSpent,
+      creditsSpentToday,
+      totalUsers: users.length,
+      topSpenders,
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+// ── Cloud Backup ─────────────────────────────────────────────────────────
+
+/** GET /admin/api/cloud-backup/providers — list all providers with status (secrets masked) */
+router.get('/cloud-backup/providers', async (req, res) => {
+  try {
+    const providers = await cloudBackupSettings.getAllProviders(true);
+    const rcloneStatus = checkRcloneInstalled();
+    res.json({ ok: true, providers, rclone: rcloneStatus });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+/** PUT /admin/api/cloud-backup/providers/:provider — save provider config */
+router.put('/cloud-backup/providers/:provider', async (req, res) => {
+  try {
+    const { provider } = req.params;
+    if (!cloudBackupSettings.PROVIDERS.includes(provider)) {
+      return res.status(400).json({ ok: false, message: `Unknown provider: ${provider}` });
+    }
+    const { enabled, config } = req.body || {};
+    const updated = await cloudBackupSettings.updateProviderSettings(provider, { enabled, config });
+    logger.info('adminRouter', 'Cloud backup provider updated', { provider, enabled });
+    res.json({ ok: true, provider: updated });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+/** POST /admin/api/cloud-backup/test/:provider — test connection for a provider */
+router.post('/cloud-backup/test/:provider', async (req, res) => {
+  try {
+    const { provider } = req.params;
+    if (!cloudBackupSettings.PROVIDERS.includes(provider)) {
+      return res.status(400).json({ ok: false, message: `Unknown provider: ${provider}` });
+    }
+    // Use submitted config (may not be saved yet) — but fall back to DB config
+    let config = req.body?.config;
+    if (!config) {
+      const saved = await cloudBackupSettings.getProviderSettings(provider);
+      config = saved ? JSON.parse(saved.rawConfig || '{}') : {};
+    }
+    const result = await testProvider(provider, config);
+    res.json({ ok: true, result });
+  } catch (err) {
+    res.status(400).json({ ok: false, message: err.message });
+  }
+});
+
+/** POST /admin/api/cloud-backup/upload-now — manually upload latest backup to all enabled providers */
+router.post('/cloud-backup/upload-now', async (req, res) => {
+  try {
+    const backups = listBackups();
+    if (!backups.length) {
+      return res.status(404).json({ ok: false, message: 'No local backups found. Create a backup first.' });
+    }
+    const latest = backups[0];
+    logger.info('adminRouter', 'Manual cloud upload triggered', { fileName: latest.fileName });
+    const results = await uploadToCloud(latest.path, latest.fileName);
+    res.json({ ok: true, fileName: latest.fileName, results });
   } catch (err) {
     res.status(500).json({ ok: false, message: err.message });
   }

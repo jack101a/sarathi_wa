@@ -487,7 +487,7 @@ async function createBot() {
   startVahanPolling(vahanWhatsAppClient, 'whatsapp');
 
   async function handleMessage(message, eventName = 'message') {
-    const normalizedBody = String(message.body || '').trim();
+    let normalizedBody = String(message.body || '').trim();
     const llprintSessions = getLlprintSessions();
 
     async function enqueueOrReply(messageObj, transport, commandInfo) {
@@ -557,7 +557,20 @@ async function createBot() {
       }
     }
 
-    const parts = (message.body || '').trim().split(/\s+/);
+    // Intercept simplified interactive command flows
+    const interactiveFlowService = require('./services/interactiveFlowService');
+    const interactiveResult = interactiveFlowService.detectAndHandle(message.from, normalizedBody);
+    if (interactiveResult.handled) {
+      if (interactiveResult.replyText) {
+        await message.reply(interactiveResult.replyText);
+        return;
+      }
+      if (interactiveResult.executeCommand) {
+        normalizedBody = interactiveResult.executeCommand;
+      }
+    }
+
+    const parts = normalizedBody.split(/\s+/);
     const command = (parts[0] || '').toLowerCase();
     const addTrackMatch = normalizedBody.match(/^add\s+track(?:\s+(\d+))?(?:\s+(\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}))?(?:\s*-\s*(.+))?$/i);
     const removeTrackMatch = normalizedBody.match(/^remove\s+track\s+(\d+)$/i);
@@ -758,7 +771,7 @@ async function createBot() {
     // Allow self-issued command messages, but ignore self echo chatter/status texts.
     if (message.fromMe) {
       const ownBody = normalizeText(message.body || '');
-      const looksLikeCommand = /^(help|track|add|remove|refresh|list|alive|suno|appl|slot|form1|form1a|form2|formset|stop|auth|resend|\/?llprint|\/?lledit|\/?payfee|\/?feeprint|\/?dlrenewal|\/?dlapp|\/?bookslot|\/?send(?:_|\s+)chatid)\b/i.test(ownBody);
+      const looksLikeCommand = /^(help|track|add|remove|refresh|list|alive|suno|appl|app|dl|ll|slot|form1|form1a|form2|formset|stop|auth|resend|\/?llprint|\/?lledit|\/?payfee|\/?feeprint|\/?fees|\/?dlrenewal|\/?dlapp|\/?bookslot|\/?send(?:_|\s+)chatid)\b/i.test(ownBody);
       if (!looksLikeCommand) {
         return;
       }

@@ -12,11 +12,11 @@ function isDlInput(appNo) {
 
 // Simple Hindi/Hinglish Error templates
 const ERRORS = {
-  MISSING_DOB: (cmd) => `❌ *जन्मतिथि (DOB) नहीं मिली!*\nलाइसेंस की जानकारी के लिए जन्मतिथि देना ज़रूरी है।\n\n*सही तरीका (Format):*\n👉 \`${cmd} <appl_no> <DOB>\`\n\n*उदाहरण (Example):*\n👉 \`${cmd} 2179944526 04-08-1998\`\n(जन्मतिथि को हमेशा DD-MM-YYYY फॉर्मेट में लिखें, जैसे: 04-08-1998)`,
+  MISSING_DOB: (cmd) => `❌ *जन्मतिथि (DOB) नहीं मिली!*\nलाइसेंस की जानकारी के लिए जन्मतिथि देना ज़रूरी है।\n\n*सही तरीका (Format):*\n👉 \`${cmd} <appl_no> <DOB>\`\n\n*उदाहरण (Example):*\n👉 \`${cmd} 2982778275 01-02-2003\`\n(जन्मतिथि को हमेशा DD-MM-YYYY फॉर्मेट में लिखें, जैसे: 01-02-2003)`,
   
-  INVALID_DOB: `❌ *गलत जन्मतिथि (DOB) फॉर्मेट!*\nजन्मतिथि का फॉर्मेट सही नहीं है।\n\n*सही तरीका (Format):*\n👉 जन्मतिथि को हमेशा DD-MM-YYYY फॉर्मेट में लिखें (जैसे: 04-08-1998)`,
+  INVALID_DOB: `❌ *गलत जन्मतिथि (DOB) फॉर्मेट!*\nजन्मतिथि का फॉर्मेट सही नहीं है।\n\n*सही तरीका (Format):*\n👉 जन्मतिथि को हमेशा DD-MM-YYYY फॉर्मेट में लिखें (जैसे: 01-02-2003)`,
   
-  MISSING_QUALIFIER: `❌ *कृपया DL या RC कमांड का उपयोग करें!*\nअब केवल \`track\` लिखने से काम नहीं चलेगा। आपको स्पष्ट बताना होगा कि आप DL देखना चाहते हैं या RC।\n\n*सही तरीका (Format):*\n👉 *DL के लिए:* \`track DL <appl_no> <DOB>\`\n👉 *RC के लिए:* \`track RC <appl_no>\`\n\n*उदाहरण (Example):*\n👉 \`track DL 2179944526 04-08-1998\`\n👉 \`track RC MH26021234567\``,
+  MISSING_QUALIFIER: `❌ *कृपया DL या RC कमांड का उपयोग करें!*\nअब केवल \`track\` लिखने से काम नहीं चलेगा। आपको स्पष्ट बताना होगा कि आप DL देखना चाहते हैं या RC।\n\n*सही तरीका (Format):*\n👉 *DL के लिए:* \`track DL <appl_no> <DOB>\`\n👉 *RC के लिए:* \`track RC <appl_no>\`\n\n*उदाहरण (Example):*\n👉 \`track DL 2982778275 01-02-2003\`\n👉 \`track RC MH26021234567\``,
   
   MISSING_APP_NO: (cmd, requiresDob = false) => `❌ *आवेदन संख्या (Application Number) नहीं मिली!*\n\n*सही तरीका (Format):*\n👉 \`${cmd} <appl_no>${requiresDob ? ' <DOB>' : ''}\``
 };
@@ -38,7 +38,7 @@ const USER_HELP_TEXT = `📋 *Sarathi Bot Help (मदद)*
 • \`form1a <appl_no> <DOB>\` - मेडिकल सर्टिफिकेट फॉर्म डाउनलोड करने के लिए
 • \`form2 <appl_no> <DOB>\` - फॉर्म 2 एप्लीकेशन डाउनलोड करने के लिए
 • \`formset <appl_no> <DOB>\` - सारे फॉर्म एक साथ (Combined Set) डाउनलोड करने के लिए
-• \`feeprint <appl_no> <DOB>\` - फीस की रसीद प्रिंट करने के लिए
+• \`fees <appl_no> <DOB>\` - फीस की रसीद प्रिंट करने के लिए
 • \`llprint <appl_no> <DOB>\` - लर्निंग लाइसेंस डाउनलोड करने के लिए
 
 *अन्य कमांड्स (Others):*
@@ -52,7 +52,7 @@ const USER_HELP_TEXT = `📋 *Sarathi Bot Help (मदद)*
 • \`alive\` - बॉट का स्टेटस चेक करने के लिए
 • \`stop\` - चल रहे काम को रोकने के लिए
 
-💡 _नोट: जन्मतिथि (DOB) हमेशा DD-MM-YYYY फॉर्मेट में लिखें (जैसे: 04-08-1998)_`;
+💡 _नोट: जन्मतिथि (DOB) हमेशा DD-MM-YYYY फॉर्मेट में लिखें (जैसे: 01-02-2003)_`;
 
 const ADMIN_HELP_TEXT = `📋 *Sarathi Bot Help (मदद) - Admin Mode*
 
@@ -71,7 +71,7 @@ const ADMIN_HELP_TEXT = `📋 *Sarathi Bot Help (मदद) - Admin Mode*
 • \`form1a <appl_no> <DOB>\` - मेडिकल सर्टिफिकेट फॉर्म डाउनलोड करने के लिए
 • \`form2 <appl_no> <DOB>\` - फॉर्म 2 एप्लीकेशन डाउनलोड करने के लिए
 • \`formset <appl_no> <DOB>\` - सारे फॉर्म एक साथ (Combined Set) डाउनलोड करने के लिए
-• \`feeprint <appl_no> <DOB>\` - फीस की रसीद प्रिंट करने के लिए
+• \`fees <appl_no> <DOB>\` - फीस की रसीद प्रिंट करने के लिए
 • \`llprint <appl_no> <DOB>\` - लर्निंग लाइसेंस डाउनलोड करने के लिए
 
 *अन्य कमांड्स (Others):*
@@ -87,7 +87,7 @@ const ADMIN_HELP_TEXT = `📋 *Sarathi Bot Help (मदद) - Admin Mode*
 • \`alive\` - बॉट का स्टेटस चेक करने के लिए
 • \`stop\` - चल रहे काम को रोकने के लिए
 
-💡 _नोट: जन्मतिथि (DOB) हमेशा DD-MM-YYYY फॉर्मेट में लिखें (जैसे: 04-08-1998)_`;
+💡 _नोट: जन्मतिथि (DOB) हमेशा DD-MM-YYYY फॉर्मेट में लिखें (जैसे: 01-02-2003)_`;
 
 function parseCommand(rawText, hasMedia, user, isAdmin) {
   if (hasMedia) {
@@ -392,8 +392,10 @@ function parseCommand(rawText, hasMedia, user, isAdmin) {
     form1a: 'form1a',
     form2: 'form2',
     appl: 'appl_pdf',
+    app: 'appl_pdf',
     formset: 'formset',
     feeprint: 'fee_print_start',
+    fees: 'fee_print_start',
     llprint: 'llprint_start',
     lledit: 'lledit_start',
     resend: 'resend_otp',

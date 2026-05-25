@@ -83,7 +83,7 @@ function startBillingCron() {
 
   // Database backup every 6 hours
   cron.schedule('0 */6 * * *', () => {
-    createBackup().catch((err) => {
+    createBackup('scheduled').catch((err) => {
       logger.error('billingCron', 'Scheduled backup failed', { error: err.message });
     });
   }, cronOptions);

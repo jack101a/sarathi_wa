@@ -1,9 +1,11 @@
 import React from 'react';
-import { Users, MapPin, Activity, Clock, BarChart3, CheckCircle2, XCircle, Timer, IndianRupee, TrendingUp } from 'lucide-react';
+import { Users, MapPin, Activity, Clock, BarChart3, CheckCircle2, XCircle, Timer, IndianRupee, TrendingUp, ShieldCheck, ShieldAlert, ShieldX } from 'lucide-react';
 import { useThemeContext } from '../context/ThemeContext.jsx';
 import { SkeletonCard, SkeletonTableRow } from './Skeleton.jsx';
+import { useQuery } from '@tanstack/react-query';
+import { apiGet } from '../../api/client.js';
 
-function StatCard({ label, value, icon: Icon, color, isDark }) {
+function StatCard({ label, value, icon: Icon, color, isDark, subtitle }) {
   const panelStyle = isDark
     ? { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '1rem', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem', justifyContent: 'space-between' }
     : { background: 'rgba(255,255,255,0.8)', border: '1px solid rgba(0,0,0,0.06)', borderRadius: '1rem', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem', justifyContent: 'space-between', boxShadow: '0 1px 8px rgba(0,0,0,0.06)' };
@@ -12,13 +14,95 @@ function StatCard({ label, value, icon: Icon, color, isDark }) {
       <div>
         <p style={{ fontSize: '0.75rem', fontWeight: 500, marginBottom: '0.25rem', color: isDark ? '#9ca3af' : '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</p>
         <p style={{ fontSize: '2rem', fontWeight: 700, letterSpacing: '-0.025em', color: isDark ? '#e6edf3' : '#111827', margin: 0 }}>{value}</p>
-        {arguments[0].subtitle && <p style={{ fontSize: '0.75rem', color: isDark ? '#9ca3af' : '#6b7280', marginTop: '0.25rem', margin: '0.25rem 0 0 0' }}>{arguments[0].subtitle}</p>}
+        {subtitle && <p style={{ fontSize: '0.75rem', color: isDark ? '#9ca3af' : '#6b7280', marginTop: '0.25rem', margin: '0.25rem 0 0 0' }}>{subtitle}</p>}
       </div>
       <div style={{ padding: '0.75rem', borderRadius: '0.75rem', alignSelf: 'flex-end', background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)', color }}>
         <Icon size={22} />
       </div>
     </div>
   );
+}
+
+function BackupHealthCard({ isDark }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['backupHealth'],
+    queryFn: () => apiGet('/admin/api/backups/health'),
+    staleTime: 60_000,
+    refetchInterval: 5 * 60 * 1000, // refresh every 5 min
+  });
+
+  const health = data?.health || (isLoading ? null : 'critical');
+  const healthConfig = {
+    healthy: { Icon: ShieldCheck, color: '#10b981', label: 'Healthy', bg: 'rgba(16,185,129,0.12)' },
+    warning: { Icon: ShieldAlert, color: '#fbbf24', label: 'Warning', bg: 'rgba(251,191,36,0.12)' },
+    critical: { Icon: ShieldX, color: '#f43f5e', label: 'Critical', bg: 'rgba(244,63,94,0.12)' },
+  };
+  const cfg = healthConfig[health] || healthConfig.critical;
+  const Icon = cfg.Icon;
+
+  let lastStr = '—';
+  if (data?.lastBackupAgoMinutes != null) {
+    const mins = data.lastBackupAgoMinutes;
+    if (mins < 60) lastStr = `${mins}m ago`;
+    else lastStr = `${Math.floor(mins / 60)}h ${mins % 60}m ago`;
+  } else if (data?.lastBackup === null) {
+    lastStr = 'Never';
+  }
+
+  let nextStr = '';
+  if (data?.nextScheduledAt) {
+    const diffMs = new Date(data.nextScheduledAt) - Date.now();
+    if (diffMs > 0) {
+      const diffH = Math.floor(diffMs / 1000 / 60 / 60);
+      const diffM = Math.floor((diffMs / 1000 / 60) % 60);
+      nextStr = `Next in ~${diffH > 0 ? `${diffH}h ` : ''}${diffM}m`;
+    } else {
+      nextStr = 'Due soon';
+    }
+  }
+
+  const panelStyle = isDark
+    ? { background: 'rgba(255,255,255,0.04)', border: `1px solid ${cfg.color}30`, borderRadius: '1rem', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem', justifyContent: 'space-between' }
+    : { background: 'rgba(255,255,255,0.8)', border: `1px solid ${cfg.color}40`, borderRadius: '1rem', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem', justifyContent: 'space-between', boxShadow: '0 1px 8px rgba(0,0,0,0.06)' };
+
+  return (
+    <div style={panelStyle}>
+      <div>
+        <p style={{ fontSize: '0.75rem', fontWeight: 500, marginBottom: '0.25rem', color: isDark ? '#9ca3af' : '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          DB Backup
+        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+          <span style={{ fontSize: '1.4rem', fontWeight: 700, color: cfg.color }}>{cfg.label}</span>
+          <span style={{ fontSize: '0.7rem', background: cfg.bg, color: cfg.color, padding: '0.15rem 0.5rem', borderRadius: '999px', fontWeight: 700 }}>
+            {isLoading ? '…' : `${data?.totalBackups ?? 0} files`}
+          </span>
+        </div>
+        <p style={{ fontSize: '0.75rem', color: isDark ? '#9ca3af' : '#6b7280', margin: 0 }}>
+          Last: {isLoading ? '…' : lastStr}
+          {nextStr && ` · ${nextStr}`}
+        </p>
+      </div>
+      <div style={{ padding: '0.75rem', borderRadius: '0.75rem', alignSelf: 'flex-end', background: cfg.bg, color: cfg.color }}>
+        <Icon size={22} />
+      </div>
+    </div>
+  );
+}
+
+function CreditsSpentTodayCard({ isDark }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['creditsBreakdown'],
+    queryFn: () => apiGet('/admin/api/stats/credits'),
+    staleTime: 60_000,
+    refetchInterval: 2 * 60 * 1000,
+  });
+
+  const value = isLoading ? '…' : (data?.creditsSpentToday != null ? `₹${data.creditsSpentToday}` : '₹0');
+  const subtitle = data?.topSpenders?.length > 0
+    ? `Top: ${data.topSpenders[0].name || data.topSpenders[0].phone}`
+    : undefined;
+
+  return <StatCard label="Spent Today" value={value} icon={TrendingUp} color="#f97316" isDark={isDark} subtitle={subtitle} />;
 }
 
 function statusBadge(status) {
@@ -56,7 +140,8 @@ export function DashboardPanel({ stats, recentJobs, loading, isDark }) {
     { label: 'Tracked Apps',  value: (Number(stats.sarathiTracked || 0) + Number(stats.vahanTracked || 0)) || '—', icon: MapPin, color: '#10b981' },
     { label: 'Pending Jobs',  value: stats.pendingJobs  ?? '—',                        icon: Activity,    color: '#fbbf24', subtitle: stats.jobsToday != null ? `${stats.jobsToday} today` : undefined },
     { label: 'Uptime',        value: stats.uptime ? formatUptime(stats.uptime) : '—',   icon: Clock,       color: '#06b6d4' },
-    { label: 'Credits Pool',  value: stats.totalCredits != null ? `₹${stats.totalCredits}` : '—', icon: IndianRupee, color: '#a855f7' },
+    { label: 'Credits Pool',  value: stats.totalCredits != null ? `₹${stats.totalCredits}` : '—', icon: IndianRupee, color: '#a855f7', subtitle: stats.activeUsers ? `across ${stats.activeUsers} users` : undefined },
+    { label: 'Credits Spent', value: stats.totalCreditsSpent != null ? `₹${stats.totalCreditsSpent}` : '—', icon: TrendingUp, color: '#ec4899', subtitle: 'all time' },
     { label: 'Success Rate',  value: stats.successRate != null ? `${stats.successRate}%` : '—', icon: TrendingUp, color: '#f97316' },
   ];
 
@@ -74,7 +159,11 @@ export function DashboardPanel({ stats, recentJobs, loading, isDark }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
         {loading
           ? Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
-          : cards.map((c) => <StatCard key={c.label} {...c} isDark={isDark} />)
+          : <>
+              {cards.map((c) => <StatCard key={c.label} {...c} isDark={isDark} />)}
+              <BackupHealthCard isDark={isDark} />
+              <CreditsSpentTodayCard isDark={isDark} />
+            </>
         }
       </div>
 

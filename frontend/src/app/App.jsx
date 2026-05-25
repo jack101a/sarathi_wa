@@ -91,7 +91,7 @@ function ProtectedApp({ isDark }) {
           <Route path="/groups"    element={<GroupsPanel isDark={isDark} showToast={showToast} />} />
           <Route path="/activity"  element={<ActivityPanel users={users} isDark={isDark} showToast={showToast} />} />
           <Route path="/queues"    element={<Navigate to="/jobs" replace />} />
-          <Route path="/settings"  element={<SettingsPanel health={healthData} isDark={isDark} />} />
+          <Route path="/settings"  element={<SettingsPanel health={healthData} isDark={isDark} showToast={showToast} />} />
         </Routes>
       </Suspense>
     </DashboardLayout>

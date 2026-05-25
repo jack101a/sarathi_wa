@@ -405,7 +405,8 @@ export function UsersPanel({ users, plans = [], sarathiTracked = [], vahanTracke
                   <td style={{ padding: '0.8rem 1rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }} onClick={() => setCreditModalPhone(u.canonical_phone)} title="Manage Credits">
                       <span style={{ color: '#a855f7', fontWeight: 700, fontFamily: 'monospace', fontSize: '0.9rem' }}>{u.credits || 0}</span>
-                      <Plus size={14} color="#a855f7" />
+                      <span style={{ fontSize: '0.7rem', color: isDark ? '#9ca3af' : '#6b7280', opacity: 0.8 }} title="Total credits spent">({u.credits_spent || 0} spent)</span>
+                      <Plus size={12} color="#a855f7" />
                     </div>
                   </td>
                   <td style={{ padding: '0.8rem 1rem', color: thText, whiteSpace: 'nowrap' }}>{u.expiry_date || 'Lifetime'}</td>

@@ -123,7 +123,7 @@ function buildHelpText() {
     '/dlrenewal <DL_number> <DOB> [RTO_code] [10_digit_mobile]',
     '/dlapp <LL_number> <DOB> [10_digit_mobile]',
     '/payfee <appl_no> <DOB>',
-    '/feeprint <appl_no> <DOB>',
+    '/fees <appl_no> <DOB>',
     '/bookslot <appl_no> <DOB>',
     '/resend <appl_no> <DOB>',
     '/alive',
@@ -163,7 +163,7 @@ async function startTelegramBot(config) {
     if (!(await isTgAuthorized(msg, CONFIG))) return;
 
     const chatId = getTelegramChatId(msg);
-    const text = String((msg && msg.text) || '').trim();
+    let text = String((msg && msg.text) || '').trim();
     const dailyFillingRouter = require('./services/dailyFillingRouter');
     if (await dailyFillingRouter.handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg)) {
       return;
@@ -225,6 +225,19 @@ async function startTelegramBot(config) {
           }
         }
         return;
+      }
+    }
+
+    // Intercept simplified interactive command flows
+    const interactiveFlowService = require('./services/interactiveFlowService');
+    const interactiveResult = interactiveFlowService.detectAndHandle(chatId, text);
+    if (interactiveResult.handled) {
+      if (interactiveResult.replyText) {
+        await bot.sendMessage(chatId, interactiveResult.replyText);
+        return;
+      }
+      if (interactiveResult.executeCommand) {
+        text = interactiveResult.executeCommand;
       }
     }
 

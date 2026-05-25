@@ -99,4 +99,13 @@ function close() {
   });
 }
 
-module.exports = { query, run, close, getDb, runTransaction, checkpoint };
+/**
+ * Reopen the database connection — used by the restore flow.
+ * Closes existing connection (nulling `db`), then calls getDb() to re-initialise.
+ */
+async function reopen() {
+  await close();
+  getDb(); // triggers reconnect and PRAGMA setup
+}
+
+module.exports = { query, run, close, reopen, getDb, runTransaction, checkpoint, dbPath };

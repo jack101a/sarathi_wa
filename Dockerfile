@@ -33,6 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-noto-core \
     ca-certificates \
     curl \
+    rclone \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 ARG PORT=3000

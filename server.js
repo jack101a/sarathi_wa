@@ -53,7 +53,7 @@ function registerSignalHandlers({ waClient, telegramBot }) {
     await shutdownService('Telegram bot',    async () => { if (telegramBot && typeof telegramBot.stopPolling === 'function') await telegramBot.stopPolling({ cancel: true }); });
     await shutdownService('Workers',         stopWorkers);
     await shutdownService('Puppeteer',       closeBrowser);
-    await shutdownService('DB backup',       async () => { await createBackup(); });
+    await shutdownService('DB backup',       async () => { await createBackup('shutdown'); });
     await shutdownService('DB checkpoint',   checkpointDb);
     await shutdownService('DB close',        closeDb);
     process.exit(0);
@@ -175,7 +175,7 @@ async function startServer() {
 
     // Create a startup backup
     try {
-      await createBackup();
+      await createBackup('startup');
       logger.info('server', 'Startup database backup created');
     } catch (err) {
       logger.warn('server', 'Startup backup failed (non-fatal)', { error: err.message });

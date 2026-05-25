@@ -286,6 +286,26 @@ async function getTotalCredits() {
   return Number(row?.total || 0);
 }
 
+async function getTotalCreditsSpent() {
+  const [row] = await query("SELECT COALESCE(SUM(amount),0) AS total FROM credit_transactions WHERE action = 'deduct'");
+  return Number(row?.total || 0);
+}
+
+async function getUsersWithSpentCredits() {
+  return query(`
+    SELECT u.*, 
+           COALESCE((SELECT SUM(ct.amount) FROM credit_transactions ct WHERE ct.user_id = u.id AND ct.action = 'deduct'), 0) AS credits_spent,
+           GROUP_CONCAT(DISTINCT i.identity_value) AS identities, 
+           v.code AS pending_otp 
+    FROM auth_users u 
+    LEFT JOIN auth_user_identities i ON u.id = i.auth_user_id AND i.is_active = 1 
+    LEFT JOIN auth_verifications v ON u.canonical_phone = v.canonical_phone AND v.status = 'pending' 
+    WHERE u.is_active = 1 
+    GROUP BY u.id 
+    ORDER BY u.created_at DESC
+  `);
+}
+
 initDb();
-module.exports = { initDb, query: queryAsync, run: runAsync, getUserByPhone, getUserById, listAllUsers, createUser, updateUserProfile, incrementUsage, resetMonthlyUsage, resetDailyCount, deactivateUserById, deactivateUser, createUserIdentity, getIdentity, createVerification, getPendingVerification, updateVerificationStatus, hasPendingVerification, getAuthorizedGroups, addAuthorizedGroup, removeAuthorizedGroup, addCredits, setCredits, getCredits, addCreditsAudited, setCreditsAudited, deductCreditsAudited, getCreditHistory, getUserRateOverrides, setUserRateOverrides, getActivityLog, getJobStats, getTotalCredits };
+module.exports = { initDb, query: queryAsync, run: runAsync, getUserByPhone, getUserById, listAllUsers, createUser, updateUserProfile, incrementUsage, resetMonthlyUsage, resetDailyCount, deactivateUserById, deactivateUser, createUserIdentity, getIdentity, createVerification, getPendingVerification, updateVerificationStatus, hasPendingVerification, getAuthorizedGroups, addAuthorizedGroup, removeAuthorizedGroup, addCredits, setCredits, getCredits, addCreditsAudited, setCreditsAudited, deductCreditsAudited, getCreditHistory, getUserRateOverrides, setUserRateOverrides, getActivityLog, getJobStats, getTotalCredits, getTotalCreditsSpent, getUsersWithSpentCredits };
 

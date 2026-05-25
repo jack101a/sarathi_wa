@@ -10,6 +10,7 @@ export const queryKeys = {
   groups:          ['groups'],
   activity:        ['activity'],
   plans:           ['plans'],
+  backups:         ['backups'],
 };
 
 export async function fetchBootstrap() { return apiGet('/admin/api/bootstrap'); }
@@ -47,3 +48,5 @@ export async function fetchActivity(filters = {}) {
   params.set('limit', String(filters.limit || 200));
   return apiGet(`/admin/api/activity?${params.toString()}`);
 }
+
+export async function fetchBackups() { return apiGet('/admin/api/backups'); }
