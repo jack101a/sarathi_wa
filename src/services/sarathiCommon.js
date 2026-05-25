@@ -63,6 +63,10 @@ async function smartSolveCaptcha(page, stepName, serviceName = 'Sarathi') {
         const srcLoc = page.locator(rule.src).first();
 
         if (await tgtLoc.isVisible().catch(() => false)) {
+            if (await tgtLoc.isDisabled().catch(() => false)) {
+                console.log(`[${serviceName} - ${stepName}] ⚠️ Captcha input field is disabled. Skipping...`);
+                continue;
+            }
             await tgtLoc.click();
             await tgtLoc.fill("");
 

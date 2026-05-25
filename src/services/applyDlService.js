@@ -202,6 +202,29 @@ async function submitApplyDLOTP(browser, context, page, otpCode) {
 
         while (!submissionSuccessful && submitAttempts < 5) {
             submitAttempts++;
+            console.log(`[ApplyDL] Final submission attempt ${submitAttempts}...`);
+
+            // Locate and check all visible declaration/disclaimer checkboxes first to enable the captcha input & Submit button
+            try {
+                const checkboxes = await page.locator('input[type="checkbox"]').all();
+                for (const cb of checkboxes) {
+                    const isVisible = await cb.isVisible().catch(() => false);
+                    if (isVisible) {
+                        const id = await cb.getAttribute('id').catch(() => '');
+                        const name = await cb.getAttribute('name').catch(() => '');
+                        const isChecked = await cb.isChecked().catch(() => false);
+                        console.log(`[ApplyDL] Found checkbox on submit page: id="${id}", name="${name}", checked=${isChecked}`);
+                        if (!isChecked) {
+                            await cb.check().catch(() => {});
+                            console.log(`[ApplyDL] Checked submission page checkbox: id="${id}"`);
+                        }
+                    }
+                }
+                await page.waitForTimeout(1500);
+            } catch (err) {
+                console.error("[ApplyDL] Error checking submission page checkboxes:", err);
+            }
+
             await smartSolveCaptcha(page, `Final Submission Attempt ${submitAttempts}`, 'ApplyDL');
 
             await page.getByRole('button', { name: 'Submit' }).click();
