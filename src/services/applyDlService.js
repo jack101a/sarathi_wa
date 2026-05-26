@@ -195,8 +195,13 @@ async function submitApplyDLOTP(browser, context, page, otpCode) {
         let submitAttempts = 0;
 
         const submitDialogHandler = async dialog => {
+            const msg = dialog.message().toLowerCase();
             console.log(`[ApplyDL - Submit Dialog] ${dialog.type()}: ${dialog.message()}`);
-            await dialog.accept().catch(() => {});
+            if (msg.includes('address') || msg.includes('change')) {
+                await dialog.dismiss().catch(() => {});
+            } else {
+                await dialog.accept().catch(() => {});
+            }
         };
         page.on('dialog', submitDialogHandler);
 
@@ -218,6 +223,10 @@ async function submitApplyDLOTP(browser, context, page, otpCode) {
                             const isChecked = await cb.isChecked().catch(() => false);
                             const id = await cb.getAttribute('id').catch(() => '');
                             const name = await cb.getAttribute('name').catch(() => '');
+                            if (id === 'addOrDelcoa') {
+                                console.log(`[ApplyDL] Skipping dangerous checkbox: id="${id}" (Change of Address)`);
+                                continue;
+                            }
                             if (!isChecked) {
                                 console.log(`[ApplyDL] Clicking unchecked checkbox: id="${id}", name="${name}"`);
                                 await cb.click().catch(() => {});

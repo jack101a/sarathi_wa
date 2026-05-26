@@ -304,18 +304,29 @@ async function submitDLRenewalOTP(browser, context, page, otpCode, serviceType =
             console.log("[DLRenewal] ⚠️ Service checkboxes did not appear within 15s — page may have changed.");
         }
 
-        console.log(`[DLRenewal] Selecting required DL service: ${serviceType}...`);
-        const checkbox = page.locator(`input[type="checkbox"][name="dlc"][value="${serviceType}"]`).first();
-        const isVisible = await checkbox.isVisible().catch(() => false);
-        if (isVisible) {
-            const isChecked = await checkbox.isChecked().catch(() => false);
-            if (!isChecked) {
-                await checkbox.check().catch(() => {});
-                console.log(`[DLRenewal] ✅ Checked service: ${serviceType}`);
-            } else {
-                console.log(`[DLRenewal] ℹ️ Already checked: ${serviceType}`);
+        console.log(`[DLRenewal] Ensuring ONLY required DL service is selected: ${serviceType}...`);
+        const allCheckboxes = await page.locator('input[type="checkbox"][name="dlc"]').all();
+        let foundRequired = false;
+        for (const cb of allCheckboxes) {
+            const val = await cb.getAttribute('value').catch(() => '');
+            if (val === serviceType) {
+                foundRequired = true;
+                const isChecked = await cb.isChecked().catch(() => false);
+                if (!isChecked) {
+                    await cb.check().catch(() => {});
+                    console.log(`[DLRenewal] ✅ Checked required service: ${val}`);
+                } else {
+                    console.log(`[DLRenewal] ℹ️ Already checked: ${val}`);
+                }
+            } else if (val) {
+                const isChecked = await cb.isChecked().catch(() => false);
+                if (isChecked) {
+                    await cb.uncheck().catch(() => {});
+                    console.log(`[DLRenewal] ⚠️ Unchecked unintended service: ${val}`);
+                }
             }
-        } else {
+        }
+        if (!foundRequired) {
             console.log(`[DLRenewal] ⚠️ Service not visible on page (may not apply): ${serviceType}`);
         }
 
@@ -341,6 +352,32 @@ async function submitDLRenewalOTP(browser, context, page, otpCode, serviceType =
             await page.getByRole('button', { name: 'Proceed' }).click();
         }
         await page.waitForTimeout(3000);
+
+        // Delete any unwanted services from the left pane (if portal forced them)
+        console.log("[DLRenewal] Checking for unwanted services in the Data Entry pane...");
+        try {
+            const serviceItems = await page.locator('.menu-list + ul > li').all();
+            for (const item of serviceItems) {
+                const serviceNameEl = item.locator('span').first();
+                if (await serviceNameEl.isVisible().catch(() => false)) {
+                    const name = await serviceNameEl.innerText().catch(() => '');
+                    if (name && name.trim().toUpperCase() !== serviceType.toUpperCase()) {
+                        console.log(`[DLRenewal] ⚠️ Found unwanted service in pane: ${name}. Attempting to delete...`);
+                        const delBtn = item.locator('img[src*="dltransdelete.png"]').first();
+                        if (await delBtn.isVisible().catch(() => false)) {
+                            page.once('dialog', async dialog => {
+                                console.log(`[DLRenewal - Delete Dialog] ${dialog.message()}`);
+                                await dialog.accept().catch(() => {});
+                            });
+                            await delBtn.click().catch(() => {});
+                            await page.waitForTimeout(2000); // Wait for page refresh
+                        }
+                    }
+                }
+            }
+        } catch (err) {
+            console.log("[DLRenewal] Error checking/deleting left pane services:", err.message);
+        }
 
         // First pause removed for final pre-submit test
 
@@ -448,8 +485,13 @@ async function submitDLRenewalOTP(browser, context, page, otpCode, serviceType =
 
         // ── Final Submission with CAPTCHA ───────────────────────────────────────
         const submitDialogHandler = async dialog => {
+            const msg = dialog.message().toLowerCase();
             console.log(`[DLRenewal - Submit Dialog] ${dialog.type()}: ${dialog.message()}`);
-            await dialog.accept().catch(() => {});
+            if (msg.includes('address') || msg.includes('change')) {
+                await dialog.dismiss().catch(() => {});
+            } else {
+                await dialog.accept().catch(() => {});
+            }
         };
         page.on('dialog', submitDialogHandler);
 
@@ -474,6 +516,10 @@ async function submitDLRenewalOTP(browser, context, page, otpCode, serviceType =
                             const isChecked = await cb.isChecked().catch(() => false);
                             const id = await cb.getAttribute('id').catch(() => '');
                             const name = await cb.getAttribute('name').catch(() => '');
+                            if (id === 'addOrDelcoa') {
+                                console.log(`[DLRenewal] Skipping dangerous checkbox: id="${id}" (Change of Address)`);
+                                continue;
+                            }
                             if (!isChecked) {
                                 console.log(`[DLRenewal] Clicking unchecked checkbox: id="${id}", name="${name}"`);
                                 await cb.click().catch(() => {});
