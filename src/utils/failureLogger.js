@@ -39,7 +39,10 @@ async function captureFailureDiagnostics(page, error, metadata = {}) {
         await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {});
 
         // ── 3. Current URL ──────────────────────────────────────────────────────
-        const pageUrl = await page.url().catch(() => 'unknown');
+        let pageUrl = 'unknown';
+        try {
+            pageUrl = page.url();
+        } catch (_) {}
 
         // ── 4. Targeted DOM extraction (no full HTML) ───────────────────────────
         // Queries only interactive inputs + visible error/alert containers.

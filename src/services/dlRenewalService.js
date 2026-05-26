@@ -437,8 +437,10 @@ async function submitDLRenewalOTP(browser, context, page, otpCode, serviceType =
             await popupPage.getByRole('button', { name: 'Submit' }).click().catch(async () => {
                 await popupPage.locator('input[type="submit"], button[type="submit"]').first().click().catch(() => {});
             });
-            await popupPage.waitForTimeout(1000);
-            await popupPage.getByRole('button', { name: 'Okay' }).click().catch(() => {});
+            const okayBtn = popupPage.getByRole('button', { name: 'Okay' }).first();
+            await okayBtn.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+            await okayBtn.click().catch(() => {});
+            await popupPage.waitForTimeout(1500);
             await popupPage.close().catch(() => {});
             console.log("[DLRenewal] Form 1 popup completed.");
             await page.waitForTimeout(2000);
@@ -460,23 +462,51 @@ async function submitDLRenewalOTP(browser, context, page, otpCode, serviceType =
 
             // Locate and check all visible declaration/disclaimer checkboxes first to enable the captcha input & Submit button
             try {
-                const checkboxes = await page.locator('input[type="checkbox"]').all();
-                for (const cb of checkboxes) {
-                    const isVisible = await cb.isVisible().catch(() => false);
-                    if (isVisible) {
-                        const id = await cb.getAttribute('id').catch(() => '');
-                        const name = await cb.getAttribute('name').catch(() => '');
-                        const isChecked = await cb.isChecked().catch(() => false);
-                        console.log(`[DLRenewal] Found checkbox on submit page: id="${id}", name="${name}", checked=${isChecked}`);
-                        if (!isChecked) {
-                            await cb.check().catch(() => {});
-                            console.log(`[DLRenewal] Checked submission page checkbox: id="${id}"`);
+                let checkedAny = true;
+                let scanAttempts = 0;
+                while (checkedAny && scanAttempts < 8) {
+                    scanAttempts++;
+                    checkedAny = false;
+                    const checkboxes = await page.locator('input[type="checkbox"]').all();
+                    for (const cb of checkboxes) {
+                        const isVisible = await cb.isVisible().catch(() => false);
+                        if (isVisible) {
+                            const isChecked = await cb.isChecked().catch(() => false);
+                            const id = await cb.getAttribute('id').catch(() => '');
+                            const name = await cb.getAttribute('name').catch(() => '');
+                            if (!isChecked) {
+                                console.log(`[DLRenewal] Clicking unchecked checkbox: id="${id}", name="${name}"`);
+                                await cb.click().catch(() => {});
+                                await page.waitForTimeout(600); // Wait for portal JS to run
+                                checkedAny = true;
+                                break; // Re-scan from beginning to catch newly revealed checkboxes
+                            }
                         }
                     }
                 }
                 await page.waitForTimeout(1500);
             } catch (err) {
                 console.error("[DLRenewal] Error checking submission page checkboxes:", err);
+            }
+
+            // DOM Force-Enable Fail-Safe
+            try {
+                await page.evaluate(() => {
+                    const captchaEl = document.getElementById('entcaptxtatsubmit')
+                                   || document.getElementById('entcaptxt');
+                    if (captchaEl && captchaEl.disabled) {
+                        captchaEl.removeAttribute('disabled');
+                        captchaEl.disabled = false;
+                    }
+                    const submitEl = document.getElementById('subToDB');
+                    if (submitEl && submitEl.disabled) {
+                        submitEl.removeAttribute('disabled');
+                        submitEl.disabled = false;
+                    }
+                });
+                await page.waitForTimeout(500);
+            } catch (err) {
+                console.error("[DLRenewal] Error in DOM force-enable fail-safe:", err);
             }
 
             // Interactive pause before final submission has been disabled to make all flows fully automated

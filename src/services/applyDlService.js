@@ -206,23 +206,51 @@ async function submitApplyDLOTP(browser, context, page, otpCode) {
 
             // Locate and check all visible declaration/disclaimer checkboxes first to enable the captcha input & Submit button
             try {
-                const checkboxes = await page.locator('input[type="checkbox"]').all();
-                for (const cb of checkboxes) {
-                    const isVisible = await cb.isVisible().catch(() => false);
-                    if (isVisible) {
-                        const id = await cb.getAttribute('id').catch(() => '');
-                        const name = await cb.getAttribute('name').catch(() => '');
-                        const isChecked = await cb.isChecked().catch(() => false);
-                        console.log(`[ApplyDL] Found checkbox on submit page: id="${id}", name="${name}", checked=${isChecked}`);
-                        if (!isChecked) {
-                            await cb.check().catch(() => {});
-                            console.log(`[ApplyDL] Checked submission page checkbox: id="${id}"`);
+                let checkedAny = true;
+                let scanAttempts = 0;
+                while (checkedAny && scanAttempts < 8) {
+                    scanAttempts++;
+                    checkedAny = false;
+                    const checkboxes = await page.locator('input[type="checkbox"]').all();
+                    for (const cb of checkboxes) {
+                        const isVisible = await cb.isVisible().catch(() => false);
+                        if (isVisible) {
+                            const isChecked = await cb.isChecked().catch(() => false);
+                            const id = await cb.getAttribute('id').catch(() => '');
+                            const name = await cb.getAttribute('name').catch(() => '');
+                            if (!isChecked) {
+                                console.log(`[ApplyDL] Clicking unchecked checkbox: id="${id}", name="${name}"`);
+                                await cb.click().catch(() => {});
+                                await page.waitForTimeout(600); // Wait for portal JS to run
+                                checkedAny = true;
+                                break; // Re-scan from beginning to catch newly revealed checkboxes
+                            }
                         }
                     }
                 }
                 await page.waitForTimeout(1500);
             } catch (err) {
                 console.error("[ApplyDL] Error checking submission page checkboxes:", err);
+            }
+
+            // DOM Force-Enable Fail-Safe
+            try {
+                await page.evaluate(() => {
+                    const captchaEl = document.getElementById('entcaptxtatsubmit')
+                                   || document.getElementById('entcaptxt');
+                    if (captchaEl && captchaEl.disabled) {
+                        captchaEl.removeAttribute('disabled');
+                        captchaEl.disabled = false;
+                    }
+                    const submitEl = document.getElementById('subToDB');
+                    if (submitEl && submitEl.disabled) {
+                        submitEl.removeAttribute('disabled');
+                        submitEl.disabled = false;
+                    }
+                });
+                await page.waitForTimeout(500);
+            } catch (err) {
+                console.error("[ApplyDL] Error in DOM force-enable fail-safe:", err);
             }
 
             await smartSolveCaptcha(page, `Final Submission Attempt ${submitAttempts}`, 'ApplyDL');
