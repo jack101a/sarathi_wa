@@ -25,6 +25,7 @@ const { getPageStats } = require('../core/puppeteerEngine');
 const { createBackup, listBackups, restoreBackup, getBackupHealth } = require('../core/dbBackup');
 const cloudBackupSettings = require('../services/cloudBackupSettings');
 const { uploadToCloud, testProvider, checkRcloneInstalled } = require('../core/cloudBackup');
+const serviceRepository = require('../services/serviceRepository');
 
 // ── Public routes (no auth required) ──────────────────────────────────────
 
@@ -41,11 +42,12 @@ router.use(requireAdminAuth);
 // ── Bootstrap (single call that loads everything the dashboard needs) ──────
 router.get('/bootstrap', async (req, res) => {
   try {
-    const [users, waGroups, tgGroups, totalCreditsSpent] = await Promise.all([
+    const [users, waGroups, tgGroups, totalCreditsSpent, services] = await Promise.all([
       authRepo.getUsersWithSpentCredits(),
       authRepo.getAuthorizedGroups('wa'),
       authRepo.getAuthorizedGroups('tg'),
       authRepo.getTotalCreditsSpent(),
+      serviceRepository.getAllServices(),
     ]);
 
     const sarathi = readTrackedApplications();
@@ -70,6 +72,7 @@ router.get('/bootstrap', async (req, res) => {
         successRate:   jobStats.successRate,
       },
       users,
+      services,
       waGroups,
       tgGroups,
       sarathiTracked: sarathi,
@@ -118,6 +121,56 @@ router.delete('/plans/:id', async (req, res) => {
   try {
     await planRepository.deletePlan(req.params.id);
     logger.info('adminRouter', 'Plan deleted', { id: req.params.id });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, message: err.message }); }
+});
+
+// ── Services ────────────────────────────────────────────────────────────────
+router.get('/services', async (req, res) => {
+  try {
+    const services = await serviceRepository.getAllServices();
+    res.json({ ok: true, services });
+  } catch (err) { res.status(500).json({ ok: false, message: err.message }); }
+});
+
+router.post('/services', async (req, res) => {
+  try {
+    const service = await serviceRepository.createService(req.body);
+    logger.info('adminRouter', 'Service created', { id: service.id });
+    res.json({ ok: true, service });
+  } catch (err) { res.status(500).json({ ok: false, message: err.message }); }
+});
+
+router.put('/services/:id', async (req, res) => {
+  try {
+    const service = await serviceRepository.updateService(req.params.id, req.body);
+    logger.info('adminRouter', 'Service updated', { id: service.id });
+    res.json({ ok: true, service });
+  } catch (err) { res.status(500).json({ ok: false, message: err.message }); }
+});
+
+router.delete('/services/:id', async (req, res) => {
+  try {
+    // Guard against deletion if active plans depend on this service specifically
+    const planRows = await planRepository.getAllPlans();
+    const referencedPlans = planRows.filter(p => {
+      try {
+        const sJson = JSON.parse(p.services_json || '[]');
+        return sJson.includes(req.params.id);
+      } catch (e) {
+        return false;
+      }
+    });
+
+    if (referencedPlans.length > 0) {
+      return res.status(400).json({
+        ok: false,
+        message: `Cannot delete service because it is explicitly assigned in subscription plans: ${referencedPlans.map(p => p.name).join(', ')}`
+      });
+    }
+
+    await serviceRepository.deleteService(req.params.id);
+    logger.info('adminRouter', 'Service deleted', { id: req.params.id });
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ ok: false, message: err.message }); }
 });

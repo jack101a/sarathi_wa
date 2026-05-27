@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, MapPin, Activity,
   Settings, Sun, Moon, LogOut, Menu, X, Bot,
-  Gauge, Briefcase, UsersRound, ScrollText, Shield
+  Gauge, Briefcase, UsersRound, ScrollText, Shield, Layers
 } from 'lucide-react';
 import { useThemeContext } from '../context/ThemeContext.jsx';
 
@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { path: '/dashboard',   label: 'Dashboard',   icon: LayoutDashboard },
   { path: '/users',       label: 'Users',       icon: Users },
   { path: '/plans',       label: 'Plans',       icon: Shield },
+  { path: '/services',    label: 'Services',    icon: Layers },
   { path: '/jobs',        label: 'Jobs',        icon: Briefcase },
   { path: '/groups',      label: 'Groups',      icon: UsersRound },
   { path: '/activity',    label: 'Activity',    icon: ScrollText },

@@ -14,52 +14,41 @@
 
 const CONFIG = require('../config/config');
 const { query, run } = require('./db');
+const serviceRepo = require('../services/serviceRepository');
 
 // ─── Command category classification ────────────────────────────────────────
 
-const LIGHT_COMMANDS = new Set([
-  'track',
-  'track_rc',
-  'track_status',
-  'add_track',
-  'remove_track',
-  'list_track',
-  'refresh_track',
-  'form1',
-  'form1a',
-  'form2',
-  'formset',
-  'alive',
-  'vahan_track',
-  'vahan_add',
-  'vahan_remove',
-  'vahan_list',
-  'vahan_refresh',
-]);
+const LIGHT_COMMANDS = {
+  has: (command) => getCommandCategory(command) === 'light'
+};
 
-const MEDIUM_COMMANDS = new Set([
-  'llprint_start',
-  'fee_print_start',
-  'pay_fee_start',
-  'slot_booking_start',
-  'resend_otp',
-  'dl_info_start',
-]);
+const MEDIUM_COMMANDS = {
+  has: (command) => getCommandCategory(command) === 'medium'
+};
 
-const HEAVY_COMMANDS = new Set([
-  'lledit_start',
-  'dl_renewal_start',
-  'apply_dl_start',
-]);
+const HEAVY_COMMANDS = {
+  has: (command) => getCommandCategory(command) === 'heavy'
+};
 
 /**
  * Classify a command into 'light' | 'medium' | 'heavy'.
  * Unrecognised commands default to 'light' (safest).
  */
 function getCommandCategory(command) {
-  if (HEAVY_COMMANDS.has(command))  return 'heavy';
-  if (MEDIUM_COMMANDS.has(command)) return 'medium';
-  return 'light';
+  const registry = serviceRepo.getServiceRegistrySync();
+  const entry = registry.get(command);
+  return entry ? entry.category : 'light';
+}
+
+function getCreditCost(command) {
+  const registry = serviceRepo.getServiceRegistrySync();
+  const entry = registry.get(command);
+  if (entry && entry.credit_cost > 0) return entry.credit_cost;
+  return CONFIG.CREDIT_COST.heavy || 50;
+}
+
+function isHeavyCommand(command) {
+  return getCommandCategory(command) === 'heavy';
 }
 
 // ─── In-memory cache (10-second TTL) ────────────────────────────────────────
@@ -106,6 +95,17 @@ async function _loadCounts(userId) {
  * Returns { allowed: bool, reason: string }.
  */
 async function checkRateLimit(userId, planId, command) {
+  // Check if service is globally active
+  const registry = serviceRepo.getServiceRegistrySync();
+  const entry = registry.get(command);
+  if (entry && entry.is_active === 0) {
+    return {
+      allowed: false,
+      reason: 'service_disabled',
+      message: `🚧 *Service Under Maintenance*\n\nThe service '${entry.display_name || command}' is temporarily disabled by the administrator. Please try again later.`
+    };
+  }
+
   const category = getCommandCategory(command);
   const planKey  = planId || 'free';
   
@@ -161,7 +161,7 @@ async function applyLimits(userId, category, limits, command) {
   if (category === 'heavy') {
     const [user] = await query('SELECT credits FROM auth_users WHERE id = ?', [userId]);
     const credits = Number((user && user.credits) || 0);
-    const cost    = CONFIG.CREDIT_COST.heavy || 50;
+    const cost    = getCreditCost(command);
     if (credits < cost) {
       return {
         allowed: false,
@@ -243,6 +243,8 @@ module.exports = {
   getActiveJobCount,
   cleanupRateLimitLog,
   getCommandCategory,
+  getCreditCost,
+  isHeavyCommand,
   LIGHT_COMMANDS,
   MEDIUM_COMMANDS,
   HEAVY_COMMANDS,

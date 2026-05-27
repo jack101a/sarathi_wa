@@ -7,13 +7,15 @@ const dlRenewalService = require('./dlRenewalService');
 const applyDlService = require('./applyDlService');
 const paymentService = require('./paymentService');
 const slotBookingService = require('./slotBookingService');
+const mobileUpdateService = require('./mobileUpdateService');
 const { normalizeDob } = require('./commandInputService');
 
 const {
   getDlRenewalSessions,
   getApplyDlSessions,
   getPaymentSessions,
-  getSlotBookingSessions
+  getSlotBookingSessions,
+  getMobileUpdateSessions
 } = require('../workers/browserWorker');
 
 function cleanupFile(filePath) {
@@ -40,6 +42,130 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
   const lowerBody = normalizedBody.toLowerCase();
 
   // 1. Session Resumption
+  const mobileUpdateSessions = getMobileUpdateSessions();
+  if (mobileUpdateSessions.has(message.from) && !/^\/(?:mobupdate)\b/i.test(normalizedBody)) {
+    const flow = mobileUpdateSessions.get(message.from);
+    const input = normalizedBody.trim();
+    if (input.toLowerCase() === 'stop' || input.toLowerCase() === 'cancel') {
+      mobileUpdateSessions.delete(message.from);
+      await message.reply('❌ Mobile Update Flow cancelled.');
+      if (flow.context) await flow.context.close().catch(() => {});
+      if (flow.browser) await flow.browser.close().catch(() => {});
+      return true;
+    }
+    
+    if (flow.step === 'aadhaar') {
+      if (input.length === 12 && /^\d+$/.test(input)) {
+        await message.reply('⏳ Aadhaar number received. Entering into browser and generating Aadhaar OTP...');
+        flow.step = 'aadhaar_otp';
+        try {
+          await mobileUpdateService.generateAadhaarOtp(flow.page, input);
+          await message.reply('🔐 Aadhaar OTP generated successfully! Please reply directly with the 6-digit Aadhaar OTP sent to your registered phone.');
+        } catch (error) {
+          mobileUpdateSessions.delete(message.from);
+          await message.reply(`❌ Failed to enter Aadhaar or generate OTP: ${error.message || error}`);
+          if (flow.context) await flow.context.close().catch(() => {});
+          if (flow.browser) await flow.browser.close().catch(() => {});
+        }
+      } else {
+        await message.reply('❌ Invalid Aadhaar number. Please send a valid 12-digit numeric Aadhaar Number or send `stop` to cancel.');
+      }
+      return true;
+    }
+    
+    if (flow.step === 'aadhaar_otp') {
+      if (input.length === 6 && /^\d+$/.test(input)) {
+        await message.reply('⏳ Aadhaar OTP received. Authenticating with e-KYC gate...');
+        flow.step = 'target_mobile';
+        try {
+          await mobileUpdateService.authenticateAadhaar(flow.page, input);
+          await message.reply('📱 e-KYC Authentication Successful!\n\nPlease reply directly with the target 10-digit Mobile Number you want to Update.');
+        } catch (error) {
+          mobileUpdateSessions.delete(message.from);
+          await message.reply(`❌ e-KYC Verification failed: ${error.message || error}`);
+          if (flow.context) await flow.context.close().catch(() => {});
+          if (flow.browser) await flow.browser.close().catch(() => {});
+        }
+      } else {
+        await message.reply('❌ Invalid OTP format. Please send the 6-digit Aadhaar OTP.');
+      }
+      return true;
+    }
+
+    if (flow.step === 'target_mobile') {
+      if (input.length === 10 && /^\d+$/.test(input)) {
+        await message.reply(`⏳ Target Mobile Number received (${input}). Checking database count and generating Mobile OTP...`);
+        flow.step = 'mobile_otp';
+        flow.targetMobile = input;
+        try {
+          await flow.page.evaluate((mob) => {
+            window.prompt = (msg) => {
+              if (msg.includes("Mobile Number") || msg.includes("Number")) return mob;
+              return "";
+            };
+          }, input);
+
+          await flow.page.evaluate(async () => {
+            const baseUrl = "https://sarathi.parivahan.gov.in/sarathiservice";
+            const newMob = prompt("📱 Enter the Mobile Number:");
+            await fetch(`${baseUrl}/checkMobCount.do`, {
+                method: "POST",
+                headers: {
+                    "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+                    "x-requested-with": "XMLHttpRequest"
+                },
+                body: new URLSearchParams({ MobNum: newMob }),
+                credentials: "include" 
+            });
+            let timestamp = Date.now();
+            await fetch(`${baseUrl}/sendOTPInMobNumUpd.do?newMobNum=${newMob}&_=${timestamp}`, {
+                method: "GET",
+                headers: { "x-requested-with": "XMLHttpRequest" },
+                credentials: "include"
+            });
+          });
+
+          await message.reply(`🔐 Mobile OTP sent to ${input}. Please reply directly with the 6-digit OTP code to complete the update.`);
+        } catch (error) {
+          mobileUpdateSessions.delete(message.from);
+          await message.reply(`❌ Failed to trigger Mobile OTP: ${error.message || error}`);
+          if (flow.context) await flow.context.close().catch(() => {});
+          if (flow.browser) await flow.browser.close().catch(() => {});
+        }
+      } else {
+        await message.reply('❌ Invalid mobile number. Please send a valid 10-digit numeric Mobile Number.');
+      }
+      return true;
+    }
+
+    if (flow.step === 'mobile_otp') {
+      if (input.length === 6 && /^\d+$/.test(input)) {
+        mobileUpdateSessions.delete(message.from);
+        await message.reply('⏳ Mobile Verification OTP received. Executing bypass database updates and rendering confirmation...');
+        try {
+          const result = await mobileUpdateService.executeBypassScript(flow.page, flow.targetMobile, input);
+          if (result.success && result.screenshotPath) {
+            const media = MessageMedia.fromFilePath(result.screenshotPath);
+            await client.sendMessage(message.from, media, { caption: `🎉 SUCCESS! Mobile number successfully updated to ${flow.targetMobile}.\n\nHere is your official confirmation preview.` });
+            cleanupFile(result.screenshotPath);
+            if (flow.resolveJob) flow.resolveJob({ ok: true });
+          } else {
+            throw new Error('Bypass workflow failed to return confirmation page.');
+          }
+        } catch (error) {
+          await message.reply(`❌ Mobile Update failed: ${error.message || error}`);
+          if (flow.rejectJob) flow.rejectJob(error);
+        } finally {
+          if (flow.context) await flow.context.close().catch(() => {});
+          if (flow.browser) await flow.browser.close().catch(() => {});
+        }
+      } else {
+        await message.reply('❌ Invalid OTP format. Please send the 6-digit Mobile OTP.');
+      }
+      return true;
+    }
+  }
+
   const dlRenewalSessions = getDlRenewalSessions();
   if (dlRenewalSessions.has(message.from) && !/^\/(?:dlrenewal|renewal|duplicate|replacement|dlextract|dl)\b/i.test(normalizedBody)) {
     const flow = dlRenewalSessions.get(message.from);
@@ -186,6 +312,130 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
   const text = String((msg && msg.text) || '').trim();
 
   // 1. Session Resumption
+  const mobileUpdateSessions = getMobileUpdateSessions();
+  if (mobileUpdateSessions.has(chatId) && !/^\/(?:mobupdate)\b/i.test(text)) {
+    const flow = mobileUpdateSessions.get(chatId);
+    const input = text.trim();
+    if (input.toLowerCase() === 'stop' || input.toLowerCase() === 'cancel') {
+      mobileUpdateSessions.delete(chatId);
+      await bot.sendMessage(chatId, '❌ Mobile Update Flow cancelled.');
+      if (flow.context) await flow.context.close().catch(() => {});
+      if (flow.browser) await flow.browser.close().catch(() => {});
+      return true;
+    }
+    
+    if (flow.step === 'aadhaar') {
+      if (input.length === 12 && /^\d+$/.test(input)) {
+        await bot.sendMessage(chatId, '⏳ Aadhaar number received. Entering into browser and generating Aadhaar OTP...');
+        flow.step = 'aadhaar_otp';
+        try {
+          await mobileUpdateService.generateAadhaarOtp(flow.page, input);
+          await bot.sendMessage(chatId, '🔐 Aadhaar OTP generated successfully! Please reply directly with the 6-digit Aadhaar OTP sent to your registered phone.');
+        } catch (error) {
+          mobileUpdateSessions.delete(chatId);
+          await bot.sendMessage(chatId, `❌ Failed to enter Aadhaar or generate OTP: ${error.message || error}`);
+          if (flow.context) await flow.context.close().catch(() => {});
+          if (flow.browser) await flow.browser.close().catch(() => {});
+        }
+      } else {
+        await bot.sendMessage(chatId, '❌ Invalid Aadhaar number. Please send a valid 12-digit numeric Aadhaar Number or send `stop` to cancel.');
+      }
+      return true;
+    }
+    
+    if (flow.step === 'aadhaar_otp') {
+      if (input.length === 6 && /^\d+$/.test(input)) {
+        await bot.sendMessage(chatId, '⏳ Aadhaar OTP received. Authenticating with e-KYC gate...');
+        flow.step = 'target_mobile';
+        try {
+          await mobileUpdateService.authenticateAadhaar(flow.page, input);
+          await bot.sendMessage(chatId, '📱 e-KYC Authentication Successful!\n\nPlease reply directly with the target 10-digit Mobile Number you want to Update.');
+        } catch (error) {
+          mobileUpdateSessions.delete(chatId);
+          await bot.sendMessage(chatId, `❌ e-KYC Verification failed: ${error.message || error}`);
+          if (flow.context) await flow.context.close().catch(() => {});
+          if (flow.browser) await flow.browser.close().catch(() => {});
+        }
+      } else {
+        await bot.sendMessage(chatId, '❌ Invalid OTP format. Please send the 6-digit Aadhaar OTP.');
+      }
+      return true;
+    }
+
+    if (flow.step === 'target_mobile') {
+      if (input.length === 10 && /^\d+$/.test(input)) {
+        await bot.sendMessage(chatId, `⏳ Target Mobile Number received (${input}). Checking database count and generating Mobile OTP...`);
+        flow.step = 'mobile_otp';
+        flow.targetMobile = input;
+        try {
+          await flow.page.evaluate((mob) => {
+            window.prompt = (msg) => {
+              if (msg.includes("Mobile Number") || msg.includes("Number")) return mob;
+              return "";
+            };
+          }, input);
+
+          await flow.page.evaluate(async () => {
+            const baseUrl = "https://sarathi.parivahan.gov.in/sarathiservice";
+            const newMob = prompt("📱 Enter the Mobile Number:");
+            await fetch(`${baseUrl}/checkMobCount.do`, {
+                method: "POST",
+                headers: {
+                    "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+                    "x-requested-with": "XMLHttpRequest"
+                },
+                body: new URLSearchParams({ MobNum: newMob }),
+                credentials: "include" 
+            });
+            let timestamp = Date.now();
+            await fetch(`${baseUrl}/sendOTPInMobNumUpd.do?newMobNum=${newMob}&_=${timestamp}`, {
+                method: "GET",
+                headers: { "x-requested-with": "XMLHttpRequest" },
+                credentials: "include"
+            });
+          });
+
+          await bot.sendMessage(chatId, `🔐 Mobile OTP sent to ${input}. Please reply directly with the 6-digit OTP code to complete the update.`);
+        } catch (error) {
+          mobileUpdateSessions.delete(chatId);
+          await bot.sendMessage(chatId, `❌ Failed to trigger Mobile OTP: ${error.message || error}`);
+          if (flow.context) await flow.context.close().catch(() => {});
+          if (flow.browser) await flow.browser.close().catch(() => {});
+        }
+      } else {
+        await bot.sendMessage(chatId, '❌ Invalid mobile number. Please send a valid 10-digit numeric Mobile Number.');
+      }
+      return true;
+    }
+
+    if (flow.step === 'mobile_otp') {
+      if (input.length === 6 && /^\d+$/.test(input)) {
+        mobileUpdateSessions.delete(chatId);
+        await bot.sendMessage(chatId, '⏳ Mobile Verification OTP received. Executing bypass database updates and rendering confirmation...');
+        try {
+          const result = await mobileUpdateService.executeBypassScript(flow.page, flow.targetMobile, input);
+          if (result.success && result.screenshotPath) {
+            const docBuffer = fs.readFileSync(result.screenshotPath);
+            await bot.sendPhoto(chatId, docBuffer, { caption: `🎉 SUCCESS! Mobile number successfully updated to ${flow.targetMobile}.\n\nHere is your official confirmation preview.` });
+            cleanupFile(result.screenshotPath);
+            if (flow.resolveJob) flow.resolveJob({ ok: true });
+          } else {
+            throw new Error('Bypass workflow failed to return confirmation page.');
+          }
+        } catch (error) {
+          await bot.sendMessage(chatId, `❌ Mobile Update failed: ${error.message || error}`);
+          if (flow.rejectJob) flow.rejectJob(error);
+        } finally {
+          if (flow.context) await flow.context.close().catch(() => {});
+          if (flow.browser) await flow.browser.close().catch(() => {});
+        }
+      } else {
+        await bot.sendMessage(chatId, '❌ Invalid OTP format. Please send the 6-digit Mobile OTP.');
+      }
+      return true;
+    }
+  }
+
   const dlRenewalSessions = getDlRenewalSessions();
   if (dlRenewalSessions.has(chatId) && !/^\/(?:dlrenewal|renewal|duplicate|replacement|dlextract|dl)\b/i.test(text)) {
     const flow = dlRenewalSessions.get(chatId);

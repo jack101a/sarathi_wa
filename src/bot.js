@@ -718,7 +718,7 @@ async function createBot() {
         return;
       }
 
-      if (type === 'llprint_start' || type === 'lledit_start' || type === 'dl_renewal_start' || type === 'apply_dl_start') {
+      if (type === 'llprint_start' || type === 'lledit_start' || type === 'dl_renewal_start' || type === 'apply_dl_start' || type === 'mobupdate_start') {
         let mobile = payload.mobile || '';
         if (!mobile) {
           if (dbUser && dbUser.canonical_phone) {
@@ -771,7 +771,7 @@ async function createBot() {
     // Allow self-issued command messages, but ignore self echo chatter/status texts.
     if (message.fromMe) {
       const ownBody = normalizeText(message.body || '');
-      const looksLikeCommand = /^(help|track|add|remove|refresh|list|alive|suno|appl|app|dl|ll|slot|form1|form1a|form2|formset|stop|auth|resend|\/?llprint|\/?lledit|\/?payfee|\/?feeprint|\/?fees|\/?dlrenewal|\/?dlapp|\/?bookslot|\/?send(?:_|\s+)chatid)\b/i.test(ownBody);
+      const looksLikeCommand = /^(help|track|add|remove|refresh|list|alive|suno|appl|app|dl|ll|slot|form1|form1a|form2|formset|stop|auth|resend|\/?llprint|\/?lledit|\/?payfee|\/?feeprint|\/?fees|\/?dlrenewal|\/?dlapp|\/?bookslot|\/?mobupdate|\/?send(?:_|\s+)chatid)\b/i.test(ownBody);
       if (!looksLikeCommand) {
         return;
       }

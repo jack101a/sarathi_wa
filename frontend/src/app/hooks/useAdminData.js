@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { fetchBootstrap, fetchJobs, fetchQueues, fetchPlans, queryKeys } from '../../api/queries.js';
+import { fetchBootstrap, fetchJobs, fetchQueues, fetchPlans, fetchServices, queryKeys } from '../../api/queries.js';
 import { ApiError } from '../../api/client.js';
 
 export function useAdminData(showToast) {
@@ -37,6 +37,13 @@ export function useAdminData(showToast) {
     retry: 0,
   });
 
+  const servicesQuery = useQuery({
+    queryKey: queryKeys.services,
+    queryFn: fetchServices,
+    staleTime: 60_000,
+    retry: 0,
+  });
+
   // Handle 401 — redirect to login (React Query v5 removed onError option)
   useEffect(() => {
     if (bootstrap.isError) {
@@ -62,6 +69,7 @@ export function useAdminData(showToast) {
     recentJobs:     (jobs.data && jobs.data.jobs) || data.recentJobs || [],
     queues:         (queues.data) || data.queues || { api: {}, browser: {} },
     plans:          plansQuery.data     || [],
+    services:       servicesQuery.data  || data.services     || [],
     rateLimitConfig: data.rateLimitConfig || { plans: {}, creditCost: {} },
     loading,
     refresh() {
@@ -69,6 +77,7 @@ export function useAdminData(showToast) {
       jobs.refetch();
       queues.refetch();
       plansQuery.refetch();
+      servicesQuery.refetch();
     },
   };
 }

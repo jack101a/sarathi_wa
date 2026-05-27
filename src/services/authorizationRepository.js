@@ -1,19 +1,35 @@
 const { query, run, runTransaction } = require('../core/db');
 
 let initialized = false;
+let initPromise = null;
 
 function nowIso() { return new Date().toISOString(); }
 function makeId(prefix) { return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1000)}`; }
 
 async function initDb() {
   if (initialized) return true;
-  try {
+  if (initPromise) return initPromise;
+
+  initPromise = (async () => {
+    try {
     // Schema creation — directly in-process, no child process needed
     await run(`CREATE TABLE IF NOT EXISTS auth_users (id TEXT PRIMARY KEY, channel TEXT, canonical_phone TEXT UNIQUE, is_active INTEGER, created_at TEXT, updated_at TEXT)`);
     await run(`CREATE TABLE IF NOT EXISTS auth_user_identities (id TEXT PRIMARY KEY, auth_user_id TEXT, identity_type TEXT, identity_value TEXT UNIQUE, verified_at TEXT, last_seen_at TEXT, is_active INTEGER)`);
     await run(`CREATE TABLE IF NOT EXISTS auth_verifications (id TEXT PRIMARY KEY, channel TEXT, canonical_phone TEXT, code TEXT, status TEXT, requested_by TEXT, requested_via TEXT, expires_at TEXT, verified_at TEXT, verified_identity TEXT, meta_json TEXT)`);
     await run(`CREATE TABLE IF NOT EXISTS authorized_groups (id TEXT PRIMARY KEY, channel TEXT, group_id TEXT, is_active INTEGER, created_by TEXT, created_at TEXT)`);
     await run(`CREATE TABLE IF NOT EXISTS subscription_plans (id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT DEFAULT '', services_json TEXT DEFAULT '["*"]', limits_json TEXT DEFAULT '{}', is_active INTEGER DEFAULT 1, created_at TEXT NOT NULL)`);
+    await run(`CREATE TABLE IF NOT EXISTS services (
+      id TEXT PRIMARY KEY,
+      display_name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      category TEXT NOT NULL DEFAULT 'light',
+      queue_type TEXT NOT NULL DEFAULT 'api',
+      credit_cost INTEGER DEFAULT 0,
+      is_active INTEGER DEFAULT 1,
+      sort_order INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`);
 
     // Seed default plans if empty
     const planRows = await query('SELECT COUNT(*) as count FROM subscription_plans');
@@ -24,6 +40,46 @@ async function initDb() {
       const freeServices = JSON.stringify(['track', 'status', 'llprint', 'feeprint', 'pay_fee_start']);
       await run('INSERT INTO subscription_plans (id, name, description, services_json, limits_json, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)', ['free', 'Free Tier', 'Basic access to status and tracking', freeServices, freeLimits, now]);
       await run('INSERT INTO subscription_plans (id, name, description, services_json, limits_json, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)', ['premium', 'Premium Tier', 'Full access to all services', '["*"]', premLimits, now]);
+    }
+
+    // Seed default services (using INSERT OR IGNORE to ensure completeness and self-healing)
+    const now = nowIso();
+    const defaultServices = [
+      { id: 'track', name: 'DL Status Track', cat: 'light', q: 'api', cost: 0, sort: 10 },
+      { id: 'track_rc', name: 'RC Status Track (Vahan)', cat: 'light', q: 'api', cost: 0, sort: 20 },
+      { id: 'track_status', name: 'Tracking List', cat: 'light', q: 'api', cost: 0, sort: 30 },
+      { id: 'add_track', name: 'Add DL Auto-Track', cat: 'light', q: 'api', cost: 0, sort: 40 },
+      { id: 'remove_track', name: 'Remove DL Auto-Track', cat: 'light', q: 'api', cost: 0, sort: 50 },
+      { id: 'list_track', name: 'List All Tracking', cat: 'light', q: 'api', cost: 0, sort: 60 },
+      { id: 'refresh_track', name: 'Refresh All Tracking', cat: 'light', q: 'api', cost: 0, sort: 70 },
+      { id: 'form1', name: 'Self-Declaration Form', cat: 'light', q: 'api', cost: 0, sort: 80 },
+      { id: 'form1a', name: 'Medical Certificate', cat: 'light', q: 'api', cost: 0, sort: 90 },
+      { id: 'form2', name: 'Form 2 Application', cat: 'light', q: 'api', cost: 0, sort: 100 },
+      { id: 'formset', name: 'Combined Form Set', cat: 'light', q: 'api', cost: 0, sort: 110 },
+      { id: 'appl_pdf', name: 'Acknowledgement Receipt', cat: 'light', q: 'api', cost: 0, sort: 120 },
+      { id: 'slot_pdf', name: 'Slot Booking Receipt', cat: 'light', q: 'api', cost: 0, sort: 130 },
+      { id: 'alive', name: 'Bot Health Check', cat: 'light', q: 'api', cost: 0, sort: 140 },
+      { id: 'vahan_track', name: 'Vahan Single Lookup', cat: 'light', q: 'api', cost: 0, sort: 150 },
+      { id: 'vahan_add', name: 'Vahan Add Track', cat: 'light', q: 'api', cost: 0, sort: 160 },
+      { id: 'vahan_remove', name: 'Vahan Remove Track', cat: 'light', q: 'api', cost: 0, sort: 170 },
+      { id: 'vahan_list', name: 'Vahan List Tracking', cat: 'light', q: 'api', cost: 0, sort: 180 },
+      { id: 'vahan_refresh', name: 'Vahan Refresh All', cat: 'light', q: 'api', cost: 0, sort: 190 },
+      { id: 'resend_otp', name: 'LL Password Resend', cat: 'medium', q: 'api', cost: 0, sort: 200 },
+      { id: 'llprint_start', name: 'LL Print / Download', cat: 'medium', q: 'browser', cost: 0, sort: 210 },
+      { id: 'fee_print_start', name: 'Fee Receipt Print', cat: 'medium', q: 'browser', cost: 0, sort: 220 },
+      { id: 'pay_fee_start', name: 'Fee Payment (UPI)', cat: 'medium', q: 'browser', cost: 0, sort: 230 },
+      { id: 'slot_booking_start', name: 'DL Test Slot Booking', cat: 'medium', q: 'browser', cost: 0, sort: 240 },
+      { id: 'dl_info_start', name: 'DL Info Lookup', cat: 'medium', q: 'browser', cost: 0, sort: 250 },
+      { id: 'lledit_start', name: 'LL Edit', cat: 'heavy', q: 'browser', cost: 50, sort: 260 },
+      { id: 'dl_renewal_start', name: 'DL Renewal / Duplicate', cat: 'heavy', q: 'browser', cost: 50, sort: 270 },
+      { id: 'apply_dl_start', name: 'Apply for New DL', cat: 'heavy', q: 'browser', cost: 50, sort: 280 },
+      { id: 'mobupdate_start', name: 'Mobile Number Update', cat: 'heavy', q: 'browser', cost: 50, sort: 290 }
+    ];
+    for (const s of defaultServices) {
+      await run(
+        'INSERT OR IGNORE INTO services (id, display_name, description, category, queue_type, credit_cost, is_active, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)',
+        [s.id, s.name, '', s.cat, s.q, s.cost, s.sort, now, now]
+      );
     }
 
     // Column migrations — log failures instead of silently swallowing
@@ -77,12 +133,16 @@ async function initDb() {
       }
     }
 
-    initialized = true;
-    return true;
-  } catch (err) {
-    console.error('[authRepo] Database initialization failed:', err.message);
-    return false;
-  }
+      initialized = true;
+      return true;
+    } catch (err) {
+      console.error('[authRepo] Database initialization failed:', err.message);
+      initPromise = null; // Reset on failure
+      return false;
+    }
+  })();
+
+  return initPromise;
 }
 
 async function getUserByPhone(phone) {

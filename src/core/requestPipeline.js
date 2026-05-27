@@ -4,6 +4,7 @@ const authRepo = require('../services/authorizationRepository');
 const rateLimiter = require('./rateLimiter');
 const jobRepository = require('../services/jobRepository');
 const { apiQueue, browserQueue } = require('./jobQueue');
+const serviceRepo = require('../services/serviceRepository');
 
 // Commands that only read from stored data — skip concurrent job count check
 const INSTANT_COMMANDS = new Set(['track_status', 'list_track']);
@@ -11,17 +12,9 @@ const INSTANT_COMMANDS = new Set(['track_status', 'list_track']);
 function makeJobId() { return `job_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`; }
 
 function getQueueType(command) {
-  const browserCommands = [
-    'llprint_start',
-    'lledit_start',
-    'dl_renewal_start',
-    'apply_dl_start',
-    'pay_fee_start',
-    'slot_booking_start',
-    'fee_print_start',
-    'dl_info_start',
-  ];
-  return browserCommands.includes(command) ? 'browser' : 'api';
+  const registry = serviceRepo.getServiceRegistrySync();
+  const entry = registry.get(command);
+  return entry && entry.queue_type === 'browser' ? 'browser' : 'api';
 }
 
 async function processRequest(message, transport, commandInfo) {

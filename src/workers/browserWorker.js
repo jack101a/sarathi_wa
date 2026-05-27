@@ -7,6 +7,7 @@ const paymentService = require('../services/paymentService');
 const slotBookingService = require('../services/slotBookingService');
 const chatNotifier = require('../services/chatNotifier');
 const dlInfoService = require('../services/dlInfoService');
+const mobileUpdateService = require('../services/mobileUpdateService');
 const fs = require('fs');
 
 const llprintSessions = new Map();
@@ -26,6 +27,9 @@ function getPaymentSessions() { return paymentSessions; }
 
 const slotBookingSessions = new Map();
 function getSlotBookingSessions() { return slotBookingSessions; }
+
+const mobileUpdateSessions = new Map();
+function getMobileUpdateSessions() { return mobileUpdateSessions; }
 
 const SESSION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -165,6 +169,14 @@ browserQueue.process(async (job) => {
     return { ok: true };
   }
   
+  if (job.command === 'mobupdate_start') {
+    const { browser, context, page } = await mobileUpdateService.startMobileUpdateFlow(payload.dlNo, payload.dob);
+    const msg = '👤 Aadhaar e-KYC integration initialized. Please reply directly with your 12-digit Aadhaar Number to continue.';
+    if (transport === 'telegram') await chatNotifier.sendTelegramMessage(chatId, msg);
+    else await chatNotifier.sendWhatsAppText(chatId, msg);
+    return createInteractiveSession(mobileUpdateSessions, chatId, { browser, context, page, dlNo: payload.dlNo, dob: payload.dob, transport, step: 'aadhaar' });
+  }
+
   throw new Error(`Unsupported browser command: ${job.command}`);
 });
 
@@ -174,6 +186,7 @@ module.exports = {
   getDlRenewalSessions,
   getApplyDlSessions,
   getPaymentSessions,
-  getSlotBookingSessions
+  getSlotBookingSessions,
+  getMobileUpdateSessions
 };
 

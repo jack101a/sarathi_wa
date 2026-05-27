@@ -11,6 +11,7 @@ export const queryKeys = {
   activity:        ['activity'],
   plans:           ['plans'],
   backups:         ['backups'],
+  services:        ['services'],
 };
 
 export async function fetchBootstrap() { return apiGet('/admin/api/bootstrap'); }
@@ -50,3 +51,8 @@ export async function fetchActivity(filters = {}) {
 }
 
 export async function fetchBackups() { return apiGet('/admin/api/backups'); }
+
+export async function fetchServices() {
+  const res = await apiGet('/admin/api/services');
+  return res.services || [];
+}

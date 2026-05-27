@@ -10,7 +10,7 @@ const ALL_SERVICES = [
   'lledit_start', 'dl_renewal_start', 'apply_dl_start'
 ];
 
-export function PlansPanel({ plans, refresh, showToast }) {
+export function PlansPanel({ plans, services: dbServices = [], refresh, showToast }) {
   const { isDark } = useThemeContext();
   const [showModal, setShowModal] = useState(false);
   const [editingPlan, setEditingPlan] = useState(null);
@@ -261,10 +261,12 @@ export function PlansPanel({ plans, refresh, showToast }) {
 
                 {!services.includes('*') && (
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
-                    {ALL_SERVICES.map(srv => (
-                      <div key={srv} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }} onClick={() => toggleService(srv)}>
-                        {services.includes(srv) ? <CheckSquare size={16} color="#3b82f6" /> : <Square size={16} color={thText} />}
-                        <span style={{ color: tdText, fontSize: '0.8rem' }}>{srv}</span>
+                    {(dbServices.length > 0 ? dbServices : ALL_SERVICES.map(id => ({ id, display_name: id }))).map(srv => (
+                      <div key={srv.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }} onClick={() => toggleService(srv.id)}>
+                        {services.includes(srv.id) ? <CheckSquare size={16} color="#3b82f6" /> : <Square size={16} color={thText} />}
+                        <span style={{ color: tdText, fontSize: '0.8rem' }}>
+                          {srv.display_name} <span style={{ fontSize: '0.70rem', color: thText }}>({srv.id})</span>
+                        </span>
                       </div>
                     ))}
                   </div>

@@ -13,6 +13,7 @@ import { GroupsPanel } from './components/GroupsPanel.jsx';
 import { ActivityPanel } from './components/ActivityPanel.jsx';
 import { SettingsPanel } from './components/SettingsPanel.jsx';
 import { QueuesPanel } from './components/QueuesPanel.jsx';
+import { ServicesPanel } from './components/ServicesPanel.jsx';
 
 import { useToast } from './hooks/useToast.js';
 import { useAdminData } from './hooks/useAdminData.js';
@@ -66,7 +67,7 @@ function ProtectedApp({ isDark }) {
   const {
     stats, users, waGroups, tgGroups,
     sarathiTracked, vahanTracked,
-    recentJobs, queues, plans,
+    recentJobs, queues, plans, services,
     loading, refresh,
   } = useAdminData(showToast);
 
@@ -86,7 +87,8 @@ function ProtectedApp({ isDark }) {
           <Route path="/"          element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPanel stats={stats} recentJobs={recentJobs} loading={loading} isDark={isDark} />} />
           <Route path="/users"     element={<UsersPanel users={users} plans={plans} sarathiTracked={sarathiTracked} vahanTracked={vahanTracked} isDark={isDark} onRefresh={refresh} showToast={showToast} />} />
-          <Route path="/plans"     element={<PlansPanel plans={plans} isDark={isDark} refresh={refresh} showToast={showToast} />} />
+          <Route path="/plans"     element={<PlansPanel plans={plans} services={services} isDark={isDark} refresh={refresh} showToast={showToast} />} />
+          <Route path="/services"  element={<ServicesPanel services={services} isDark={isDark} refresh={refresh} showToast={showToast} />} />
           <Route path="/jobs"      element={<JobsPanel queues={queues} isDark={isDark} showToast={showToast} />} />
           <Route path="/groups"    element={<GroupsPanel isDark={isDark} showToast={showToast} />} />
           <Route path="/activity"  element={<ActivityPanel users={users} isDark={isDark} showToast={showToast} />} />
