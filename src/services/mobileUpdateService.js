@@ -1,6 +1,7 @@
 const { chromium } = require('playwright');
 const { solveSarathiCaptcha } = require('./sarathiCaptchaSolver');
 const { getTempFilePath } = require('../core/tempFiles');
+const CONFIG = require('../config/config');
 
 async function solvePortalCaptcha(page) {
   const rules = [
@@ -40,7 +41,8 @@ async function solvePortalCaptcha(page) {
  */
 async function startMobileUpdateFlow(licenseNo, dob) {
   console.log(`🚀 [MobileService] Starting stage 1 navigation for DL: ${licenseNo}`);
-  const browser = await chromium.launch({ headless: false });
+  const headless = CONFIG.PUPPETEER.HEADLESS === 'new' || CONFIG.PUPPETEER.HEADLESS === true;
+  const browser = await chromium.launch({ headless });
   const context = await browser.newContext({
     userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
   });

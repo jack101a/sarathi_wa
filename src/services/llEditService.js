@@ -1,6 +1,7 @@
 const { chromium } = require('playwright');
 const path = require('path');
 const fs = require('fs');
+const CONFIG = require('../config/config');
 
 const { solveSarathiCaptcha } = require('./sarathiCaptchaSolver');
 const { fetchInfo } = require('./infoFetcherService');
@@ -96,7 +97,8 @@ async function startLLEditFlow(targetAppNo, targetDob, mobile) {
   console.log(`[lledit] Successfully fetched target info for ${dynamicData.NAME.first_name} ${dynamicData.NAME.last_name}`);
 
   // 2. Launch browser context
-  const browser = await chromium.launch({ headless: false });
+  const headless = CONFIG.PUPPETEER.HEADLESS === 'new' || CONFIG.PUPPETEER.HEADLESS === true;
+  const browser = await chromium.launch({ headless });
   const context = await browser.newContext({
     userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
   });
