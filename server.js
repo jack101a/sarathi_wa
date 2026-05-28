@@ -173,6 +173,20 @@ async function startServer() {
     await startWorkers();
     startBillingCron();
 
+    // Pre-warm ONNX captcha solver models to keep them always hot
+    try {
+      logger.info('server', 'Pre-warming captcha solver ONNX models...');
+      const { init: initSarathi } = require('./src/services/sarathiCaptchaSolver');
+      const { init: initVahan } = require('./src/services/vahanCaptchaSolver');
+      await Promise.all([
+        initSarathi().catch(err => logger.error('server', 'Failed to pre-warm Sarathi captcha solver', { error: err.message })),
+        initVahan().catch(err => logger.error('server', 'Failed to pre-warm Vahan captcha solver', { error: err.message }))
+      ]);
+      logger.info('server', 'Captcha solver ONNX models pre-warmed successfully');
+    } catch (err) {
+      logger.error('server', 'Failed to initialize captcha solvers', { error: err.message });
+    }
+
     // Create a startup backup
     try {
       await createBackup('startup');

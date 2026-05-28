@@ -159,5 +159,8 @@ async function solveSarathiCaptcha(imageBytes) {
     return '';
   }
 }
+async function init() {
+  await getSession();
+}
 
-module.exports = { solveSarathiCaptcha };
+module.exports = { solveSarathiCaptcha, init };

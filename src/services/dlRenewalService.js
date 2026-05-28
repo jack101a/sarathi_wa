@@ -5,7 +5,117 @@ const CONFIG = require('../config/config');
 const { navigateToSarathiHome, smartSolveCaptcha, BASE_URL } = require('./sarathiCommon');
 const { captureFailureDiagnostics } = require('../utils/failureLogger');
 
-async function startDLRenewalFlow(dlNo, dob, rtoCode, mobile) {
+// Helper to find option using prioritized keys
+function findOptionBySearchKeys(options, searchKeys) {
+    const validOptions = options.filter(o => o.value !== '-1' && o.value !== '' && o.text.toLowerCase() !== 'select');
+    if (validOptions.length === 0) return null;
+
+    for (const key of searchKeys) {
+        if (!key) continue;
+        const cleanKey = key.toLowerCase().replace(/[^a-z0-9\s]/g, " ").trim();
+        if (!cleanKey) continue;
+
+        const matches = validOptions.filter(opt => {
+            const cleanOpt = opt.text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").trim();
+            if (!cleanOpt) return false;
+            return cleanKey.includes(cleanOpt);
+        });
+
+        if (matches.length > 0) {
+            // Prefer the longest (most specific) match
+            matches.sort((a, b) => b.text.length - a.text.length);
+            return matches[0];
+        }
+    }
+    return null;
+}
+
+async function fillAddressDropdowns(page) {
+    // 1. Extract read-only old address details from the page
+    try {
+        await page.waitForFunction(() => {
+            const inputs = Array.from(document.querySelectorAll('input[type="text"]'));
+            return inputs.some(input => !input.id && !input.name && input.value && input.value.trim().length > 0);
+        }, { timeout: 10000 });
+    } catch (err) {
+        console.log("[DLRenewal] Warning: Timed out waiting for read-only address values to load.");
+    }
+
+    const oldAddressLines = await page.locator('input[type="text"]')
+        .evaluateAll(inputs => inputs
+            .filter(input => !input.id && !input.name && input.value && input.value.trim())
+            .map(input => input.value.trim())
+        );
+    
+    console.log("[DLRenewal] Extracted original address lines:", oldAddressLines);
+    if (oldAddressLines.length === 0) {
+        throw new Error("Govt Portal: Could not find original DL address elements to match.");
+    }
+    
+    const addr1 = oldAddressLines[0] || '';
+    const addr2 = oldAddressLines[1] || '';
+    const addr3 = oldAddressLines[2] || '';
+    const addr1And2 = `${addr1} ${addr2}`;
+
+    let selectedDistrictText = '';
+
+    const dropdowns = [
+        { id: 'prmDist', label: 'District', waitMs: 2000, keys: [addr3] },
+        { id: 'prmMandal', label: 'Taluka', waitMs: 2000, getKeys: () => [selectedDistrictText, addr3, addr1And2] }
+    ];
+
+    for (const step of dropdowns) {
+        const { id, label, waitMs } = step;
+        const sel = page.locator(`#${id}`);
+        if (await sel.count() === 0 || !(await sel.isVisible())) continue;
+        if (await sel.inputValue() !== '-1') {
+            if (id === 'prmDist') {
+                selectedDistrictText = await sel.locator('option:checked').textContent().catch(() => '');
+            }
+            continue;
+        }
+
+        // Wait for dropdown options to load dynamically
+        try {
+            await page.waitForFunction(elId => {
+                const el = document.getElementById(elId);
+                return el && Array.from(el.options).some(o => o.value !== '-1' && o.value !== '');
+            }, id, { timeout: 5000 });
+        } catch (_) {}
+
+        const options = await sel.locator('option').evaluateAll(os =>
+            os.map(o => ({ value: o.value, text: o.textContent }))
+        );
+
+        const validOptions = options.filter(o => o.value !== '-1' && o.value !== '' && o.text.toLowerCase() !== 'select');
+        if (validOptions.length === 0) {
+            console.log(`[DLRenewal] Dropdown for ${label} (#${id}) has no valid options. Skipping.`);
+            continue;
+        }
+
+        const keys = step.keys || step.getKeys();
+        const matchedOption = findOptionBySearchKeys(options, keys);
+
+        if (!matchedOption) {
+            throw new Error(`Govt Portal: Address verification failed. Could not determine matching option for ${label} in dropdown options: [${validOptions.map(o => o.text).join(", ")}]`);
+        }
+
+        console.log(`[DLRenewal] Selecting ${label}: "${matchedOption.text}" (value: ${matchedOption.value})`);
+        await sel.selectOption(matchedOption.value);
+        if (id === 'prmDist') {
+            selectedDistrictText = matchedOption.text;
+        }
+        await page.waitForTimeout(waitMs);
+    }
+
+    // Check sameasperm checkbox
+    const sameAs = page.locator('#sameasperm');
+    if (await sameAs.count() > 0 && await sameAs.isVisible() && !(await sameAs.isChecked())) {
+        await sameAs.check().catch(() => {});
+    }
+}
+
+async function startDLRenewalFlow(dlNo, dob, rtoCode, mobile, serviceType = 'RENEWAL OF DL') {
     console.log(`🚀 [DLRenewal] Starting flow for DL: ${dlNo}, DOB: ${dob}`);
 
     const headless = CONFIG.PUPPETEER.HEADLESS === 'new' || CONFIG.PUPPETEER.HEADLESS === true;
@@ -28,12 +138,35 @@ async function startDLRenewalFlow(dlNo, dob, rtoCode, mobile) {
         let otpTriggered = false;
         let attempts = 0;
         let lastDialogMessage = null;
+        let existingApplicationError = null;
 
         const dialogHandler = async dialog => {
             const msg = dialog.message();
             lastDialogMessage = msg;
             console.log(`💬 [DLRenewal Dialog] ${dialog.type()}: ${msg}`);
             const msgLower = msg.toLowerCase();
+
+            if (msgLower.includes('application already exists') || msgLower.includes('application already exist')) {
+                if (serviceType !== 'DL EXTRACT') {
+                    let formattedMessage = msg;
+                    const detailsMatch = msg.match(/(?:existing Application\.|Application\.|exists)\s*-\s*(.+)/i);
+                    if (detailsMatch) {
+                        formattedMessage = `Application already exist - ${detailsMatch[1].trim()}`;
+                    } else {
+                        const numMatch = msg.match(/\d{8,}/);
+                        if (numMatch) {
+                            formattedMessage = `Application already exist - ${numMatch[0]}`;
+                        } else {
+                            formattedMessage = `Application already exist - ${msg}`;
+                        }
+                    }
+                    existingApplicationError = formattedMessage;
+                    console.log(`[DLRenewal] Existing application dialog detected. Service is ${serviceType} (not DL EXTRACT). Rejecting: "${formattedMessage}"`);
+                    await dialog.dismiss().catch(() => {});
+                    return;
+                }
+            }
+
             if (dialog.type() === 'confirm' || msgLower.includes('confirm') || msgLower.includes('sure') || msgLower.includes('submit') || msgLower.includes('want to') || msgLower.includes('correct') || msgLower.includes('proceed') || msgLower.includes('would you like to') || msgLower.includes('change')) {
                 await dialog.accept().catch(() => {});
             } else {
@@ -41,6 +174,12 @@ async function startDLRenewalFlow(dlNo, dob, rtoCode, mobile) {
             }
         };
         page.on('dialog', dialogHandler);
+
+        const checkExistingApplicationError = () => {
+            if (existingApplicationError) {
+                throw new Error(existingApplicationError);
+            }
+        };
 
         while (!otpTriggered && attempts < 5) {
             attempts++;
@@ -70,12 +209,27 @@ async function startDLRenewalFlow(dlNo, dob, rtoCode, mobile) {
             const getDetailsBtn = page.getByRole('button', { name: 'Get DL Details' });
             await getDetailsBtn.click();
             
-            console.log("[DLRenewal] Waiting for DL details or error dialog...");
+            console.log("[DLRenewal] Waiting for DL details or error...");
             try {
-                // Wait up to 10 seconds for dispDLDet to become visible
-                await page.locator('#dispDLDet').waitFor({ state: 'visible', timeout: 10000 });
+                await Promise.race([
+                    page.locator('#dispDLDet').waitFor({ state: 'visible', timeout: 10000 }),
+                    page.locator('.errorMessage').first().waitFor({ state: 'visible', timeout: 10000 })
+                ]);
+
+                // Check if a portal error message is visible
+                const errorEl = page.locator('.errorMessage').first();
+                if (await errorEl.isVisible().catch(() => false)) {
+                    const errorText = await errorEl.innerText().catch(() => '');
+                    if (errorText) {
+                        throw new Error(`Govt Portal: ${errorText.trim()}`);
+                    }
+                }
+
                 otpTriggered = true;
             } catch (e) {
+                if (e.message.startsWith('Govt Portal:')) {
+                    throw e; // Propagate fatal portal error immediately
+                }
                 if (lastDialogMessage) {
                     console.log(`❌ [DLRenewal] Dialog appeared: "${lastDialogMessage}"`);
                     lastDialogMessage = null;
@@ -141,35 +295,38 @@ async function startDLRenewalFlow(dlNo, dob, rtoCode, mobile) {
         // Let the dropdowns settle after RTO selection
         await page.waitForTimeout(2000);
 
+        checkExistingApplicationError();
+
         // Inject early if present
         console.log("[DLRenewal] Injecting dropdown values early (pre-Proceed)...");
         await injectDirectDropdowns();
 
+        checkExistingApplicationError();
+
         await page.getByRole('button', { name: 'Proceed' }).click();
-        await page.waitForTimeout(1000);
 
-        // Inject pre-Confirm
-        console.log("[DLRenewal] Injecting dropdown values pre-Confirm...");
-        await injectDirectDropdowns();
-
+        // Wait for Address/Details page (Confirm button)
         const confirmBtn = page.getByRole('button', { name: 'Confirm' }).first();
-        if (await confirmBtn.isVisible().catch(() => false)) {
-            console.log("[DLRenewal] Confirm button is visible, clicking it...");
+        try {
+            await page.waitForTimeout(1000);
+            checkExistingApplicationError();
+            await confirmBtn.waitFor({ state: 'visible', timeout: 15000 });
+            checkExistingApplicationError();
+            await fillAddressDropdowns(page);
+            checkExistingApplicationError();
+            await injectDirectDropdowns();
             await confirmBtn.click();
-        } else {
-            console.log("[DLRenewal] Confirm button is not visible, proceeding...");
+        } catch (e) {
+            checkExistingApplicationError();
+            if (e.message.startsWith('Govt Portal:')) {
+                throw e; // Propagate fatal address matching error
+            }
+            console.log("[DLRenewal] Confirm button not visible or timed out, skipping confirm step:", e.message);
         }
 
-        // Let the next page load and settle
-        console.log("[DLRenewal] Waiting for Aadhaar/Details page to load and settle...");
+        // Wait for Aadhaar/Submit page
         await page.waitForTimeout(3000);
-
-        // Fast check/inject on Aadhaar/Details page in case they are dynamically rendered here
-        const result = await injectDirectDropdowns();
-        if (result.bgInjected || result.catInjected) {
-            console.log(`[DLRenewal] ✅ Injected dropdown values on Aadhaar/Details page: BloodGroup=${result.bgInjected}, Category=${result.catInjected}`);
-        }
-
+        await injectDirectDropdowns();
         await page.locator('#aadhaarHoldingType0').check().catch(() => {});
         
         const submitBtn = page.getByRole('button', { name: 'Submit' }).first();
@@ -208,7 +365,10 @@ async function startDLRenewalFlow(dlNo, dob, rtoCode, mobile) {
 
     } catch (error) {
         console.error("❌ Error in startDLRenewalFlow:", error);
-        await captureFailureDiagnostics(page, error, { serviceType: 'startDLRenewalFlow', dlNo }).catch(() => {});
+        const diag = await captureFailureDiagnostics(page, error, { serviceType: 'startDLRenewalFlow', dlNo }).catch(() => null);
+        if (diag && diag.screenshotPath) {
+            error.screenshotPath = diag.screenshotPath;
+        }
         if (headless) {
             await context.close().catch(() => {});
             await browser.close().catch(() => {});

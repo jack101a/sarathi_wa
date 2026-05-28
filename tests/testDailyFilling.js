@@ -86,7 +86,7 @@ async function main() {
             }
 
             console.log(`[Test] Starting DL Flow for DL: ${dl}, DOB: ${dob}, RTO: ${rto}, Service: ${service}`);
-            const session = await dlRenewalService.startDLRenewalFlow(dl, dob, rto, mobile);
+            const session = await dlRenewalService.startDLRenewalFlow(dl, dob, rto, mobile, service);
             console.log("[Test] Phase 1 completed. OTP has been triggered.");
 
             const otp = await question("🔑 Enter the 6-digit OTP code received on mobile: ");

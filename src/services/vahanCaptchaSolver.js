@@ -81,7 +81,11 @@ async function solveCaptcha(buffer) {
 
   return prediction;
 }
+async function init() {
+  await getSession();
+}
 
 module.exports = {
   solveCaptcha,
+  init,
 };

@@ -71,15 +71,33 @@ browserQueue.process(async (job) => {
 
   if (job.command === 'dl_renewal_start') {
     const serviceType = payload.serviceType || 'RENEWAL OF DL';
-    const { browser, context, page } = await dlRenewalService.startDLRenewalFlow(payload.dlNo, payload.dob, payload.rtoCode, payload.mobile);
-    
-    const serviceName = serviceType.replace('OF DL', '').replace('ISSUE OF', '').trim().toLowerCase();
-    const formattedServiceName = serviceName.charAt(0).toUpperCase() + serviceName.slice(1);
-    const msg = `🔐 DL ${formattedServiceName} OTP generated. Please reply with the 6-digit OTP code to continue.`;
+    try {
+      const { browser, context, page } = await dlRenewalService.startDLRenewalFlow(payload.dlNo, payload.dob, payload.rtoCode, payload.mobile, serviceType);
+      
+      const serviceName = serviceType.replace('OF DL', '').replace('ISSUE OF', '').trim().toLowerCase();
+      const formattedServiceName = serviceName.charAt(0).toUpperCase() + serviceName.slice(1);
+      const msg = `🔐 DL ${formattedServiceName} OTP generated. Please reply with the 6-digit OTP code to continue.`;
 
-    if (transport === 'telegram') await chatNotifier.sendTelegramMessage(chatId, msg);
-    else await chatNotifier.sendWhatsAppText(chatId, msg);
-    return createInteractiveSession(dlRenewalSessions, chatId, { browser, context, page, dlNo: payload.dlNo, dob: payload.dob, serviceType, transport });
+      if (transport === 'telegram') await chatNotifier.sendTelegramMessage(chatId, msg);
+      else await chatNotifier.sendWhatsAppText(chatId, msg);
+      return createInteractiveSession(dlRenewalSessions, chatId, { browser, context, page, dlNo: payload.dlNo, dob: payload.dob, serviceType, transport });
+    } catch (error) {
+      // Only notify the user for the specific missing mobile linkage or existing application errors
+      const isMobileMissingError = error.message && error.message.includes("A valid mobile number is not available");
+      const isAppExistsError = error.message && error.message.includes("Application already exist");
+      if (isMobileMissingError || isAppExistsError) {
+        const errorMsg = `⚠️ ${error.message}`;
+        if (error.screenshotPath && fs.existsSync(error.screenshotPath)) {
+          const imgBuffer = fs.readFileSync(error.screenshotPath);
+          if (transport === 'telegram') await chatNotifier.sendTelegramPhoto(chatId, imgBuffer, 'error.png', errorMsg);
+          else await chatNotifier.sendWhatsAppImage(chatId, imgBuffer, 'error.png', errorMsg);
+        } else {
+          if (transport === 'telegram') await chatNotifier.sendTelegramMessage(chatId, errorMsg);
+          else await chatNotifier.sendWhatsAppText(chatId, errorMsg);
+        }
+      }
+      throw error; // re-throw so jobQueue marks it failed and registers the failure log internally
+    }
   }
 
   if (job.command === 'apply_dl_start') {
