@@ -56,11 +56,11 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
     
     if (flow.step === 'aadhaar') {
       if (input.length === 12 && /^\d+$/.test(input)) {
-        await message.reply('⏳ Aadhaar number received. Entering into browser and generating Aadhaar OTP...');
+        await message.reply('⏳ Generating Aadhaar OTP...');
         flow.step = 'aadhaar_otp';
         try {
           await mobileUpdateService.generateAadhaarOtp(flow.page, input);
-          await message.reply('🔐 Aadhaar OTP generated successfully! Please reply directly with the 6-digit Aadhaar OTP sent to your registered phone.');
+          await message.reply('🔑 Enter Aadhaar OTP:');
         } catch (error) {
           mobileUpdateSessions.delete(message.from);
           await message.reply(`❌ Failed to enter Aadhaar or generate OTP: ${error.message || error}`);
@@ -75,11 +75,10 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
     
     if (flow.step === 'aadhaar_otp') {
       if (input.length === 6 && /^\d+$/.test(input)) {
-        await message.reply('⏳ Aadhaar OTP received. Authenticating with e-KYC gate...');
         flow.step = 'target_mobile';
         try {
           await mobileUpdateService.authenticateAadhaar(flow.page, input);
-          await message.reply('📱 e-KYC Authentication Successful!\n\nPlease reply directly with the target 10-digit Mobile Number you want to Update.');
+          await message.reply('✅ Aadhaar verified. Send new mobile number:');
         } catch (error) {
           mobileUpdateSessions.delete(message.from);
           await message.reply(`❌ e-KYC Verification failed: ${error.message || error}`);
@@ -94,20 +93,12 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
 
     if (flow.step === 'target_mobile') {
       if (input.length === 10 && /^\d+$/.test(input)) {
-        await message.reply(`⏳ Target Mobile Number received (${input}). Checking database count and generating Mobile OTP...`);
+        await message.reply('⏳ Sending Mobile OTP...');
         flow.step = 'mobile_otp';
         flow.targetMobile = input;
         try {
-          await flow.page.evaluate((mob) => {
-            window.prompt = (msg) => {
-              if (msg.includes("Mobile Number") || msg.includes("Number")) return mob;
-              return "";
-            };
-          }, input);
-
-          await flow.page.evaluate(async () => {
+          await flow.page.evaluate(async (newMob) => {
             const baseUrl = "https://sarathi.parivahan.gov.in/sarathiservice";
-            const newMob = prompt("📱 Enter the Mobile Number:");
             await fetch(`${baseUrl}/checkMobCount.do`, {
                 method: "POST",
                 headers: {
@@ -123,9 +114,9 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
                 headers: { "x-requested-with": "XMLHttpRequest" },
                 credentials: "include"
             });
-          });
+          }, input);
 
-          await message.reply(`🔐 Mobile OTP sent to ${input}. Please reply directly with the 6-digit OTP code to complete the update.`);
+          await message.reply('🔑 Enter Mobile OTP:');
         } catch (error) {
           mobileUpdateSessions.delete(message.from);
           await message.reply(`❌ Failed to trigger Mobile OTP: ${error.message || error}`);
@@ -141,16 +132,24 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
     if (flow.step === 'mobile_otp') {
       if (input.length === 6 && /^\d+$/.test(input)) {
         mobileUpdateSessions.delete(message.from);
-        await message.reply('⏳ Mobile Verification OTP received. Executing bypass database updates and rendering confirmation...');
+        await message.reply('⏳ Updating...');
         try {
           const result = await mobileUpdateService.executeBypassScript(flow.page, flow.targetMobile, input);
-          if (result.success && result.screenshotPath) {
+          if (result.screenshotPath) {
             const media = MessageMedia.fromFilePath(result.screenshotPath);
-            await client.sendMessage(message.from, media, { caption: `🎉 SUCCESS! Mobile number successfully updated to ${flow.targetMobile}.\n\nHere is your official confirmation preview.` });
+            const caption = result.success 
+              ? `🎉 Updated to ${flow.targetMobile}!` 
+              : `❌ Update may have failed. Check preview.`;
+            await client.sendMessage(message.from, media, { caption });
             cleanupFile(result.screenshotPath);
-            if (flow.resolveJob) flow.resolveJob({ ok: true });
+            if (result.success) {
+              if (flow.resolveJob) flow.resolveJob({ ok: true });
+            } else {
+              if (flow.rejectJob) flow.rejectJob(new Error('Update failed on portal.'));
+            }
           } else {
-            throw new Error('Bypass workflow failed to return confirmation page.');
+            await message.reply('❌ Mobile update failed.');
+            if (flow.rejectJob) flow.rejectJob(new Error('Mobile update failed. No confirmation page screenshot.'));
           }
         } catch (error) {
           await message.reply(`❌ Mobile Update failed: ${error.message || error}`);
@@ -326,11 +325,11 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
     
     if (flow.step === 'aadhaar') {
       if (input.length === 12 && /^\d+$/.test(input)) {
-        await bot.sendMessage(chatId, '⏳ Aadhaar number received. Entering into browser and generating Aadhaar OTP...');
+        await bot.sendMessage(chatId, '⏳ Generating Aadhaar OTP...');
         flow.step = 'aadhaar_otp';
         try {
           await mobileUpdateService.generateAadhaarOtp(flow.page, input);
-          await bot.sendMessage(chatId, '🔐 Aadhaar OTP generated successfully! Please reply directly with the 6-digit Aadhaar OTP sent to your registered phone.');
+          await bot.sendMessage(chatId, '🔑 Enter Aadhaar OTP:');
         } catch (error) {
           mobileUpdateSessions.delete(chatId);
           await bot.sendMessage(chatId, `❌ Failed to enter Aadhaar or generate OTP: ${error.message || error}`);
@@ -345,11 +344,10 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
     
     if (flow.step === 'aadhaar_otp') {
       if (input.length === 6 && /^\d+$/.test(input)) {
-        await bot.sendMessage(chatId, '⏳ Aadhaar OTP received. Authenticating with e-KYC gate...');
         flow.step = 'target_mobile';
         try {
           await mobileUpdateService.authenticateAadhaar(flow.page, input);
-          await bot.sendMessage(chatId, '📱 e-KYC Authentication Successful!\n\nPlease reply directly with the target 10-digit Mobile Number you want to Update.');
+          await bot.sendMessage(chatId, '✅ Aadhaar verified. Send new mobile number:');
         } catch (error) {
           mobileUpdateSessions.delete(chatId);
           await bot.sendMessage(chatId, `❌ e-KYC Verification failed: ${error.message || error}`);
@@ -364,20 +362,12 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
 
     if (flow.step === 'target_mobile') {
       if (input.length === 10 && /^\d+$/.test(input)) {
-        await bot.sendMessage(chatId, `⏳ Target Mobile Number received (${input}). Checking database count and generating Mobile OTP...`);
+        await bot.sendMessage(chatId, '⏳ Sending Mobile OTP...');
         flow.step = 'mobile_otp';
         flow.targetMobile = input;
         try {
-          await flow.page.evaluate((mob) => {
-            window.prompt = (msg) => {
-              if (msg.includes("Mobile Number") || msg.includes("Number")) return mob;
-              return "";
-            };
-          }, input);
-
-          await flow.page.evaluate(async () => {
+          await flow.page.evaluate(async (newMob) => {
             const baseUrl = "https://sarathi.parivahan.gov.in/sarathiservice";
-            const newMob = prompt("📱 Enter the Mobile Number:");
             await fetch(`${baseUrl}/checkMobCount.do`, {
                 method: "POST",
                 headers: {
@@ -393,9 +383,9 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
                 headers: { "x-requested-with": "XMLHttpRequest" },
                 credentials: "include"
             });
-          });
+          }, input);
 
-          await bot.sendMessage(chatId, `🔐 Mobile OTP sent to ${input}. Please reply directly with the 6-digit OTP code to complete the update.`);
+          await bot.sendMessage(chatId, '🔑 Enter Mobile OTP:');
         } catch (error) {
           mobileUpdateSessions.delete(chatId);
           await bot.sendMessage(chatId, `❌ Failed to trigger Mobile OTP: ${error.message || error}`);
@@ -411,16 +401,24 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
     if (flow.step === 'mobile_otp') {
       if (input.length === 6 && /^\d+$/.test(input)) {
         mobileUpdateSessions.delete(chatId);
-        await bot.sendMessage(chatId, '⏳ Mobile Verification OTP received. Executing bypass database updates and rendering confirmation...');
+        await bot.sendMessage(chatId, '⏳ Updating...');
         try {
           const result = await mobileUpdateService.executeBypassScript(flow.page, flow.targetMobile, input);
-          if (result.success && result.screenshotPath) {
+          if (result.screenshotPath) {
             const docBuffer = fs.readFileSync(result.screenshotPath);
-            await bot.sendPhoto(chatId, docBuffer, { caption: `🎉 SUCCESS! Mobile number successfully updated to ${flow.targetMobile}.\n\nHere is your official confirmation preview.` });
+            const caption = result.success 
+              ? `🎉 Updated to ${flow.targetMobile}!` 
+              : `❌ Update may have failed. Check preview.`;
+            await bot.sendPhoto(chatId, docBuffer, { caption });
             cleanupFile(result.screenshotPath);
-            if (flow.resolveJob) flow.resolveJob({ ok: true });
+            if (result.success) {
+              if (flow.resolveJob) flow.resolveJob({ ok: true });
+            } else {
+              if (flow.rejectJob) flow.rejectJob(new Error('Update failed on portal.'));
+            }
           } else {
-            throw new Error('Bypass workflow failed to return confirmation page.');
+            await bot.sendMessage(chatId, '❌ Mobile update failed.');
+            if (flow.rejectJob) flow.rejectJob(new Error('Mobile update failed. No confirmation page screenshot.'));
           }
         } catch (error) {
           await bot.sendMessage(chatId, `❌ Mobile Update failed: ${error.message || error}`);

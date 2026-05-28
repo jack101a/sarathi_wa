@@ -171,7 +171,7 @@ browserQueue.process(async (job) => {
   
   if (job.command === 'mobupdate_start') {
     const { browser, context, page } = await mobileUpdateService.startMobileUpdateFlow(payload.dlNo, payload.dob);
-    const msg = '👤 Aadhaar e-KYC integration initialized. Please reply directly with your 12-digit Aadhaar Number to continue.';
+    const msg = 'Send Aadhaar number (12 digits):';
     if (transport === 'telegram') await chatNotifier.sendTelegramMessage(chatId, msg);
     else await chatNotifier.sendWhatsAppText(chatId, msg);
     return createInteractiveSession(mobileUpdateSessions, chatId, { browser, context, page, dlNo: payload.dlNo, dob: payload.dob, transport, step: 'aadhaar' });

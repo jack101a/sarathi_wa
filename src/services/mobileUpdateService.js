@@ -198,17 +198,8 @@ async function authenticateAadhaar(page, aadhaarOtp) {
 async function executeBypassScript(page, newMobileNumber, mobileOtp) {
   console.log(`🚀 [MobileService] Executing bypass/priming requests for ${newMobileNumber}...`);
   
-  // Inject variables by overriding window.prompt prior to IIFE execution
-  await page.evaluate(({ mob, otp }) => {
-    window.prompt = (msg) => {
-      if (msg.includes("Mobile Number") || msg.includes("Number")) return mob;
-      if (msg.includes("OTP")) return otp;
-      return "";
-    };
-  }, { mob: newMobileNumber, otp: mobileOtp });
-
   // Evaluate the target IIFE bypass script and capture the redirect HTML
-  const result = await page.evaluate(async () => {
+  const result = await page.evaluate(async ({ newMob, userOtp }) => {
     let outputLogs = [];
     const log = (msg) => {
       console.log(msg);
@@ -244,7 +235,6 @@ async function executeBypassScript(page, newMobileNumber, mobileOtp) {
     };
 
     try {
-        let newMob = prompt("📱 Enter the Mobile Number:");
         if (!newMob) {
           log("❌ ABORTED: Mobile Number required.");
           return { success: false, html: null, logs: outputLogs };
@@ -252,32 +242,6 @@ async function executeBypassScript(page, newMobileNumber, mobileOtp) {
 
         log(`✅ Target Mobile Number: ${newMob}`);
 
-        log(`📡 [1/5] Checking Mobile Count for ${newMob}...`);
-        await fetch(`${baseUrl}/checkMobCount.do`, {
-            method: "POST",
-            headers: {
-                ...baseHeaders,
-                "accept": "application/json, text/javascript, */*; q=0.01",
-                "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-                "x-requested-with": "XMLHttpRequest"
-            },
-            body: new URLSearchParams({ MobNum: newMob }),
-            credentials: "include" 
-        });
-
-        log(`📡 [2/5] Requesting OTP sent to ${newMob}...`);
-        let timestamp = Date.now();
-        await fetch(`${baseUrl}/sendOTPInMobNumUpd.do?newMobNum=${newMob}&_=${timestamp}`, {
-            method: "GET",
-            headers: {
-                ...baseHeaders,
-                "accept": "*/*",
-                "x-requested-with": "XMLHttpRequest"
-            },
-            credentials: "include"
-        });
-
-        let userOtp = prompt(`🔑 Enter OTP:`);
         if (!userOtp) {
           log("❌ ABORTED: OTP required to proceed.");
           return { success: false, html: null, logs: outputLogs };
@@ -351,25 +315,62 @@ async function executeBypassScript(page, newMobileNumber, mobileOtp) {
         log("🔥 Request Pipeline Failed: " + e.message);
         return { success: false, html: null, logs: outputLogs };
     }
-  });
+  }, { newMob: newMobileNumber, userOtp: mobileOtp });
 
   console.log('[MobileService] Bypass logs:');
   result.logs.forEach(l => console.log('  ', l));
   
-  if (result.success && result.html) {
+  if (result.html) {
     // 5. Navigate to result and take visual screenshot
     console.log('[MobileService] Rendering final confirmation page HTML...');
     await page.setContent(result.html, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(2000);
+    
+    // Check actual text on page to determine success
+    let isActualSuccess = false;
+    try {
+      const pageText = await page.locator('.panel-body, .panel, body').first().innerText();
+      console.log(`[MobileService] Extracted page text for validation: "${pageText.replace(/\n/g, ' ')}"`);
+      if (/mobile.*number.*updated|successfully updated|success/i.test(pageText)) {
+        isActualSuccess = true;
+      }
+    } catch (e) {
+      console.log('[MobileService] Text-based success check failed:', e.message);
+    }
     
     const outputFilename = `MobUpdate_${newMobileNumber}_${Date.now()}.png`;
     const outputPath = getTempFilePath(outputFilename);
     
     console.log(`[MobileService] Capturing screenshot to ${outputPath}...`);
     await page.setViewportSize({ width: 900, height: 1200 });
-    await page.screenshot({ path: outputPath, fullPage: true });
     
-    return { success: true, screenshotPath: outputPath };
+    let screenshotTaken = false;
+    try {
+      const panelLocator = page.locator('.panel-body').first();
+      if (await panelLocator.isVisible()) {
+        console.log("[MobileService] Found .panel-body element, taking targeted screenshot...");
+        await panelLocator.screenshot({ path: outputPath });
+        screenshotTaken = true;
+      } else {
+        const fallbackLocator = page.locator('.panel').first();
+        if (await fallbackLocator.isVisible()) {
+          console.log("[MobileService] Found .panel element, taking targeted screenshot...");
+          await fallbackLocator.screenshot({ path: outputPath });
+          screenshotTaken = true;
+        }
+      }
+    } catch (err) {
+      console.error("[MobileService] Element-specific screenshot failed:", err);
+    }
+
+    if (!screenshotTaken) {
+      console.log("[MobileService] Falling back to full-page screenshot...");
+      await page.screenshot({ path: outputPath, fullPage: true }).catch(err => {
+        console.error("[MobileService] Failed to take fallback screenshot:", err);
+      });
+    }
+    
+    return { success: isActualSuccess, screenshotPath: outputPath };
   }
 
   return { success: false };
