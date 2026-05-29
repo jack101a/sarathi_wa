@@ -659,7 +659,11 @@ async function submitDLRenewalOTP(browser, context, page, otpCode, serviceType =
         const submitDialogHandler = async dialog => {
             const msg = dialog.message().toLowerCase();
             console.log(`[DLRenewal - Submit Dialog] ${dialog.type()}: ${dialog.message()}`);
-            if (msg.includes('address') || msg.includes('change')) {
+            
+            // Accept standard confirmations for saving data or smart card printing
+            if (dialog.type() === 'confirm' || msg.includes('sure') || msg.includes('save') || msg.includes('printed') || msg.includes('submit')) {
+                await dialog.accept().catch(() => {});
+            } else if (msg.includes('address') || msg.includes('change')) {
                 await dialog.dismiss().catch(() => {});
             } else {
                 await dialog.accept().catch(() => {});
@@ -744,7 +748,7 @@ async function submitDLRenewalOTP(browser, context, page, otpCode, serviceType =
                     submissionSuccessful = true;
                 } else {
                     console.log("[DLRenewal] Submission did not redirect. Retrying captcha...");
-                    await page.locator("img[src*='captchaimage.jsp']").first().click().catch(() => {});
+                    await page.locator("#capimgatsubmit, #capimg, img[src*='captchaimage.jsp']").first().click().catch(() => {});
                     await page.waitForTimeout(1500);
                 }
             }
