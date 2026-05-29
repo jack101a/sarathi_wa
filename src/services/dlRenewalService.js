@@ -649,7 +649,7 @@ async function submitDLRenewalOTP(browser, context, page, otpCode, serviceType =
             const okayBtn = popupPage.getByRole('button', { name: 'Okay' }).first();
             await okayBtn.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
             await okayBtn.click().catch(() => {});
-            await popupPage.waitForTimeout(1500);
+            await page.waitForTimeout(1500);
             await popupPage.close().catch(() => {});
             console.log("[DLRenewal] Form 1 popup completed.");
             await page.waitForTimeout(2000);
