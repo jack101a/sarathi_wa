@@ -31,6 +31,18 @@ function findOptionBySearchKeys(options, searchKeys) {
 }
 
 async function fillAddressDropdowns(page) {
+    // Check if the address dropdowns are actually visible on the page
+    const prmDistVisible = await page.locator('#prmDist').isVisible().catch(() => false);
+    const prmMandalVisible = await page.locator('#prmMandal').isVisible().catch(() => false);
+    if (!prmDistVisible && !prmMandalVisible) {
+        console.log("[DLRenewal] Address dropdowns (#prmDist / #prmMandal) are not visible on this page. Skipping address dropdown filling.");
+        const sameAs = page.locator('#sameasperm');
+        if (await sameAs.count() > 0 && await sameAs.isVisible() && !(await sameAs.isChecked())) {
+            await sameAs.check().catch(() => {});
+        }
+        return;
+    }
+
     // 1. Extract read-only old address details from the page
     try {
         await page.waitForFunction(() => {
