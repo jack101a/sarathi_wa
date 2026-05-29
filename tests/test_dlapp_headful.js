@@ -11,8 +11,8 @@ const rl = readline.createInterface({
     output: process.stdout
 });
 
-const llNo = "MH47 /0050138/2026";
-const dob = "02-01-2000"; // Trigger with user-requested DOB: 02-01-2000
+const llNo = "MH47 /0057141/2026";
+const dob = "19-09-2007"; // Trigger with user-requested DOB: 19-09-2007
 const mobile = "";      // Auto-resolved by system
 
 async function run() {

@@ -195,13 +195,8 @@ async function submitApplyDLOTP(browser, context, page, otpCode) {
         let submitAttempts = 0;
 
         const submitDialogHandler = async dialog => {
-            const msg = dialog.message().toLowerCase();
             console.log(`[ApplyDL - Submit Dialog] ${dialog.type()}: ${dialog.message()}`);
-            if (msg.includes('address') || msg.includes('change')) {
-                await dialog.dismiss().catch(() => {});
-            } else {
-                await dialog.accept().catch(() => {});
-            }
+            await dialog.accept().catch(() => {});
         };
         page.on('dialog', submitDialogHandler);
 
@@ -279,7 +274,7 @@ async function submitApplyDLOTP(browser, context, page, otpCode) {
                 submissionSuccessful = true;
             } else {
                 console.log("[ApplyDL] Captcha mismatch or validation failed on submit, retrying...");
-                await page.locator("img[src*='captchaimage.jsp']").first().click().catch(() => {});
+                await page.locator("#capimgatsubmit, #capimg, img[src*='captchaimage.jsp']").first().click().catch(() => {});
                 await page.waitForTimeout(1500);
             }
         }
