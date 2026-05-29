@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { Plus, Pencil, Trash2, X, Check, Search, Coins, Power, PowerOff, RefreshCw } from 'lucide-react';
-import { apiPostJson, apiPatchJson, apiDelete, apiPut } from '../../api/client.js';
+import React, { useState, useEffect } from 'react';
+import { Plus, Pencil, Trash2, X, Check, Search, Coins, Power, PowerOff, RefreshCw, FileText } from 'lucide-react';
+import { apiPostJson, apiPatchJson, apiDelete, apiPut, apiGet } from '../../api/client.js';
 
 function badge(is_active, pending_otp) {
   if (pending_otp) {
@@ -28,14 +28,10 @@ function CreditModal({ phone, isDark, onClose, showToast, onRefresh }) {
   const labelStyle = { fontSize: '0.75rem', color: isDark ? '#9ca3af' : '#6b7280', display: 'block', marginBottom: '0.3rem' };
 
   async function handleSave() {
-    if (!amount || isNaN(Number(amount))) return;
+    if (amount === '' || isNaN(Number(amount))) return;
     setSaving(true);
     try {
-      if (action === 'set') {
-        await apiPatchJson(`/admin/api/users/${encodeURIComponent(phone)}/credits`, { credits: Number(amount), note });
-      } else {
-        await apiPostJson(`/admin/api/users/${encodeURIComponent(phone)}/credits`, { action, amount: Number(amount), note });
-      }
+      await apiPostJson(`/admin/api/users/${encodeURIComponent(phone)}/credits`, { action, amount: Number(amount), note });
       showToast('Credits updated', 'success');
       onRefresh();
       onClose();
@@ -72,8 +68,159 @@ function CreditModal({ phone, isDark, onClose, showToast, onRefresh }) {
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
           <button onClick={onClose} style={{ padding: '0.45rem 1rem', borderRadius: '0.5rem', background: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)', color: isDark ? '#9ca3af' : '#6b7280', border: 'none', cursor: 'pointer', fontSize: '0.8rem' }}>Cancel</button>
-          <button onClick={handleSave} disabled={saving || !amount} style={{ padding: '0.45rem 1rem', borderRadius: '0.5rem', background: 'linear-gradient(135deg,#6366f1,#4f46e5)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, opacity: saving || !amount ? 0.6 : 1 }}>{saving ? 'Saving…' : 'Apply'}</button>
+          <button onClick={handleSave} disabled={saving || amount === ''} style={{ padding: '0.45rem 1rem', borderRadius: '0.5rem', background: 'linear-gradient(135deg,#6366f1,#4f46e5)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, opacity: saving || amount === '' ? 0.6 : 1 }}>{saving ? 'Saving…' : 'Apply'}</button>
         </div>
+      </div>
+    </>
+  );
+}
+
+function UserLogsModal({ phone, isDark, onClose, showToast }) {
+  const [logs, setLogs] = useState({ credits: [], jobs: [] });
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('jobs'); // 'jobs' or 'credits'
+
+  useEffect(() => {
+    async function fetchLogs() {
+      try {
+        const res = await apiGet(`/admin/api/users/${encodeURIComponent(phone)}/logs`);
+        if (res.ok) {
+          setLogs({ credits: res.credits || [], jobs: res.jobs || [] });
+        }
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchLogs();
+  }, [phone]);
+
+  const modalStyle = {
+    position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+    zIndex: 50, width: '90%', maxWidth: '650px', maxHeight: '80vh',
+    background: isDark ? '#161b22' : '#fff', borderRadius: '1rem',
+    padding: '1.5rem', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+    boxShadow: '0 25px 50px rgba(0,0,0,0.25)', display: 'flex', flexDirection: 'column'
+  };
+
+  const headerStyle = {
+    margin: '0 0 1rem', fontSize: '1.1rem', fontWeight: 700,
+    color: isDark ? '#e6edf3' : '#111827', display: 'flex',
+    alignItems: 'center', justifyContent: 'space-between'
+  };
+
+  const tabBtnStyle = (tab) => ({
+    padding: '0.5rem 1rem', border: 'none', background: 'transparent',
+    cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600,
+    color: activeTab === tab 
+      ? '#6366f1' 
+      : (isDark ? '#9ca3af' : '#6b7280'),
+    borderBottom: activeTab === tab ? '2px solid #6366f1' : '2px solid transparent',
+    transition: 'all 0.2s ease',
+    outline: 'none'
+  });
+
+  const listContainerStyle = {
+    flex: 1, overflowY: 'auto', marginTop: '1rem', 
+    maxHeight: '50vh', paddingRight: '0.25rem'
+  };
+
+  const logRowStyle = {
+    padding: '0.75rem', borderRadius: '0.5rem',
+    background: isDark ? 'rgba(255,255,255,0.02)' : '#f9fafb',
+    border: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`,
+    marginBottom: '0.5rem', fontSize: '0.8rem', display: 'flex',
+    flexDirection: 'column', gap: '0.25rem', textAlign: 'left'
+  };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 40, background: 'rgba(0,0,0,0.6)' }} />
+      <div className="modal-enter" style={modalStyle}>
+        <div style={headerStyle}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <FileText size={20} color="#6366f1" />
+            <span>Activity Logs: {phone}</span>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: isDark ? '#9ca3af' : '#6b7280' }}>
+            <X size={20} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}` }}>
+          <button style={tabBtnStyle('jobs')} onClick={() => setActiveTab('jobs')}>Job History ({logs.jobs.length})</button>
+          <button style={tabBtnStyle('credits')} onClick={() => setActiveTab('credits')}>Credit Transactions ({logs.credits.length})</button>
+        </div>
+
+        {loading ? (
+          <div style={{ padding: '3rem', textAlign: 'center', color: isDark ? '#9ca3af' : '#6b7280' }}>Loading logs...</div>
+        ) : (
+          <div style={listContainerStyle}>
+            {activeTab === 'jobs' ? (
+              logs.jobs.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '2rem', color: isDark ? '#9ca3af' : '#6b7280' }}>No jobs run yet.</div>
+              ) : (
+                logs.jobs.map((job) => (
+                  <div key={job.id} style={logRowStyle}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
+                      <span style={{ color: '#6366f1', fontFamily: 'monospace' }}>{job.command}</span>
+                      <span style={{
+                        padding: '0.1rem 0.4rem', borderRadius: '4px', fontSize: '0.65rem',
+                        background: job.status === 'completed' 
+                          ? 'rgba(16,185,129,0.15)' 
+                          : (job.status === 'failed' ? 'rgba(244,63,94,0.15)' : 'rgba(245,158,11,0.15)'),
+                        color: job.status === 'completed' 
+                          ? '#10b981' 
+                          : (job.status === 'failed' ? '#f43f5e' : '#f59e0b')
+                      }}>{job.status.toUpperCase()}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', opacity: 0.8, fontSize: '0.7rem' }}>
+                      <span>ID: <code style={{ fontFamily: 'monospace' }}>{job.id}</code> ({job.transport})</span>
+                      <span>{new Date(job.created_at).toLocaleString()}</span>
+                    </div>
+                    {job.error_text && (
+                      <div style={{ color: '#f43f5e', background: 'rgba(244,63,94,0.06)', padding: '0.4rem', borderRadius: '4px', marginTop: '0.25rem', fontFamily: 'monospace', fontSize: '0.75rem', border: '1px solid rgba(244,63,94,0.1)' }}>
+                        Error: {job.error_text}
+                      </div>
+                    )}
+                  </div>
+                ))
+              )
+            ) : (
+              logs.credits.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '2rem', color: isDark ? '#9ca3af' : '#6b7280' }}>No credit transactions yet.</div>
+              ) : (
+                logs.credits.map((tx) => (
+                  <div key={tx.id} style={logRowStyle}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
+                      <span style={{ 
+                        color: tx.action === 'add' 
+                          ? '#10b981' 
+                          : (tx.action === 'deduct' ? '#f43f5e' : '#a855f7'),
+                        textTransform: 'uppercase'
+                      }}>
+                        {tx.action === 'add' ? '➕ Added' : (tx.action === 'deduct' ? '➖ Deducted' : '⚙️ Set Exact')}
+                      </span>
+                      <span style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                        {tx.action === 'add' ? `+${tx.amount}` : (tx.action === 'deduct' ? `-${tx.amount}` : `${tx.amount}`)} credits
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', opacity: 0.8, fontSize: '0.7rem' }}>
+                      <span>Balance: {tx.balance_before} ➔ {tx.balance_after} credits (By {tx.triggered_by || 'system'})</span>
+                      <span>{new Date(tx.created_at).toLocaleString()}</span>
+                    </div>
+                    {tx.note && (
+                      <div style={{ fontStyle: 'italic', marginTop: '0.2rem', opacity: 0.8 }}>
+                        Note: "{tx.note}"
+                      </div>
+                    )}
+                  </div>
+                ))
+              )
+            )}
+          </div>
+        )}
       </div>
     </>
   );
@@ -302,6 +449,7 @@ function UserDrawer({ user, plans, isDark, sarathiTracked = [], vahanTracked = [
 export function UsersPanel({ users, plans = [], sarathiTracked = [], vahanTracked = [], isDark, onRefresh, showToast }) {
   const [drawerUser, setDrawerUser] = useState(null); // null = closed, {} = new, {phone: ...} = edit
   const [creditModalPhone, setCreditModalPhone] = useState(null);
+  const [logsModalPhone, setLogsModalPhone] = useState(null);
   const [search, setSearch] = useState('');
 
   const panelStyle = isDark
@@ -414,6 +562,7 @@ export function UsersPanel({ users, plans = [], sarathiTracked = [], vahanTracke
                   <td style={{ padding: '0.8rem 1rem' }}>
                     <div style={{ display: 'flex', gap: '0.4rem' }}>
                       <button style={btnGhost} onClick={() => setDrawerUser(u)} title="Edit"><Pencil size={14} /></button>
+                      <button style={btnGhost} onClick={() => setLogsModalPhone(u.canonical_phone)} title="View Logs"><FileText size={14} /></button>
                       <button style={Number(u.is_active) === 1 ? btnDanger : btnGhost} onClick={() => handleToggleActive(u)} title={Number(u.is_active) === 1 ? "Deactivate" : "Activate"}>
                         {Number(u.is_active) === 1 ? <PowerOff size={14} /> : <Power size={14} />}
                       </button>
@@ -451,6 +600,15 @@ export function UsersPanel({ users, plans = [], sarathiTracked = [], vahanTracke
           onClose={() => setCreditModalPhone(null)} 
           showToast={showToast}
           onRefresh={onRefresh}
+        />
+      )}
+
+      {logsModalPhone && (
+        <UserLogsModal 
+          phone={logsModalPhone} 
+          isDark={isDark} 
+          onClose={() => setLogsModalPhone(null)} 
+          showToast={showToast}
         />
       )}
     </div>

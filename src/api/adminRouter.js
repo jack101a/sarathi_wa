@@ -279,14 +279,25 @@ router.post('/users/:phone/credits', async (req, res) => {
   try {
     const { phone } = req.params;
     const { action, amount, note = '' } = req.body || {};
-    if (!action || !['add', 'set'].includes(action)) return res.status(400).json({ ok: false, message: "action must be 'add' or 'set'" });
-    if (!amount || Number(amount) <= 0) return res.status(400).json({ ok: false, message: 'amount must be positive' });
+    if (!action || !['add', 'deduct', 'set'].includes(action)) return res.status(400).json({ ok: false, message: "action must be 'add', 'deduct' or 'set'" });
+    
+    const numAmount = Number(amount);
+    if (isNaN(numAmount)) return res.status(400).json({ ok: false, message: 'amount must be a valid number' });
+    if (action === 'set') {
+      if (numAmount < 0) return res.status(400).json({ ok: false, message: 'amount must be non-negative for set exact' });
+    } else {
+      if (numAmount <= 0) return res.status(400).json({ ok: false, message: 'amount must be positive' });
+    }
+
     const user = await authRepo.getUserByPhone(phone);
     if (!user) return res.status(404).json({ ok: false, message: 'User not found' });
+    
     let result;
-    if (action === 'add') result = await authRepo.addCreditsAudited(user.id, Number(amount), note, 'admin');
-    else                  result = await authRepo.setCreditsAudited(user.id, Number(amount), note, 'admin');
-    logger.info('adminRouter', `Credits ${action}`, { phone, amount, newBalance: result.newBalance });
+    if (action === 'add') result = await authRepo.addCreditsAudited(user.id, numAmount, note, 'admin');
+    else if (action === 'deduct') result = await authRepo.deductCreditsAudited(user.id, numAmount, note, '');
+    else result = await authRepo.setCreditsAudited(user.id, numAmount, note, 'admin');
+    
+    logger.info('adminRouter', `Credits ${action}`, { phone, amount: numAmount, newBalance: result.newBalance });
     res.json({ ok: true, ...result });
   } catch (err) {
     res.status(500).json({ ok: false, message: err.message });
@@ -301,6 +312,22 @@ router.get('/users/:phone/credit-history', async (req, res) => {
     const limit = Math.min(Number(req.query.limit) || 50, 200);
     const history = await authRepo.getCreditHistory(user.id, limit);
     res.json({ ok: true, history });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+router.get('/users/:phone/logs', async (req, res) => {
+  try {
+    const { phone } = req.params;
+    const user = await authRepo.getUserByPhone(phone);
+    if (!user) return res.status(404).json({ ok: false, message: 'User not found' });
+    const limit = Math.min(Number(req.query.limit) || 100, 300);
+    const [credits, jobs] = await Promise.all([
+      authRepo.getCreditHistory(user.id, limit),
+      dbQuery('SELECT * FROM jobs WHERE user_id = ? ORDER BY created_at DESC LIMIT ?', [user.id, limit])
+    ]);
+    res.json({ ok: true, credits, jobs });
   } catch (err) {
     res.status(500).json({ ok: false, message: err.message });
   }

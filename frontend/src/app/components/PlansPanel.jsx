@@ -259,18 +259,63 @@ export function PlansPanel({ plans, services: dbServices = [], refresh, showToas
                   <span style={{ color: tdText, fontSize: '0.85rem', fontWeight: 600 }}>All Services (*)</span>
                 </div>
 
-                {!services.includes('*') && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
-                    {(dbServices.length > 0 ? dbServices : ALL_SERVICES.map(id => ({ id, display_name: id }))).map(srv => (
-                      <div key={srv.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }} onClick={() => toggleService(srv.id)}>
-                        {services.includes(srv.id) ? <CheckSquare size={16} color="#3b82f6" /> : <Square size={16} color={thText} />}
-                        <span style={{ color: tdText, fontSize: '0.8rem' }}>
-                          {srv.display_name} <span style={{ fontSize: '0.70rem', color: thText }}>({srv.id})</span>
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {!services.includes('*') && (() => {
+                  const servicesByCategory = { light: [], medium: [], heavy: [] };
+                  const sourceServices = dbServices.length > 0 
+                    ? dbServices 
+                    : ALL_SERVICES.map(id => {
+                        let category = 'light';
+                        if (['llprint_start', 'fee_print_start', 'pay_fee_start', 'slot_booking_start', 'resend_otp'].includes(id)) category = 'medium';
+                        else if (['lledit_start', 'dl_renewal_start', 'apply_dl_start'].includes(id)) category = 'heavy';
+                        return { id, display_name: id, category };
+                      });
+
+                  for (const srv of sourceServices) {
+                    const cat = srv.category || 'light';
+                    if (!servicesByCategory[cat]) servicesByCategory[cat] = [];
+                    servicesByCategory[cat].push(srv);
+                  }
+
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      {Object.entries(servicesByCategory).map(([cat, list]) => {
+                        if (list.length === 0) return null;
+                        
+                        const categoryLabels = {
+                          light: '🟢 Light Services (Status & Tracking)',
+                          medium: '🟡 Medium Services (Receipts & Slot Booking)',
+                          heavy: '🔴 Heavy Services (Bypass & Full Automation)'
+                        };
+                        
+                        return (
+                          <div key={cat} style={{ 
+                            background: isDark ? 'rgba(255,255,255,0.01)' : '#f9fafb',
+                            border: `1px solid ${trBorder}`,
+                            padding: '0.8rem', borderRadius: '0.5rem'
+                          }}>
+                            <div style={{ 
+                              fontSize: '0.75rem', fontWeight: 700, 
+                              color: cat === 'light' ? '#10b981' : (cat === 'medium' ? '#d97706' : '#ef4444'), 
+                              marginBottom: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.05em' 
+                            }}>
+                              {categoryLabels[cat] || `${cat} services`}
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                              {list.map(srv => (
+                                <div key={srv.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }} onClick={() => toggleService(srv.id)}>
+                                  {services.includes(srv.id) ? <CheckSquare size={16} color="#3b82f6" /> : <Square size={16} color={thText} />}
+                                  <span style={{ color: tdText, fontSize: '0.8rem' }}>
+                                    {srv.display_name} <span style={{ fontSize: '0.70rem', color: thText }}>({srv.id})</span>
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
 
               <div style={{ borderTop: `1px solid ${trBorder}`, paddingTop: '1rem', marginTop: '0.5rem' }}>

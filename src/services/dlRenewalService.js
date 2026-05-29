@@ -803,7 +803,12 @@ async function submitDLRenewalOTP(browser, context, page, otpCode, serviceType =
             });
         }
 
-        return fs.existsSync(screenshotPath) ? screenshotPath : `Application No: ${appNo}, Name: ${name}`;
+        return {
+            success: true,
+            screenshotPath: fs.existsSync(screenshotPath) ? screenshotPath : null,
+            appNo,
+            name
+        };
 
     } catch (error) {
         console.error("❌ Error in submitDLRenewalOTP:", error);

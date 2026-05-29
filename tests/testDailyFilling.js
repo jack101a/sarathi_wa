@@ -1,4 +1,6 @@
 require('dotenv').config();
+const CONFIG = require('../src/config/config');
+CONFIG.PUPPETEER.HEADLESS = false;
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
@@ -91,7 +93,8 @@ async function main() {
 
             const otp = await question("🔑 Enter the 6-digit OTP code received on mobile: ");
             console.log("[Test] Submitting OTP...");
-            const resultFile = await dlRenewalService.submitDLRenewalOTP(session.browser, session.context, session.page, otp.trim(), service);
+            const result = await dlRenewalService.submitDLRenewalOTP(session.browser, session.context, session.page, otp.trim(), service);
+            const resultFile = typeof result === 'object' && result !== null ? result.screenshotPath : result;
             console.log(`🎉 [Test] Success! DL Renewal file saved to: ${resultFile}`);
 
             const CONFIG = require('../src/config/config');

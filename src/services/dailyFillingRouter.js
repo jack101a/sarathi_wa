@@ -178,10 +178,51 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
       
       await message.reply(`⏳ OTP received. Filling Self-Declaration Form 1 popup and submitting DL ${formattedServiceName}...`);
       try {
-        const slipPath = await dlRenewalService.submitDLRenewalOTP(flow.browser, flow.context, flow.page, otpCode, flow.serviceType);
-        const media = MessageMedia.fromFilePath(slipPath);
-        await client.sendMessage(message.from, media, { caption: `✅ DL ${formattedServiceName} Successful! Here is your acknowledgement reference slip.` });
-        cleanupFile(slipPath);
+        const result = await dlRenewalService.submitDLRenewalOTP(flow.browser, flow.context, flow.page, otpCode, flow.serviceType);
+        let slipPath, appNo;
+        if (typeof result === 'object' && result !== null) {
+          slipPath = result.screenshotPath;
+          appNo = result.appNo;
+        } else {
+          slipPath = result;
+        }
+
+        if (slipPath) {
+          try {
+            const media = MessageMedia.fromFilePath(slipPath);
+            await client.sendMessage(message.from, media, { caption: `✅ DL ${formattedServiceName} Successful! Here is your acknowledgement reference slip.` });
+          } catch (e) {
+            console.error('Failed to send acknowledgement screenshot to WhatsApp:', e);
+          }
+          cleanupFile(slipPath);
+        }
+
+        // Automatically send formset after success
+        if (appNo && appNo !== 'Unknown' && flow.dob) {
+          try {
+            await message.reply('⏳ Automatically generating and downloading your formset (acknowledgement & medical forms)...');
+            const { getFormset } = require('./formsetService');
+            const { buffer, filename } = await getFormset(appNo, flow.dob);
+            
+            const tempDir = CONFIG.TEMP.DIR || './data/temp';
+            if (!fs.existsSync(tempDir)) {
+              fs.mkdirSync(tempDir, { recursive: true });
+            }
+            const tempPath = path.join(tempDir, filename);
+            fs.writeFileSync(tempPath, buffer);
+            
+            const mediaDoc = MessageMedia.fromFilePath(tempPath);
+            await client.sendMessage(message.from, mediaDoc, { 
+              caption: `📄 Automatically generated Formset for Application No: ${appNo}. (Contains acknowledgement form and medical form)`,
+              sendMediaAsDocument: true
+            });
+            cleanupFile(tempPath);
+          } catch (formsetError) {
+            console.error('Failed to automatically send formset:', formsetError);
+            await message.reply(`⚠️ Note: Application is successful, but formset PDF could not be generated automatically: ${formsetError.message}`);
+          }
+        }
+
         if (flow.resolveJob) flow.resolveJob({ ok: true, slipPath });
       } catch (error) {
         await message.reply(`❌ DL ${formattedServiceName} failed: ${error.message || error}`);
@@ -214,6 +255,34 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
           }
           cleanupFile(details.screenshotPath);
         }
+
+        // Automatically send formset after success
+        const appNo = details.appNo || (details.extractedText && details.extractedText.match(/Application No\s*:\s*(\d+)/i)?.[1]);
+        if (appNo && appNo !== 'Unknown' && flow.dob) {
+          try {
+            await message.reply('⏳ Automatically generating and downloading your formset (acknowledgement & medical forms)...');
+            const { getFormset } = require('./formsetService');
+            const { buffer, filename } = await getFormset(appNo, flow.dob);
+            
+            const tempDir = CONFIG.TEMP.DIR || './data/temp';
+            if (!fs.existsSync(tempDir)) {
+              fs.mkdirSync(tempDir, { recursive: true });
+            }
+            const tempPath = path.join(tempDir, filename);
+            fs.writeFileSync(tempPath, buffer);
+            
+            const mediaDoc = MessageMedia.fromFilePath(tempPath);
+            await client.sendMessage(message.from, mediaDoc, { 
+              caption: `📄 Automatically generated Formset for Application No: ${appNo}. (Contains acknowledgement form and medical form)`,
+              sendMediaAsDocument: true
+            });
+            cleanupFile(tempPath);
+          } catch (formsetError) {
+            console.error('Failed to automatically send formset:', formsetError);
+            await message.reply(`⚠️ Note: Application is successful, but formset PDF could not be generated automatically: ${formsetError.message}`);
+          }
+        }
+
         if (flow.resolveJob) flow.resolveJob({ ok: true, details });
       } catch (error) {
         await message.reply(`❌ DL Application failed: ${error.message || error}`);
@@ -447,9 +516,48 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
       
       await bot.sendMessage(chatId, `⏳ OTP received. Filling Self-Declaration Form 1 popup and submitting DL ${formattedServiceName}...`);
       try {
-        const slipPath = await dlRenewalService.submitDLRenewalOTP(flow.browser, flow.context, flow.page, otpCode, flow.serviceType);
-        await bot.sendDocument(chatId, slipPath, { caption: `✅ DL ${formattedServiceName} Successful! Here is your acknowledgement reference slip.` });
-        cleanupFile(slipPath);
+        const result = await dlRenewalService.submitDLRenewalOTP(flow.browser, flow.context, flow.page, otpCode, flow.serviceType);
+        let slipPath, appNo;
+        if (typeof result === 'object' && result !== null) {
+          slipPath = result.screenshotPath;
+          appNo = result.appNo;
+        } else {
+          slipPath = result;
+        }
+
+        if (slipPath) {
+          try {
+            await bot.sendDocument(chatId, slipPath, { caption: `✅ DL ${formattedServiceName} Successful! Here is your acknowledgement reference slip.` });
+          } catch (e) {
+            console.error('Failed to send acknowledgement screenshot to Telegram:', e);
+          }
+          cleanupFile(slipPath);
+        }
+
+        // Automatically send formset after success
+        if (appNo && appNo !== 'Unknown' && flow.dob) {
+          try {
+            await bot.sendMessage(chatId, '⏳ Automatically generating and downloading your formset (acknowledgement & medical forms)...');
+            const { getFormset } = require('./formsetService');
+            const { buffer, filename } = await getFormset(appNo, flow.dob);
+            
+            const tempDir = CONFIG.TEMP.DIR || './data/temp';
+            if (!fs.existsSync(tempDir)) {
+              fs.mkdirSync(tempDir, { recursive: true });
+            }
+            const tempPath = path.join(tempDir, filename);
+            fs.writeFileSync(tempPath, buffer);
+            
+            await bot.sendDocument(chatId, tempPath, { 
+              caption: `📄 Automatically generated Formset for Application No: ${appNo}. (Contains acknowledgement form and medical form)`
+            });
+            cleanupFile(tempPath);
+          } catch (formsetError) {
+            console.error('Failed to automatically send formset:', formsetError);
+            await bot.sendMessage(chatId, `⚠️ Note: Application is successful, but formset PDF could not be generated automatically: ${formsetError.message}`);
+          }
+        }
+
         if (flow.resolveJob) flow.resolveJob({ ok: true, slipPath });
       } catch (error) {
         await bot.sendMessage(chatId, `❌ DL ${formattedServiceName} failed: ${error.message || error}`);
@@ -481,6 +589,32 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
           }
           cleanupFile(details.screenshotPath);
         }
+
+        // Automatically send formset after success
+        const appNo = details.appNo || (details.extractedText && details.extractedText.match(/Application No\s*:\s*(\d+)/i)?.[1]);
+        if (appNo && appNo !== 'Unknown' && flow.dob) {
+          try {
+            await bot.sendMessage(chatId, '⏳ Automatically generating and downloading your formset (acknowledgement & medical forms)...');
+            const { getFormset } = require('./formsetService');
+            const { buffer, filename } = await getFormset(appNo, flow.dob);
+            
+            const tempDir = CONFIG.TEMP.DIR || './data/temp';
+            if (!fs.existsSync(tempDir)) {
+              fs.mkdirSync(tempDir, { recursive: true });
+            }
+            const tempPath = path.join(tempDir, filename);
+            fs.writeFileSync(tempPath, buffer);
+            
+            await bot.sendDocument(chatId, tempPath, { 
+              caption: `📄 Automatically generated Formset for Application No: ${appNo}. (Contains acknowledgement form and medical form)`
+            });
+            cleanupFile(tempPath);
+          } catch (formsetError) {
+            console.error('Failed to automatically send formset:', formsetError);
+            await bot.sendMessage(chatId, `⚠️ Note: Application is successful, but formset PDF could not be generated automatically: ${formsetError.message}`);
+          }
+        }
+
         if (flow.resolveJob) flow.resolveJob({ ok: true, details });
       } catch (error) {
         await bot.sendMessage(chatId, `❌ DL Application failed: ${error.message || error}`);

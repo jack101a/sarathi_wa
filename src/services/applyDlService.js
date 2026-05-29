@@ -288,14 +288,16 @@ async function submitApplyDLOTP(browser, context, page, otpCode) {
         console.log("[ApplyDL] Successfully submitted! Extracting details...");
         const slipTextLocator = page.locator('text=/Application No :|Application Reference Slip/i').first();
         let extractedText = "Submitted successfully. Page redirected.";
+        let appNo = "Unknown";
+        let name = "Unknown";
 
         if (await slipTextLocator.isVisible()) {
             const bodyText = await page.innerText('body');
             const match = bodyText.match(/Application No\s*:\s*(\d+)/i);
             const nameMatch = bodyText.match(/Name\s*:\s*([A-Za-z\s]+)/i);
             
-            const appNo = match ? match[1] : "Unknown";
-            const name = nameMatch ? nameMatch[1].trim() : "Unknown";
+            appNo = match ? match[1] : "Unknown";
+            name = nameMatch ? nameMatch[1].trim() : "Unknown";
             extractedText = `Application No: ${appNo}, Name: ${name}`;
             console.log(`🎉 [ApplyDL] Extracted: ${extractedText}`);
         }
@@ -313,6 +315,8 @@ async function submitApplyDLOTP(browser, context, page, otpCode) {
         return {
             success: true,
             extractedText,
+            appNo,
+            name,
             screenshotPath: fs.existsSync(screenshotPath) ? screenshotPath : null
         };
 
