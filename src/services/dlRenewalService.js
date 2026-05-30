@@ -349,15 +349,74 @@ async function startDLRenewalFlow(dlNo, dob, rtoCode, mobile, serviceType = 'REN
         console.log("[DLRenewal] Generating OTP...");
         let otpSent = false;
         attempts = 0;
+        let maskedMobile = '';
 
         while (!otpSent && attempts < 5) {
             attempts++;
+
             await smartSolveCaptcha(page, `OTP Request Attempt ${attempts}`, 'DLRenewal');
+
+            // Fail-safe: Force-enable the Generate OTP button in case it is disabled
+            try {
+                await page.evaluate(() => {
+                    const btnEl = document.getElementById('generateSarathiotp') 
+                               || Array.from(document.querySelectorAll('button')).find(el => el.textContent.includes('Generate OTP'));
+                    if (btnEl && btnEl.disabled) {
+                        btnEl.removeAttribute('disabled');
+                        btnEl.disabled = false;
+                    }
+                });
+            } catch (err) {
+                console.error("[DLRenewal] Error enabling Generate OTP button:", err);
+            }
+
             await page.getByRole('button', { name: 'Generate OTP' }).click();
             await page.waitForTimeout(2000);
 
             if (await page.locator('#otpNumberSarathi').isVisible()) {
                 otpSent = true;
+
+                // Dynamically extract the masked mobile number directly from DOM elements
+                try {
+                    // Try 1: Extract from mobilesuccMsgBox
+                    const succBoxText = await page.locator('#mobilesuccMsgBox').innerText().catch(() => '');
+                    if (succBoxText) {
+                        const match = succBoxText.match(/(?:\d+\*+\d+|\*+\d+)/);
+                        if (match) {
+                            // Strip any leading unmasked digits to yield e.g. ******674
+                            maskedMobile = match[0].replace(/^\d+/, '');
+                        }
+                    }
+
+                    // Try 2: Extract from text node next to hidden input if Try 1 failed
+                    if (!maskedMobile) {
+                        const parentText = await page.evaluate(() => {
+                            const input = document.getElementById('mobileNumber');
+                            if (input && input.parentElement) {
+                                return input.parentElement.textContent.replace(input.value, '').trim();
+                            }
+                            return '';
+                        }).catch(() => '');
+                        if (parentText && parentText.includes('*')) {
+                            maskedMobile = parentText.trim();
+                        }
+                    }
+
+                    // Try 3: Safe fallback generation using the last 4 digits of the actual/hidden input value
+                    if (!maskedMobile) {
+                        const rawMob = await page.locator('#mobileNumber').getAttribute('value').catch(() => '');
+                        if (rawMob && rawMob.length >= 6) {
+                            maskedMobile = `******${rawMob.slice(-4)}`;
+                        }
+                    }
+                } catch (maskErr) {
+                    console.error("[DLRenewal] Error extracting masked mobile:", maskErr);
+                }
+
+                if (!maskedMobile) {
+                    maskedMobile = '******';
+                }
+                console.log(`[DLRenewal] OTP sent successfully. Masked mobile: ${maskedMobile}`);
             } else {
                 console.log("[DLRenewal] Failed to generate OTP, retrying...");
                 await page.locator("img[src*='captchaimage.jsp']").first().click().catch(() => {});
@@ -372,8 +431,8 @@ async function startDLRenewalFlow(dlNo, dob, rtoCode, mobile, serviceType = 'REN
         // Clean up global dialog handler before returning
         page.off('dialog', dialogHandler);
 
-        // Return context, page, and browser to pause
-        return { browser, context, page };
+        // Return context, page, browser, and maskedMobile to pause
+        return { browser, context, page, maskedMobile };
 
     } catch (error) {
         console.error("❌ Error in startDLRenewalFlow:", error);

@@ -72,15 +72,15 @@ browserQueue.process(async (job) => {
   if (job.command === 'dl_renewal_start') {
     const serviceType = payload.serviceType || 'RENEWAL OF DL';
     try {
-      const { browser, context, page } = await dlRenewalService.startDLRenewalFlow(payload.dlNo, payload.dob, payload.rtoCode, payload.mobile, serviceType);
+      const { browser, context, page, maskedMobile } = await dlRenewalService.startDLRenewalFlow(payload.dlNo, payload.dob, payload.rtoCode, payload.mobile, serviceType);
       
       const serviceName = serviceType.replace('OF DL', '').replace('ISSUE OF', '').trim().toLowerCase();
       const formattedServiceName = serviceName.charAt(0).toUpperCase() + serviceName.slice(1);
-      const msg = `🔐 DL ${formattedServiceName} OTP generated. Please reply with the 6-digit OTP code to continue.`;
+      const msg = `🔐 OTP has been sent successfully to your mobile number ${maskedMobile || '******'} for DL ${formattedServiceName}.\n\nPlease reply with the 6-digit OTP code to continue.`;
 
       if (transport === 'telegram') await chatNotifier.sendTelegramMessage(chatId, msg);
       else await chatNotifier.sendWhatsAppText(chatId, msg);
-      return createInteractiveSession(dlRenewalSessions, chatId, { browser, context, page, dlNo: payload.dlNo, dob: payload.dob, serviceType, transport });
+      return createInteractiveSession(dlRenewalSessions, chatId, { browser, context, page, dlNo: payload.dlNo, dob: payload.dob, serviceType, transport, maskedMobile });
     } catch (error) {
       // Only notify the user for the specific missing mobile linkage or existing application errors
       const isMobileMissingError = error.message && error.message.includes("A valid mobile number is not available");
@@ -101,11 +101,11 @@ browserQueue.process(async (job) => {
   }
 
   if (job.command === 'apply_dl_start') {
-    const { browser, context, page } = await applyDlService.startApplyDLFlow(payload.llNo, payload.dob, payload.mobile);
-    const msg = '🔐 DL Application OTP generated. Please reply with the 6-digit OTP code to continue.';
+    const { browser, context, page, maskedMobile } = await applyDlService.startApplyDLFlow(payload.llNo, payload.dob, payload.mobile);
+    const msg = `🔐 OTP has been sent successfully to your mobile number ${maskedMobile || '******'} for DL Application.\n\nPlease reply with the 6-digit OTP code to continue.`;
     if (transport === 'telegram') await chatNotifier.sendTelegramMessage(chatId, msg);
     else await chatNotifier.sendWhatsAppText(chatId, msg);
-    return createInteractiveSession(applyDlSessions, chatId, { browser, context, page, llNo: payload.llNo, dob: payload.dob, transport });
+    return createInteractiveSession(applyDlSessions, chatId, { browser, context, page, llNo: payload.llNo, dob: payload.dob, transport, maskedMobile });
   }
 
   if (job.command === 'pay_fee_start') {

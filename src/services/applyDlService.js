@@ -108,6 +108,8 @@ async function startApplyDLFlow(llNo, dob, mobile) {
         };
         page.on('dialog', otpDialogHandler);
 
+        let maskedMobile = '';
+
         while (!otpSent && attempts < 5) {
             attempts++;
             otpDialogMessage = null;
@@ -122,6 +124,47 @@ async function startApplyDLFlow(llNo, dob, mobile) {
 
             if (await page.locator('#otpNumberSarathi').isVisible()) {
                 otpSent = true;
+
+                // Dynamically extract the masked mobile number directly from DOM elements
+                try {
+                    // Try 1: Extract from mobilesuccMsgBox
+                    const succBoxText = await page.locator('#mobilesuccMsgBox').innerText().catch(() => '');
+                    if (succBoxText) {
+                        const match = succBoxText.match(/(?:\d+\*+\d+|\*+\d+)/);
+                        if (match) {
+                            maskedMobile = match[0].replace(/^\d+/, '');
+                        }
+                    }
+
+                    // Try 2: Extract from text node next to hidden input if Try 1 failed
+                    if (!maskedMobile) {
+                        const parentText = await page.evaluate(() => {
+                            const input = document.getElementById('mobileNumber');
+                            if (input && input.parentElement) {
+                                return input.parentElement.textContent.replace(input.value, '').trim();
+                            }
+                            return '';
+                        }).catch(() => '');
+                        if (parentText && parentText.includes('*')) {
+                            maskedMobile = parentText.trim();
+                        }
+                    }
+
+                    // Try 3: Safe fallback generation using the last 4 digits of the actual value
+                    if (!maskedMobile) {
+                        const rawMob = await page.locator('#mobileNumber').getAttribute('value').catch(() => '');
+                        if (rawMob && rawMob.length >= 6) {
+                            maskedMobile = `******${rawMob.slice(-4)}`;
+                        }
+                    }
+                } catch (maskErr) {
+                    console.error("[ApplyDL] Error extracting masked mobile:", maskErr);
+                }
+
+                if (!maskedMobile) {
+                    maskedMobile = '******';
+                }
+                console.log(`[ApplyDL] OTP sent successfully. Masked mobile: ${maskedMobile}`);
             } else {
                 console.log("[ApplyDL] Failed to generate OTP, retrying...");
                 await page.locator("img[src*='captchaimage.jsp']").first().click().catch(() => {});
@@ -136,7 +179,7 @@ async function startApplyDLFlow(llNo, dob, mobile) {
             throw new Error("Failed to trigger SMS OTP for DL application.");
         }
 
-        return { browser, context, page };
+        return { browser, context, page, maskedMobile };
 
     } catch (error) {
         console.error("❌ Error in startApplyDLFlow:", error);
