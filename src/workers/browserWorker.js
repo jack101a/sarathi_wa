@@ -101,11 +101,21 @@ browserQueue.process(async (job) => {
   }
 
   if (job.command === 'apply_dl_start') {
-    const { browser, context, page, maskedMobile } = await applyDlService.startApplyDLFlow(payload.llNo, payload.dob, payload.mobile);
-    const msg = `🔐 OTP has been sent successfully to your mobile number ${maskedMobile || '******'} for DL Application.\n\nPlease reply with the 6-digit OTP code to continue.`;
-    if (transport === 'telegram') await chatNotifier.sendTelegramMessage(chatId, msg);
-    else await chatNotifier.sendWhatsAppText(chatId, msg);
-    return createInteractiveSession(applyDlSessions, chatId, { browser, context, page, llNo: payload.llNo, dob: payload.dob, transport, maskedMobile });
+    try {
+      const { browser, context, page, maskedMobile } = await applyDlService.startApplyDLFlow(payload.llNo, payload.dob, payload.mobile);
+      const msg = `🔐 OTP has been sent successfully to your mobile number ${maskedMobile || '******'} for DL Application.\n\nPlease reply with the 6-digit OTP code to continue.`;
+      if (transport === 'telegram') await chatNotifier.sendTelegramMessage(chatId, msg);
+      else await chatNotifier.sendWhatsAppText(chatId, msg);
+      return createInteractiveSession(applyDlSessions, chatId, { browser, context, page, llNo: payload.llNo, dob: payload.dob, transport, maskedMobile });
+    } catch (error) {
+      const isPortalError = error.message && error.message.includes("Govt Portal Dialog Error");
+      if (isPortalError) {
+        const errorMsg = `⚠️ ${error.message.replace("Govt Portal Dialog Error: ", "")}`;
+        if (transport === 'telegram') await chatNotifier.sendTelegramMessage(chatId, errorMsg);
+        else await chatNotifier.sendWhatsAppText(chatId, errorMsg);
+      }
+      throw error;
+    }
   }
 
   if (job.command === 'pay_fee_start') {
