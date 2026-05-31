@@ -228,12 +228,49 @@ async function startTelegramBot(config) {
       }
     }
 
+    // Resolve authorization and user details
+    const { getUserForRequest, isAdminTelegram } = require('./services/authorizationService');
+    const dbUser = await getUserForRequest(msg, 'telegram');
+    const isAdmin = isAdminTelegram(msg, CONFIG);
+
     // Intercept simplified interactive command flows
     const interactiveFlowService = require('./services/interactiveFlowService');
-    const interactiveResult = interactiveFlowService.detectAndHandle(chatId, text);
+    const interactiveResult = await interactiveFlowService.detectAndHandle(chatId, text, dbUser, isAdmin);
     if (interactiveResult.handled) {
       if (interactiveResult.replyText) {
         await bot.sendMessage(chatId, interactiveResult.replyText);
+        return;
+      }
+      if (interactiveResult.executeCommands && interactiveResult.executeCommands.length > 0) {
+        const commandNormalizer = require('./services/commandNormalizer');
+        for (const cmdText of interactiveResult.executeCommands) {
+          const norm = commandNormalizer.parseCommand(cmdText, hasMedia, dbUser, isAdmin);
+          if (norm && norm.success) {
+            let payload = norm.payload || {};
+            if (norm.type === 'llprint_start' || norm.type === 'lledit_start' || norm.type === 'dl_renewal_start' || norm.type === 'apply_dl_start') {
+              let mobile = payload.mobile || '';
+              if (!mobile) {
+                if (dbUser && dbUser.canonical_phone) {
+                  const cp = String(dbUser.canonical_phone).replace(/\D/g, '');
+                  if (cp.length >= 10) mobile = cp.length > 10 ? cp.slice(-10) : cp;
+                }
+              }
+              if (!mobile || mobile.length < 10) {
+                let cmdName = norm.type === 'llprint_start' ? 'llprint' :
+                              norm.type === 'lledit_start' ? 'lledit' :
+                              norm.type === 'dl_renewal_start' ? 'dlrenewal' : 'dlapp';
+                let placeholder = norm.type === 'dl_renewal_start' ? '<DL_number> <dob> [RTO_code] <10_digit_mobile>' :
+                                  norm.type === 'apply_dl_start' ? '<LL_number> <dob> <10_digit_mobile>' :
+                                  `<appl_no> <dob> <10_digit_mobile>`;
+                await bot.sendMessage(chatId, `❌ Mobile number not found in your profile. Please ask admin to link it or use: \`/${cmdName} ${placeholder}\``);
+                continue;
+              }
+              const cleanMobile = mobile.length > 10 ? mobile.slice(-10) : mobile;
+              payload = { ...payload, mobile: cleanMobile };
+            }
+            await enqueueOrReplyTg(bot, msg, { command: norm.type, payload, chatId });
+          }
+        }
         return;
       }
       if (interactiveResult.executeCommand) {
@@ -243,9 +280,7 @@ async function startTelegramBot(config) {
 
     // Now, run the command normalizer
     const hasMedia = !!(msg.photo || msg.document || msg.video || msg.audio || msg.voice);
-    const { getUserForRequest, isAdminTelegram } = require('./services/authorizationService');
-    const dbUser = await getUserForRequest(msg, 'telegram');
-    const isAdmin = isAdminTelegram(msg, CONFIG);
+    // dbUser and isAdmin are already resolved above
 
     const commandNormalizer = require('./services/commandNormalizer');
     const normResult = commandNormalizer.parseCommand(text, hasMedia, dbUser, isAdmin);

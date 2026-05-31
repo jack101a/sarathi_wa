@@ -46,6 +46,7 @@ async function initDb() {
     const now = nowIso();
     const defaultServices = [
       { id: 'track', name: 'DL Status Track', cat: 'light', q: 'api', cost: 0, sort: 10 },
+      { id: 'track_multiple', name: 'Multi-App Tracking', cat: 'light', q: 'api', cost: 0, sort: 15 },
       { id: 'track_rc', name: 'RC Status Track (Vahan)', cat: 'light', q: 'api', cost: 0, sort: 20 },
       { id: 'track_status', name: 'Tracking List', cat: 'light', q: 'api', cost: 0, sort: 30 },
       { id: 'add_track', name: 'Add DL Auto-Track', cat: 'light', q: 'api', cost: 0, sort: 40 },

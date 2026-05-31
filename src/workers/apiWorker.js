@@ -85,8 +85,62 @@ apiQueue.process(async (job) => {
    }
    return { ok: true };
  }
- if (job.command === 'remove_track') { const r = removeAutoTrack({ appNo: payload.appNo, transport, chatId }); await sendText(transport, chatId, r.removed ? `Tracking removed for ${payload.appNo}.` : `No tracking found for ${payload.appNo}.`); return { ok: true }; }
- if (job.command === 'remove_track_rc') { const r = removeVahanTrackEverywhere(payload.appNo); await sendText(transport, chatId, r.removed ? `Vahan tracking removed for ${payload.appNo}.` : `No Vahan tracking found for ${payload.appNo}.`); return { ok: true }; }
+  if (job.command === 'remove_track') { const r = removeAutoTrack({ appNo: payload.appNo, transport, chatId }); await sendText(transport, chatId, r.removed ? `Tracking removed for ${payload.appNo}.` : `No tracking found for ${payload.appNo}.`); return { ok: true }; }
+  if (job.command === 'remove_track_rc') { const r = removeVahanTrackEverywhere(payload.appNo); await sendText(transport, chatId, r.removed ? `Vahan tracking removed for ${payload.appNo}.` : `No Vahan tracking found for ${payload.appNo}.`); return { ok: true }; }
+  
+  if (job.command === 'track_multiple') {
+    const statusService = require('../services/statusService');
+    const appNos = payload.appNos || [];
+    let responseText = '';
+
+    for (let i = 0; i < appNos.length; i++) {
+      const appNo = appNos[i];
+      if (i > 0) {
+        await new Promise(resolve => setTimeout(resolve, 1500));
+      }
+      try {
+        const { extractedHTML } = await statusService.fetchStatusMarkup(appNo);
+        const details = await statusService.parseStatusDetailsAsync(extractedHTML);
+        
+        let text = `*Application:* ${appNo}\n`;
+        text += `*Kind (Classification):* ${details.kind || '-'}\n`;
+        text += `*Transaction:* ${details.transaction || '-'}\n`;
+        text += `*Current Stage:* ${details.stage || '-'}\n`;
+        text += `*Counter:* ${details.counter || '-'}\n`;
+        
+        if (details.dlNumber) text += `*Driving Licence Number:* ${details.dlNumber}\n`;
+        if (details.trackerNo) text += `*Speed Post Tracker No:* ${details.trackerNo}\n`;
+        if (details.approvedAction) text += `*Approved Action:* ${details.approvedAction}\n`;
+        if (details.approvedOn) text += `*Approved On:* ${details.approvedOn}\n`;
+        
+        if (details.completedActions && details.completedActions.length > 0) {
+          text += `\n*Completed Actions (Timeline):*\n`;
+          details.completedActions.forEach((a, idx) => {
+            text += `${idx + 1}. [${a.processedOn || 'N/A'}] ✓ ${a.actionName} -> Status: ${a.status}\n`;
+          });
+        }
+        
+        if (details.furtherActions && details.furtherActions.length > 0) {
+          text += `\n*Further Actions (Pending):*\n`;
+          details.furtherActions.forEach((a, idx) => {
+            text += `${idx + 1}. → ${a.actionName} -> Status: ${a.status}\n`;
+          });
+        }
+        
+        if (details.message) {
+          text += `\n*Status Message:* ${details.message}\n`;
+        }
+
+        responseText += `${text}\n========================================\n\n`;
+      } catch (error) {
+        responseText += `*Application:* ${appNo}\n❌ Error: ${error.message}\n========================================\n\n`;
+      }
+    }
+
+    await sendText(transport, chatId, responseText.trim());
+    return { ok: true };
+  }
+
   if (job.command === 'list_track') { const p = await imageGeneratorService.generateStatusImage(chatId); await sendImageFile(transport, chatId, p); cleanup(p); return { ok: true }; }
  if (job.command === 'refresh_track') {
    await refreshUserTrackedData(chatId, transport);

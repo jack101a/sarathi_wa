@@ -557,12 +557,42 @@ async function createBot() {
       }
     }
 
+    // Resolve authorization and user details
+    const { getUserForRequest, isAdminWhatsApp } = require('./services/authorizationService');
+    const dbUser = await getUserForRequest(message, 'whatsapp');
+    const isAdmin = isAdminWhatsApp(message, CONFIG);
+
     // Intercept simplified interactive command flows
     const interactiveFlowService = require('./services/interactiveFlowService');
-    const interactiveResult = interactiveFlowService.detectAndHandle(message.from, normalizedBody);
+    const interactiveResult = await interactiveFlowService.detectAndHandle(message.from, normalizedBody, dbUser, isAdmin);
     if (interactiveResult.handled) {
       if (interactiveResult.replyText) {
         await message.reply(interactiveResult.replyText);
+        return;
+      }
+      if (interactiveResult.executeCommands && interactiveResult.executeCommands.length > 0) {
+        const commandNormalizer = require('./services/commandNormalizer');
+        for (const cmdText of interactiveResult.executeCommands) {
+          const norm = commandNormalizer.parseCommand(cmdText, message.hasMedia, dbUser, isAdmin);
+          if (norm && norm.success) {
+            let payload = norm.payload || {};
+            if (norm.type === 'llprint_start' || norm.type === 'lledit_start' || norm.type === 'dl_renewal_start' || norm.type === 'apply_dl_start' || norm.type === 'mobupdate_start') {
+              let mobile = payload.mobile || '';
+              if (!mobile) {
+                if (dbUser && dbUser.canonical_phone) {
+                  const cp = String(dbUser.canonical_phone).replace(/\D/g, '');
+                  mobile = cp.length > 10 ? cp.slice(-10) : cp;
+                }
+              }
+              if (!mobile) {
+                const senderPhone = (message.from || '').split('@')[0].replace(/\D/g, '');
+                mobile = senderPhone.length > 10 ? senderPhone.slice(-10) : senderPhone;
+              }
+              payload = { ...payload, mobile };
+            }
+            await enqueueOrReply(message, 'whatsapp', { command: norm.type, payload, chatId: message.from });
+          }
+        }
         return;
       }
       if (interactiveResult.executeCommand) {
@@ -659,9 +689,7 @@ async function createBot() {
         }
       }
 
-      const { getUserForRequest, isAdminWhatsApp } = require('./services/authorizationService');
-      const dbUser = await getUserForRequest(message, 'whatsapp');
-      const isAdmin = isAdminWhatsApp(message, CONFIG);
+      // dbUser and isAdmin are already resolved above
 
       const commandNormalizer = require('./services/commandNormalizer');
       const normResult = commandNormalizer.parseCommand(normalizedBody, message.hasMedia, dbUser, isAdmin);

@@ -104,6 +104,24 @@ function parseCommand(rawText, hasMedia, user, isAdmin) {
     return { success: false, ignore: true };
   }
 
+  // Intercept multiple tracking command:
+  // e.g. "track dl 842305226, 842513926, ..." or "track 842305226, 842513926, ..."
+  // Must match words containing digits only, separated by commas or spaces, with no valid DOB present.
+  const isTrackCommand = /^(?:track\s+)?(?:dl\s+)?/i.test(cleanedText);
+  if (isTrackCommand) {
+    const tokens = cleanedText.split(/[\s,+/]+/);
+    const hasDob = tokens.some(t => normalizeDob(t));
+    if (!hasDob) {
+      const appNos = tokens.filter(t => /^\d{8,15}$/.test(t));
+      if (appNos.length > 1) {
+        if (!isAdmin && (!user || user.subscription_plan !== 'premium')) {
+          return { success: false, error: '🚫 Multiple application tracking is only available for Premium plan users.' };
+        }
+        return { success: true, type: 'track_multiple', payload: { appNos } };
+      }
+    }
+  }
+
   // Check for admin commands silent block
   const isAuthCommand = /^(?:\/)?auth\b/i.test(cleanedText);
   const isRefreshCommand = /^(?:\/)?refreshtrack\b/i.test(cleanedText) || /^refresh\s+track$/i.test(cleanedText) || /^track\s+refresh$/i.test(cleanedText);
