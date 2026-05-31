@@ -99,7 +99,41 @@ async function notifyPairingCode(code) {
   });
 }
 
+async function notifyBotOffline(event, details = {}) {
+  const env = String(process.env.APP_ENV || process.env.NODE_ENV || 'production').toUpperCase();
+  const phone = String(process.env.WHATSAPP_PHONE_NUMBER || 'Not Configured').trim();
+
+  const embed = {
+    title: '🚨 WhatsApp Bot Offline Alert',
+    description: `The WhatsApp bot instance has gone offline or encountered a critical issue.`,
+    color: 16711680, // Red (0xFF0000)
+    fields: [
+      { name: 'Environment', value: `\`${env}\``, inline: true },
+      { name: 'Bot Number', value: `\`${phone}\``, inline: true },
+      { name: 'Event Triggered', value: `\`${event}\``, inline: true },
+    ],
+    timestamp: new Date().toISOString(),
+  };
+
+  if (details.reason) {
+    embed.fields.push({
+      name: 'Reason / Details',
+      value: `\`\`\`${String(details.reason).slice(0, 1000)}\`\`\``,
+    });
+  }
+
+  try {
+    return await postWebhook({
+      embeds: [embed],
+    });
+  } catch (error) {
+    console.error('Failed to notify Discord:', error.message);
+    return false;
+  }
+}
+
 module.exports = {
   notifyQRCode,
   notifyPairingCode,
+  notifyBotOffline,
 };

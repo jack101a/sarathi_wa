@@ -9,6 +9,7 @@ const CONFIG = require('./config/config');
 const { isAuthorized } = require('./core/auth');
 const { broadcastPairingCode, formatPairingCode } = require('./services/pairingCodeNotifier');
 const { setWhatsAppClient } = require('./services/chatNotifier');
+const { notifyBotOffline } = require('./utils/discordNotifier');
 const {
   addTrack: addVahanTrack,
   getHelpText,
@@ -480,9 +481,85 @@ async function createBot() {
     await handlePairingCode(code);
   });
 
+  let isBotReady = false;
+  let hasAlertedOffline = false;
+
   client.on('ready', () => {
     console.log('WhatsApp bot is online.');
+    isBotReady = true;
+    hasAlertedOffline = false;
   });
+
+  client.on('disconnected', async (reason) => {
+    console.error(`[bot] WhatsApp bot disconnected! Reason: ${reason}`);
+    isBotReady = false;
+    if (!hasAlertedOffline) {
+      hasAlertedOffline = true;
+      try {
+        await notifyBotOffline('disconnected', { reason });
+      } catch (error) {
+        console.error('[bot] Failed to send Discord offline webhook:', error.message);
+      }
+    }
+  });
+
+  client.on('auth_failure', async (msg) => {
+    console.error(`[bot] WhatsApp bot authentication failure! Message: ${msg}`);
+    isBotReady = false;
+    if (!hasAlertedOffline) {
+      hasAlertedOffline = true;
+      try {
+        await notifyBotOffline('auth_failure', { reason: msg });
+      } catch (error) {
+        console.error('[bot] Failed to send Discord offline webhook:', error.message);
+      }
+    }
+  });
+
+  // --- Randomized Self-Diagnostic Health Check (Every 5-10 minutes) ---
+  async function performHealthCheck() {
+    if (!isBotReady) {
+      return;
+    }
+
+    try {
+      const state = await client.getState();
+      if (state === 'CONNECTED') {
+        hasAlertedOffline = false;
+      } else {
+        throw new Error(`Client state is not CONNECTED (current: ${state})`);
+      }
+    } catch (error) {
+      console.warn(`[bot] Self-diagnostic check failed: ${error.message}`);
+      
+      if (!hasAlertedOffline) {
+        hasAlertedOffline = true;
+        isBotReady = false;
+        try {
+          await notifyBotOffline('self_diagnostic_failure', { reason: error.message });
+        } catch (webhookErr) {
+          console.error('[bot] Failed to send Discord self-diagnostic webhook:', webhookErr.message);
+        }
+      }
+    }
+  }
+
+  function scheduleNextHealthCheck() {
+    const minMinutes = 5;
+    const maxMinutes = 10;
+    const delayMs = Math.floor(Math.random() * (maxMinutes - minMinutes + 1) + minMinutes) * 60 * 1000;
+
+    setTimeout(async () => {
+      try {
+        await performHealthCheck();
+      } catch (err) {
+        console.error('[bot] Error during health check:', err.message);
+      }
+      scheduleNextHealthCheck();
+    }, delayMs);
+  }
+
+  scheduleNextHealthCheck();
 
   startVahanPolling(vahanWhatsAppClient, 'whatsapp');
 
