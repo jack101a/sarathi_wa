@@ -88,9 +88,10 @@ async function notifyQRCode(qrBase64, message) {
 }
 
 async function notifyPairingCode(code) {
+  const cleanCode = String(code || '').trim();
   const text = [
     'WhatsApp pairing code generated.',
-    `Code: ${String(code || '').trim()}`,
+    `Code: \`${cleanCode}\``,
     'Use Linked Devices > Link with phone number in WhatsApp.',
   ].join('\n');
 
