@@ -498,6 +498,10 @@ function parseCommand(rawText, hasMedia, user, isAdmin) {
         return { success: true, type: 'mobupdate_start', payload: { dlNo, dob: normalizedDob, mobile } };
       }
 
+      if (cmd === 'dlinfo') {
+        return { success: true, type: 'dl_info_start', payload: { dlNo, dob: normalizedDob } };
+      }
+
       let serviceType = 'RENEWAL OF DL';
       if (cmd === 'duplicate') serviceType = 'ISSUE OF DUPLICATE DL';
       else if (cmd === 'replacement') serviceType = 'REPLACEMENT OF DL';

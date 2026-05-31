@@ -87,7 +87,7 @@ browserQueue.process(async (job) => {
       const isAppExistsError = error.message && error.message.includes("Application already exist");
       if (isMobileMissingError || isAppExistsError) {
         const errorMsg = `⚠️ ${error.message}`;
-        if (error.screenshotPath && fs.existsSync(error.screenshotPath)) {
+        if (!isAppExistsError && error.screenshotPath && fs.existsSync(error.screenshotPath)) {
           const imgBuffer = fs.readFileSync(error.screenshotPath);
           if (transport === 'telegram') await chatNotifier.sendTelegramPhoto(chatId, imgBuffer, 'error.png', errorMsg);
           else await chatNotifier.sendWhatsAppImage(chatId, imgBuffer, 'error.png', errorMsg);

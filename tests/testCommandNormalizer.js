@@ -305,6 +305,13 @@ function testCommandNormalizer() {
   assert.strictEqual(res.payload.dlNo, '2982778275');
   assert.strictEqual(res.payload.dob, '01-02-2003');
 
+  // dl info unspaced
+  res = parseCommand('dlinfo 2982778275 01-02-2003', false, standardUser, false);
+  assert.strictEqual(res.success, true);
+  assert.strictEqual(res.type, 'dl_info_start');
+  assert.strictEqual(res.payload.dlNo, '2982778275');
+  assert.strictEqual(res.payload.dob, '01-02-2003');
+
   // apply dl
   res = parseCommand('apply dl 2982778275 01-02-2003', false, standardUser, false);
   assert.strictEqual(res.success, true);
