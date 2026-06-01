@@ -184,6 +184,8 @@ const sessionName = String(
 
 const CONFIG = {
   APP_ENV,
+  DATABASE_URL: process.env.DATABASE_URL || 'postgres://sarathi:password@localhost:5432/sarathi',
+  REDIS_URL: process.env.REDIS_URL || 'redis://localhost:6379',
   CONFIG_FILE_PATH: yamlConfig.path,
   PORT: asNumber(process.env.PORT, DEFAULTS.PORT),
   STATE_ID: String(getConfigValue('STATE_ID', 'state.id')).trim(),
