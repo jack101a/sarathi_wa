@@ -28,6 +28,9 @@
     "yaml": "^2.8.2"
   },
   "name": "sarathiwa_bot",
+  "workspaces": [
+    "packages/*"
+  ],
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
