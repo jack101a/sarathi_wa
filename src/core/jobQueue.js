@@ -1,129 +1,146 @@
+const { Queue, Worker } = require('bullmq');
+const Redis = require('ioredis');
 const CONFIG = require('../config/config');
-const jobRepository = require('../services/jobRepository');
-const logger = require('./logger');
-const { run } = require('./db');
-const { isHeavyCommand, getCreditCost, recordRequest } = require('./rateLimiter');
-const authRepo = require('../services/authorizationRepository');
-
-function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+const { redis } = require('./redis');
 
 class JobQueue {
   constructor(name, concurrency, options = {}) {
     this.name = name;
-    this.concurrency = Math.max(1, Number(concurrency) || 1);
+    this.concurrency = concurrency;
     this.options = options;
-    this.pending = [];
-    this.running = new Set();
-    this.completed = 0;
-    this.failed = 0;
-    this.handler = null;
-    this.stopped = false;
+    
+    this.redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+    this.connection = new Redis(this.redisUrl, { maxRetriesPerRequest: null });
+    
+    this.queue = new Queue(this.name, {
+      connection: this.connection,
+      defaultJobOptions: {
+        attempts: options.maxRetries || 1,
+        backoff: {
+          type: 'exponential',
+          delay: options.backoffMs || 5000,
+        },
+      },
+    });
+
+    this.worker = null;
+    this.completedCount = 0;
+    this.failedCount = 0;
   }
 
-  process(handlerFn) { this.handler = handlerFn; }
-
-  enqueue(job) {
-    this.pending.push(job);
-    this._tick().catch(() => {});
+  async enqueue(job) {
+    return this.queue.add(job.command, job, {
+      jobId: job.id,
+      priority: job.priority || 0,
+      delay: this.options.delayMs || 0,
+    });
   }
 
-  getStats() {
+  process(handlerFn) {
+    const workerConnection = new Redis(this.redisUrl, { maxRetriesPerRequest: null });
+    
+    this.worker = new Worker(this.name, async (bullJob) => {
+      const job = bullJob.data;
+      const jobRepository = require('../services/jobRepository');
+      const logger = require('./logger');
+      const { isHeavyCommand, getCreditCost, recordRequest } = require('./rateLimiter');
+      const authRepo = require('../services/authorizationRepository');
+
+      await jobRepository.updateJobStatus(job.id, 'running');
+      
+      try {
+        const result = await handlerFn(job);
+        await jobRepository.updateJobStatus(job.id, 'completed', JSON.stringify(result || {}), '');
+        this.completedCount++;
+        
+        // ── Credit deduction / Rate Limit consumption ──────────────────
+        if (isHeavyCommand(job.command) && job.user_id) {
+          const cost = getCreditCost(job.command);
+          let deducted = false;
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+              await authRepo.deductCreditsAudited(job.user_id, cost, `Heavy job completion: ${job.command}`, job.id);
+              logger.info('jobQueue', `Deducted ${cost} credits from user ${job.user_id} for ${job.command}`);
+              deducted = true;
+              break;
+            } catch (err) {
+              logger.error('jobQueue', `Credit deduction attempt ${attempt}/3 failed for user ${job.user_id}`, { error: err.message });
+              if (attempt < 3) await new Promise(r => setTimeout(r, 1000 * attempt));
+            }
+          }
+          if (!deducted) {
+            logger.error('jobQueue', `CRITICAL: Credit deduction FAILED after 3 attempts for user ${job.user_id}, job ${job.id}. Manual reconciliation needed.`);
+            try {
+              await jobRepository.updateJobStatus(job.id, 'completed', JSON.stringify({ ...(result || {}), billing_failed: true }), '');
+            } catch (_) {}
+          }
+        } else if (job.user_id) {
+          try {
+            await authRepo.incrementUsage(job.user_id);
+            await recordRequest(job.user_id, job.command);
+          } catch (err) {
+            logger.error('jobQueue', `Failed to record rate limit for user ${job.user_id}`, { error: err.message });
+          }
+        }
+
+        return result;
+      } catch (error) {
+        const errMsg = error.message || String(error);
+        await jobRepository.updateJobStatus(job.id, 'failed', '{}', errMsg);
+        this.failedCount++;
+        throw error;
+      }
+    }, {
+      connection: workerConnection,
+      concurrency: this.concurrency,
+    });
+
+    this.worker.on('failed', (bullJob, err) => {
+      const logger = require('./logger');
+      logger.warn('jobQueue', `BullMQ job failed`, { queue: this.name, jobId: bullJob ? bullJob.id : 'unknown', error: err.message });
+    });
+  }
+
+  async getStats() {
+    const [pending, active, completed, failed] = await Promise.all([
+      this.queue.getJobCountByTypes('waiting', 'delayed'),
+      this.queue.getJobCountByTypes('active'),
+      this.queue.getJobCountByTypes('completed'),
+      this.queue.getJobCountByTypes('failed'),
+    ]);
+
     return {
       name: this.name,
-      pending: this.pending.length,
-      running: this.running.size,
-      completed: this.completed,
-      failed: this.failed,
+      pending,
+      running: active,
+      completed: completed + this.completedCount,
+      failed: failed + this.failedCount,
     };
   }
 
-  async _runJob(job) {
-    this.running.add(job.id);
-    await jobRepository.updateJobStatus(job.id, 'running');
-    try {
-      if (this.options.delayMs > 0) await sleep(this.options.delayMs);
-      if (!this.handler) throw new Error(`No handler for queue ${this.name}`);
-      const result = await this.handler(job);
-      await jobRepository.updateJobStatus(job.id, 'completed', JSON.stringify(result || {}), '');
-      this.completed += 1;
-      logger.debug('jobQueue', `Job completed`, { queue: this.name, jobId: job.id, command: job.command });
-
-      // ── Credit deduction for heavy (professional) commands ──────────────────
-      // Deducted ONLY on successful completion, not on failure/cancellation.
-      if (isHeavyCommand(job.command) && job.user_id) {
-        const cost = getCreditCost(job.command);
-        let deducted = false;
-        for (let attempt = 1; attempt <= 3; attempt++) {
-          try {
-            await authRepo.deductCreditsAudited(job.user_id, cost, `Heavy job completion: ${job.command}`, job.id);
-            logger.info('jobQueue', `Deducted ${cost} credits from user ${job.user_id} for ${job.command}`);
-            deducted = true;
-            break;
-          } catch (err) {
-            logger.error('jobQueue', `Credit deduction attempt ${attempt}/3 failed for user ${job.user_id}`, { error: err.message });
-            if (attempt < 3) await sleep(1000 * attempt);
-          }
-        }
-        if (!deducted) {
-          logger.error('jobQueue', `CRITICAL: Credit deduction FAILED after 3 attempts for user ${job.user_id}, job ${job.id}. Manual reconciliation needed.`);
-          // Mark the job with billing failure for admin review
-          try {
-            await jobRepository.updateJobStatus(job.id, 'completed', JSON.stringify({ ...(result || {}), billing_failed: true }), '');
-          } catch (_) {}
-        }
-      } else if (job.user_id) {
-        // ── Rate Limit consumption for light/medium commands ─────────────────────
-        try {
-          await authRepo.incrementUsage(job.user_id);
-          await recordRequest(job.user_id, job.command);
-          logger.debug('jobQueue', `Recorded rate limit usage for user ${job.user_id}`, { command: job.command });
-        } catch (err) {
-          logger.error('jobQueue', `Failed to record rate limit for user ${job.user_id}`, { error: err.message });
-        }
-      }
-    } catch (error) {
-      const errMsg = error.message || String(error);
-      await jobRepository.updateJobStatus(job.id, 'failed', '{}', errMsg);
-      this.failed += 1;
-      logger.warn('jobQueue', `Job failed`, { queue: this.name, jobId: job.id, command: job.command, error: errMsg });
-    } finally {
-      this.running.delete(job.id);
-      this._tick().catch(() => {});
+  async close() {
+    if (this.worker) {
+      await this.worker.close();
     }
+    await this.queue.close();
+    await this.connection.quit();
   }
-
-  async _tick() {
-    if (this.stopped) return;
-    while (this.running.size < this.concurrency && this.pending.length > 0) {
-      const job = this.pending.shift();
-      this._runJob(job).catch(() => {});
-    }
-  }
-
-  cancelPendingJob(jobId) {
-    const idx = this.pending.findIndex(j => j.id === jobId);
-    if (idx === -1) return false;
-    this.pending.splice(idx, 1);
-    return true;
-  }
-
-  stop() { this.stopped = true; }
 }
 
-const apiQueue     = new JobQueue('api',     CONFIG.QUEUE.API_CONCURRENCY);
-const browserQueue = new JobQueue('browser', CONFIG.QUEUE.BROWSER_CONCURRENCY, {
-  delayMs:     CONFIG.QUEUE.BROWSER_DELAY_MS,
-  maxRetries:  CONFIG.QUEUE.BROWSER_MAX_RETRIES,
-  backoffMs:   CONFIG.QUEUE.BROWSER_BACKOFF_MS,
+const apiQueue     = new JobQueue('api',     CONFIG.QUEUE.API_CONCURRENCY || 5);
+const browserQueue = new JobQueue('browser', CONFIG.QUEUE.BROWSER_CONCURRENCY || 1, {
+  delayMs:     CONFIG.QUEUE.BROWSER_DELAY_MS || 3000,
+  maxRetries:  CONFIG.QUEUE.BROWSER_MAX_RETRIES || 2,
+  backoffMs:   CONFIG.QUEUE.BROWSER_BACKOFF_MS || 5000,
 });
 
-/**
- * On startup, re-queue jobs that were interrupted by a crash.
- * Resets any 'running' jobs to 'pending' and loads them into memory queues.
- */
 async function recoverJobs() {
+  const { run } = require('./db');
+  const jobRepository = require('../services/jobRepository');
+  const logger = require('./logger');
+
   try {
-    // Reset orphaned 'running' jobs back to 'pending'
+    // Reset orphaned 'running' jobs back to 'pending' in database
     await run("UPDATE jobs SET status = 'pending', started_at = '' WHERE status = 'running'");
 
     const [apiPending, browserPending] = await Promise.all([
@@ -131,11 +148,11 @@ async function recoverJobs() {
       jobRepository.getPendingJobs('browser', 20),
     ]);
 
-    for (const job of apiPending)     apiQueue.enqueue(job);
-    for (const job of browserPending) browserQueue.enqueue(job);
+    for (const job of apiPending)     await apiQueue.enqueue(job);
+    for (const job of browserPending) await browserQueue.enqueue(job);
 
     if (apiPending.length + browserPending.length > 0) {
-      logger.info('jobQueue', `Recovered jobs after restart`, {
+      logger.info('jobQueue', `Recovered and enqueued jobs after restart`, {
         api: apiPending.length,
         browser: browserPending.length,
       });
