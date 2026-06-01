@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS subscription_plans (
   id VARCHAR(255) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   description TEXT,
-  is_active BOOLEAN DEFAULT TRUE,
+  is_active INTEGER DEFAULT 1,
   limits_json JSONB DEFAULT '{}'::jsonb,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS services (
   category VARCHAR(50) DEFAULT 'light', -- light, medium, heavy
   queue_type VARCHAR(50) DEFAULT 'api',  -- api, browser
   credit_cost INTEGER DEFAULT 0,
-  is_active BOOLEAN DEFAULT TRUE,
+  is_active INTEGER DEFAULT 1,
   sort_order INTEGER DEFAULT 0
 );
 
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   channel VARCHAR(50) DEFAULT 'wa', -- wa, tg
   canonical_phone VARCHAR(255) UNIQUE NOT NULL,
-  is_active BOOLEAN DEFAULT TRUE,
+  is_active INTEGER DEFAULT 1,
   name VARCHAR(255) DEFAULT '',
   plan_id VARCHAR(255) REFERENCES subscription_plans(id) ON DELETE SET NULL,
   credits INTEGER DEFAULT 0,
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS auth_user_identities (
   identity_value VARCHAR(255) UNIQUE NOT NULL,
   verified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
   last_seen_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-  is_active BOOLEAN DEFAULT TRUE
+  is_active INTEGER DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS idx_identities_user_fk ON auth_user_identities(auth_user_id);
 

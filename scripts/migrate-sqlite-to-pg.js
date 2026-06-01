@@ -243,7 +243,7 @@ async function migrate() {
         identity_value VARCHAR(255) UNIQUE NOT NULL,
         verified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         last_seen_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        is_active BOOLEAN DEFAULT TRUE
+        is_active INTEGER DEFAULT 1
       );
       CREATE INDEX IF NOT EXISTS idx_identities_user_fk ON auth_user_identities(auth_user_id);
     `);
