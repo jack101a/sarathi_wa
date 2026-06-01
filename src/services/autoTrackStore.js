@@ -1,8 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const CONFIG = require('../config/config');
-const db = require('../core/db');
-const { runTransaction } = require('../core/db');
+const { trackingRepository } = require('@sarathi/common');
 
 function getLegacyStorePath() {
   return CONFIG.AUTO_TRACK.STORE_PATH;
@@ -36,7 +35,7 @@ function normalizeEntries(data) {
 }
 
 let cache = [];
-let sqliteReady = false;
+let storeReady = false;
 let writeQueue = Promise.resolve();
 
 function readLegacy() {
@@ -52,82 +51,27 @@ function readLegacy() {
 }
 
 function persistLegacy(entries) {
-  try {
-    ensureStoreDir();
-    const p = getLegacyStorePath();
-    const tmp = `${p}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(entries, null, 2));
-    fs.renameSync(tmp, p);
-  } catch (_) {}
+  void entries;
 }
 
-async function initSqlite() {
+async function initStore() {
   try {
-    await db.run(`CREATE TABLE IF NOT EXISTS tracked_sarathi (
-      app_no TEXT NOT NULL,
-      chat_id TEXT NOT NULL,
-      transport TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      last_stage TEXT DEFAULT '',
-      last_snapshot TEXT DEFAULT '',
-      tag TEXT DEFAULT '',
-      dob TEXT DEFAULT '',
-      applicant_name TEXT DEFAULT '',
-      service_name TEXT DEFAULT '',
-      application_date TEXT DEFAULT '',
-      scrutiny_at TEXT DEFAULT '',
-      approval_at TEXT DEFAULT '',
-      dispatched_at TEXT DEFAULT '',
-      PRIMARY KEY (app_no, chat_id, transport)
-    )`);
-    const columns = await db.query('PRAGMA table_info(tracked_sarathi)');
-    if (!columns.some((column) => column.name === 'application_date')) {
-      await db.run("ALTER TABLE tracked_sarathi ADD COLUMN application_date TEXT DEFAULT ''");
+    await trackingRepository.ensureSchema();
+    if (cache.length > 0) {
+      for (const e of cache) await trackingRepository.upsert('sarathi', e);
     }
-    await db.run('CREATE INDEX IF NOT EXISTS idx_tracked_sarathi_chat ON tracked_sarathi(chat_id, transport)');
-
-    // one-time import from legacy/cache
-    for (const e of cache) {
-      await db.run(
-        `INSERT OR IGNORE INTO tracked_sarathi (
-          app_no, chat_id, transport, created_at, last_stage, last_snapshot, tag, dob,
-          applicant_name, service_name, application_date, scrutiny_at, approval_at, dispatched_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [e.appNo, e.chatId, e.transport, e.createdAt, e.lastStage, e.lastSnapshot, e.tag, e.dob, e.applicantName, e.serviceName, e.applicationDate, e.scrutinyAt, e.approvalAt, e.dispatchedAt]
-      );
-    }
-
-    const rows = await db.query('SELECT * FROM tracked_sarathi');
-    cache = normalizeEntries(
-      rows.map((r) => ({
-        appNo: r.app_no,
-        chatId: r.chat_id,
-        transport: r.transport,
-        createdAt: r.created_at,
-        lastStage: r.last_stage,
-        lastSnapshot: r.last_snapshot,
-        tag: r.tag,
-        dob: r.dob,
-        applicantName: r.applicant_name,
-        serviceName: r.service_name,
-        applicationDate: r.application_date,
-        scrutinyAt: r.scrutiny_at,
-        approvalAt: r.approval_at,
-        dispatchedAt: r.dispatched_at,
-      }))
-    );
-    sqliteReady = true;
-    persistLegacy(cache);
+    cache = normalizeEntries(await trackingRepository.listByType('sarathi'));
+    storeReady = true;
   } catch (e) {
-    console.error('[autoTrackStore] SQLite init failed:', e.message);
-    sqliteReady = false;
+    console.error('[autoTrackStore] Postgres init failed:', e.message);
+    storeReady = false;
   }
 }
 
 function queueSqlWrite(task) {
-  if (!sqliteReady) return;
+  if (!storeReady) return;
   writeQueue = writeQueue.then(task).catch((err) => {
-    console.error('[autoTrackStore] SQLite write failed:', err.message);
+    console.error('[autoTrackStore] Postgres write failed:', err.message);
   });
 }
 
@@ -140,18 +84,7 @@ function writeTrackedApplications(entries) {
   cache = safe;
   persistLegacy(cache);
   queueSqlWrite(async () => {
-    await runTransaction(async ({ run: txR }) => {
-      await txR('DELETE FROM tracked_sarathi');
-      for (const e of safe) {
-        await txR(
-          `INSERT INTO tracked_sarathi (
-            app_no, chat_id, transport, created_at, last_stage, last_snapshot, tag, dob,
-            applicant_name, service_name, application_date, scrutiny_at, approval_at, dispatched_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [e.appNo, e.chatId, e.transport, e.createdAt, e.lastStage, e.lastSnapshot, e.tag, e.dob, e.applicantName, e.serviceName, e.applicationDate, e.scrutinyAt, e.approvalAt, e.dispatchedAt]
-        );
-      }
-    });
+    await trackingRepository.replaceType('sarathi', safe);
   });
   return safe;
 }
@@ -222,7 +155,7 @@ function updateTrackedApplication(entry, updates = {}) {
 }
 
 cache = readLegacy();
-initSqlite().catch(() => {});
+initStore().catch(() => {});
 
 module.exports = {
   readTrackedApplications,

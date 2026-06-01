@@ -1,151 +1,166 @@
 version: '3.8'
 
 services:
-  sarathi-bot:
-    image: ghcr.io/jack101a/sarathiwa_bot:wabot-17
-    container_name: sarathi_bot
-    restart: always
-    init: true
-    stop_grace_period: 60s
-
-    environment:
-      # ── Core ───────────────────────────────────────────────────────────────
-      - APP_ENV=${APP_ENV:-production}
-      - NODE_ENV=production
-      - DEBUG=${DEBUG:-false}
-      - PORT=${PORT:-3000}
-
-      # ── WhatsApp ───────────────────────────────────────────────────────────
-      - SESSION_NAME=${SESSION_NAME:-default-session}
-      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER:-}
-
-      # ── Telegram ───────────────────────────────────────────────────────────
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
-      - TELEGRAM_NOTIFY_CHAT_IDS=${TELEGRAM_NOTIFY_CHAT_IDS:-}
-
-      # ── Authorization & DB ─────────────────────────────────────────────────
-      - AUTHORIZED_USERS=${AUTHORIZED_USERS:-}
-      - AUTHORIZED_GROUPS=${AUTHORIZED_GROUPS:-}
-      - AUTHORIZED_TG_USERS=${AUTHORIZED_TG_USERS:-}
-      - AUTHORIZED_TG_GROUPS=${AUTHORIZED_TG_GROUPS:-}
-      - ADMIN_USERS=${ADMIN_USERS:-}
-      - AUTHORIZED_TG_ADMINS=${AUTHORIZED_TG_ADMINS:-}
-      - AUTHZ_DB_PATH=${AUTHZ_DB_PATH:-data/authz.sqlite}
-
-      # ── State Config & URLs ────────────────────────────────────────────────
-      - STATE_ID=${STATE_ID:-}
-      - STATE_CODE=${STATE_CODE:-}
-      - DAILY_FILLING_ENABLED=${DAILY_FILLING_ENABLED:-false}
-
-      # ── Tracking ───────────────────────────────────────────────────────────
-      - AUTO_TRACK_UPDATE_CHAT_ID=${AUTO_TRACK_UPDATE_CHAT_ID:-}
-      - VAHAN_TRACK_UPDATE_CHAT_ID=${VAHAN_TRACK_UPDATE_CHAT_ID:-}
-      - AUTO_TRACK_CRON=${AUTO_TRACK_CRON:-0 10-22/3 * * *}
-      - VAHAN_TRACK_CRON=${VAHAN_TRACK_CRON:-0 10-22/3 * * *}
-
-      # ── AI Status Parsing (LiteLLM) ────────────────────────────────────────
-      - AI_PARSING_ENABLED=${AI_PARSING_ENABLED:-false}
-      - LITELLM_API_BASE=${LITELLM_API_BASE:-http://localhost:4000/v1}
-      - LITELLM_API_KEY=${LITELLM_API_KEY:-}
-      - LITELLM_MODEL=${LITELLM_MODEL:-gemini/gemini-1.5-flash}
-
-      # ── Vahan Captcha Auto-Solver Overrides ────────────────────────────────
-      - VAHAN_CAPTCHA_MODEL_PATH=${VAHAN_CAPTCHA_MODEL_PATH:-godmode_solver.onnx}
-      - VAHAN_CAPTCHA_AUTO_SOLVE=${VAHAN_CAPTCHA_AUTO_SOLVE:-true}
-      - VAHAN_CAPTCHA_MAX_ATTEMPTS=${VAHAN_CAPTCHA_MAX_ATTEMPTS:-8}
-      - VAHAN_CAPTCHA_RETRY_MIN_MS=${VAHAN_CAPTCHA_RETRY_MIN_MS:-3000}
-      - VAHAN_CAPTCHA_RETRY_MAX_MS=${VAHAN_CAPTCHA_RETRY_MAX_MS:-5000}
-
-      # ── Notifications ──────────────────────────────────────────────────────
-      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
-
-      # ── Admin Dashboard ────────────────────────────────────────────────────
-      - ADMIN_TOKEN=${ADMIN_TOKEN:-changeme_set_a_real_secret}
-      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
-
-      # ── Puppeteer ──────────────────────────────────────────────────────────
-      - PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-      - PUPPETEER_HEADLESS=true
-      - PUPPETEER_DISABLE_SANDBOX=true
-      - PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage
-
-      # ── Scalability ────────────────────────────────────────────────────────
-      - SESSION_POOL_SIZE=${SESSION_POOL_SIZE:-3}
-      - MAX_BROWSER_PAGES=${MAX_BROWSER_PAGES:-5}
-      - API_CONCURRENCY=${API_CONCURRENCY:-8}
-      - BROWSER_CONCURRENCY=${BROWSER_CONCURRENCY:-2}
-
-      # ── Logging ────────────────────────────────────────────────────────────
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-
-      # ── File Paths (inside container — do not change) ──────────────────────
-      - CONFIG_FILE=data/config.yml
-      - AUTO_TRACK_STORE_FILE=data/tracked_applications.json
-      - VAHAN_TRACK_STORE_FILE=data/vahan_tracked_applications.json
-      - TEMP_DIR=data/tmp
-
-    command: ["node", "server.js"]
-
-    ports:
-      - "${PORT:-3000}:3000"
-
-    # Chromium requires large /dev/shm — 2 GB for multi-page concurrent usage
-    shm_size: "2048m"
-
-    deploy:
-      resources:
-        limits:
-          memory: 2g
-
-    volumes:
-      - ${CONFIG_PATH:-.}/sarathi_new/auth_data:/app/.wwebjs_auth
-      - ${CONFIG_PATH:-.}/sarathi_new/data:/app/data
-
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${PORT:-3000}/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
-
-    stdin_open: true
-    tty: true
-
-    security_opt:
-      - seccomp:unconfined
-
   postgres:
     image: postgres:16-alpine
+    container_name: sarathi_postgres
     restart: always
     environment:
       POSTGRES_DB: sarathi
       POSTGRES_USER: sarathi
-      POSTGRES_PASSWORD: ${PG_PASSWORD}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-sarathi_pass}
     volumes:
       - pg_data:/var/lib/postgresql/data
+      - ./scripts/migrations:/docker-entrypoint-initdb.d:ro
     ports:
-      - "5432:5432"
+      - "${PG_PORT:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sarathi"]
+      test: ["CMD-SHELL", "pg_isready -U sarathi -d sarathi"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   redis:
     image: redis:7-alpine
+    container_name: sarathi_redis
     restart: always
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_pass}
     volumes:
       - redis_data:/data
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD} ping"]
+      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD:-redis_pass} ping"]
       interval: 10s
       timeout: 5s
       retries: 5
 
+  gateway-wa:
+    build:
+      context: .
+      dockerfile: packages/gateway-wa/Dockerfile
+    container_name: sarathi_gateway_wa
+    restart: always
+    init: true
+    shm_size: "1024m"
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      NODE_ENV: production
+      DATABASE_URL: postgres://sarathi:${PG_PASSWORD:-sarathi_pass}@postgres:5432/sarathi
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_pass}@redis:6379
+      INSTANCE_ID: ${INSTANCE_ID:-wa-primary}
+      INSTANCE_ROLE: ${INSTANCE_ROLE:-primary}
+      REQUIRE_CHAT_FRONTEND: "true"
+      WHATSAPP_PHONE_NUMBER: ${WHATSAPP_PHONE_NUMBER:-}
+      ADMIN_USERS: ${ADMIN_USERS:-}
+      AUTHORIZED_USERS: ${AUTHORIZED_USERS:-}
+      AUTHORIZED_GROUPS: ${AUTHORIZED_GROUPS:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ${CONFIG_PATH:-.}/sarathi_new/auth_data:/app/.wwebjs_auth
+      - ${CONFIG_PATH:-.}/sarathi_new/data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: packages/api/Dockerfile
+    container_name: sarathi_api_server
+    restart: always
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://sarathi:${PG_PASSWORD:-sarathi_pass}@postgres:5432/sarathi
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_pass}@redis:6379
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?set_ADMIN_TOKEN}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ${CONFIG_PATH:-.}/sarathi_new/data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker-api:
+    build:
+      context: .
+      dockerfile: packages/worker-api/Dockerfile
+    container_name: sarathi_worker_api
+    restart: always
+    init: true
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      NODE_ENV: production
+      DATABASE_URL: postgres://sarathi:${PG_PASSWORD:-sarathi_pass}@postgres:5432/sarathi
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_pass}@redis:6379
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ${CONFIG_PATH:-.}/sarathi_new/data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker-browser:
+    build:
+      context: .
+      dockerfile: packages/worker-browser/Dockerfile
+    container_name: sarathi_worker_browser
+    restart: always
+    init: true
+    shm_size: "2048m"
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      NODE_ENV: production
+      DATABASE_URL: postgres://sarathi:${PG_PASSWORD:-sarathi_pass}@postgres:5432/sarathi
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_pass}@redis:6379
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+    volumes:
+      - ${CONFIG_PATH:-.}/sarathi_new/data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: packages/scheduler/Dockerfile
+    container_name: sarathi_scheduler
+    restart: always
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      NODE_ENV: production
+      DATABASE_URL: postgres://sarathi:${PG_PASSWORD:-sarathi_pass}@postgres:5432/sarathi
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_pass}@redis:6379
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ${CONFIG_PATH:-.}/sarathi_new/data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
 volumes:
   pg_data:
   redis_data:
-

@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  gateway-wa-failover:
+    build:
+      context: .
+      dockerfile: packages/gateway-wa/Dockerfile
+    container_name: sarathi_gateway_wa_failover
+    restart: always
+    init: true
+    shm_size: "1024m"
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - NODE_ENV=production
+      - DATABASE_URL=postgres://sarathi:${PG_PASSWORD}@${SERVER_A_IP}:5432/sarathi
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@${SERVER_A_IP}:6379
+      - INSTANCE_ID=wa-failover
+      - INSTANCE_ROLE=failover
+      - REQUIRE_CHAT_FRONTEND=true
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER_FAILOVER:-}
+    volumes:
+      - ${CONFIG_PATH:-.}/sarathi_new_failover/auth_data:/app/.wwebjs_auth
+      - ${CONFIG_PATH:-.}/sarathi_new_failover/data:/app/data
+
+  api-secondary:
+    build:
+      context: .
+      dockerfile: packages/api/Dockerfile
+    container_name: sarathi_api_server_secondary
+    restart: always
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=postgres://sarathi:${PG_PASSWORD}@${SERVER_A_IP}:5432/sarathi
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@${SERVER_A_IP}:6379
+      - ADMIN_TOKEN=${ADMIN_TOKEN}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - ${CONFIG_PATH:-.}/sarathi_new_failover/data:/app/data
+
+  worker-api:
+    build:
+      context: .
+      dockerfile: packages/worker-api/Dockerfile
+    container_name: sarathi_worker_api_b
+    restart: always
+    init: true
+    shm_size: "1024m"
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - NODE_ENV=production
+      - DATABASE_URL=postgres://sarathi:${PG_PASSWORD}@${SERVER_A_IP}:5432/sarathi
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@${SERVER_A_IP}:6379
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - ${CONFIG_PATH:-.}/sarathi_new_failover/data:/app/data
+
+  worker-browser:
+    build:
+      context: .
+      dockerfile: packages/worker-browser/Dockerfile
+    container_name: sarathi_worker_browser_b
+    restart: always
+    init: true
+    shm_size: "2048m"
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - NODE_ENV=production
+      - DATABASE_URL=postgres://sarathi:${PG_PASSWORD}@${SERVER_A_IP}:5432/sarathi
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@${SERVER_A_IP}:6379
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+    volumes:
+      - ${CONFIG_PATH:-.}/sarathi_new_failover/data:/app/data

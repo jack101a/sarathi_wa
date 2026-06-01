@@ -32,10 +32,14 @@
     "packages/*"
   ],
   "version": "1.0.0",
-  "main": "server.js",
+  "main": "packages/api/src/index.js",
   "scripts": {
-    "start": "node server.js",
-    "start:dev": "cross-env APP_ENV=development node server.js",
+    "start": "node packages/api/src/index.js",
+    "start:gateway": "node packages/gateway-wa/src/index.js",
+    "start:worker-api": "node packages/worker-api/src/index.js",
+    "start:worker-browser": "node packages/worker-browser/src/index.js",
+    "start:scheduler": "node packages/scheduler/src/index.js",
+    "start:dev": "cross-env APP_ENV=development node packages/api/src/index.js",
     "test:status": "node tests/testStatus.js",
     "test:ack": "node tests/testAck.js",
     "test:receipt": "node tests/testReceiptInput.js",
@@ -44,9 +48,9 @@
     "chatids": "node tests/manual/whatsapp/listWhatsAppChats.js",
     "manual:vahan-research": "node tests/manual/vahan/vahanResearch.js",
     "build:frontend": "cd frontend && npm ci && npm run build",
-    "docker:build": "docker build -t sarathiwa-bot .",
-    "docker:buildx": "docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/jack101a/sarathiwa_bot:latest --push .",
-    "docker:run": "docker run --rm -p 3000:3000 --env-file .env sarathiwa-bot"
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f"
   },
   "keywords": [],
   "author": "",

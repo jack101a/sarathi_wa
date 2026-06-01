@@ -14,6 +14,7 @@ import { ActivityPanel } from './components/ActivityPanel.jsx';
 import { SettingsPanel } from './components/SettingsPanel.jsx';
 import { QueuesPanel } from './components/QueuesPanel.jsx';
 import { ServicesPanel } from './components/ServicesPanel.jsx';
+import { PaymentsPanel } from './components/PaymentsPanel.jsx';
 
 import { useToast } from './hooks/useToast.js';
 import { useAdminData } from './hooks/useAdminData.js';
@@ -92,6 +93,7 @@ function ProtectedApp({ isDark }) {
           <Route path="/jobs"      element={<JobsPanel queues={queues} isDark={isDark} showToast={showToast} />} />
           <Route path="/groups"    element={<GroupsPanel isDark={isDark} showToast={showToast} />} />
           <Route path="/activity"  element={<ActivityPanel users={users} isDark={isDark} showToast={showToast} />} />
+          <Route path="/payments"  element={<PaymentsPanel isDark={isDark} showToast={showToast} />} />
           <Route path="/queues"    element={<Navigate to="/jobs" replace />} />
           <Route path="/settings"  element={<SettingsPanel health={healthData} isDark={isDark} showToast={showToast} />} />
         </Routes>

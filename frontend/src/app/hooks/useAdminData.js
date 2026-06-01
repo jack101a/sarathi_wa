@@ -1,9 +1,39 @@
 import { useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchBootstrap, fetchJobs, fetchQueues, fetchPlans, fetchServices, queryKeys } from '../../api/queries.js';
 import { ApiError } from '../../api/client.js';
 
 export function useAdminData(showToast) {
+  const queryClient = useQueryClient();
+
+  // Setup Server-Sent Events listener for real-time dashboard updates
+  useEffect(() => {
+    // Determine path, prefixing /admin if we are subrouted under it
+    const ssePath = '/admin/api/events';
+    const eventSource = new EventSource(ssePath);
+
+    eventSource.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.event === 'job_created' || payload.event === 'job_updated') {
+          // Invalidate cache to force React Query to refetch corresponding panels
+          queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
+          queryClient.invalidateQueries({ queryKey: queryKeys.jobs });
+          queryClient.invalidateQueries({ queryKey: queryKeys.queues });
+        }
+      } catch (err) {
+        console.error('[SSE] Failed parsing event data:', err);
+      }
+    };
+
+    eventSource.onerror = () => {
+      // EventSource automatically reconnects on error
+    };
+
+    return () => {
+      eventSource.close();
+    };
+  }, [queryClient]);
   const bootstrap = useQuery({
     queryKey: queryKeys.bootstrap,
     queryFn: fetchBootstrap,

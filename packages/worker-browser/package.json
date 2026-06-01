@@ -1,0 +1,15 @@
+{
+  "name": "@sarathi/worker-browser",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@sarathi/common": "*",
+    "bullmq": "^5.77.7",
+    "ioredis": "^5.11.0",
+    "puppeteer": "^24.37.3",
+    "playwright": "^1.59.1"
+  }
+}

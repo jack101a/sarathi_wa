@@ -159,7 +159,7 @@ async function migrate() {
       }
 
       await pgClient.query(
-        `INSERT INTO users (
+        `INSERT INTO auth_users (
            id, channel, canonical_phone, is_active, name, plan_id, 
            credits, used_count, daily_count, expiry_date, 
            billing_cycle_start, last_daily_reset, created_at, updated_at
@@ -197,7 +197,7 @@ async function migrate() {
       );
 
       // Retrieve actual UUID if user already existed
-      const existing = await pgClient.query('SELECT id FROM users WHERE canonical_phone = $1', [u.canonical_phone]);
+      const existing = await pgClient.query('SELECT id FROM auth_users WHERE canonical_phone = $1', [u.canonical_phone]);
       if (existing.rows.length > 0) {
         userIdMap.set(u.id, existing.rows[0].id);
       }
@@ -238,7 +238,7 @@ async function migrate() {
     await pgClient.query(`
       CREATE TABLE IF NOT EXISTS auth_user_identities (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        auth_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        auth_user_id UUID NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
         identity_type VARCHAR(50) NOT NULL,
         identity_value VARCHAR(255) UNIQUE NOT NULL,
         verified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -404,7 +404,7 @@ async function migrate() {
         for (const app of dlTracked) {
           // Find user by phone in PG database
           const phone = app.chatId.split('@')[0];
-          const userRes = await pgClient.query('SELECT id FROM users WHERE canonical_phone = $1', [phone]);
+          const userRes = await pgClient.query('SELECT id FROM auth_users WHERE canonical_phone = $1', [phone]);
           const pgUserUuid = userRes.rows[0] ? userRes.rows[0].id : null;
 
           if (!pgUserUuid) {
@@ -446,7 +446,7 @@ async function migrate() {
         const vahanTracked = JSON.parse(fs.readFileSync(vahanTrackPath, 'utf8'));
         for (const app of vahanTracked) {
           const phone = app.chatId.split('@')[0];
-          const userRes = await pgClient.query('SELECT id FROM users WHERE canonical_phone = $1', [phone]);
+          const userRes = await pgClient.query('SELECT id FROM auth_users WHERE canonical_phone = $1', [phone]);
           const pgUserUuid = userRes.rows[0] ? userRes.rows[0].id : null;
 
           if (!pgUserUuid) {

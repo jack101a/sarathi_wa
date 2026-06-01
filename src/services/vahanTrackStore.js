@@ -1,8 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const CONFIG = require('../config/config');
-const db = require('../core/db');
-const { runTransaction } = require('../core/db');
+const { trackingRepository } = require('@sarathi/common');
 
 function normalizeText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
@@ -56,72 +55,19 @@ function readLegacy() {
 }
 
 function persistLegacy(entries) {
-  try {
-    ensureStoreDir();
-    const p = getLegacyStorePath();
-    const tmp = `${p}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(entries, null, 2), 'utf8');
-    fs.renameSync(tmp, p);
-  } catch (_) {}
+  void entries;
 }
 
-async function initSqlite() {
+async function initStore() {
   try {
-    await db.run(`CREATE TABLE IF NOT EXISTS tracked_vahan (
-      transport TEXT NOT NULL,
-      chat_id TEXT NOT NULL,
-      application_number TEXT NOT NULL,
-      tag TEXT DEFAULT '',
-      created_at TEXT NOT NULL,
-      last_snapshot TEXT DEFAULT '',
-      last_checked_at TEXT DEFAULT '',
-      applicant_name TEXT DEFAULT '',
-      service_name TEXT DEFAULT '',
-      application_date TEXT DEFAULT '',
-      vehicle_no TEXT DEFAULT '',
-      scrutiny_at TEXT DEFAULT '',
-      approval_at TEXT DEFAULT '',
-      dispatched_at TEXT DEFAULT '',
-      PRIMARY KEY (transport, chat_id, application_number)
-    )`);
-    const columns = await db.query('PRAGMA table_info(tracked_vahan)');
-    if (!columns.some((column) => column.name === 'application_date')) {
-      await db.run("ALTER TABLE tracked_vahan ADD COLUMN application_date TEXT DEFAULT ''");
+    await trackingRepository.ensureSchema();
+    if (cache.length > 0) {
+      for (const e of cache) await trackingRepository.upsert('vahan', e);
     }
-    await db.run('CREATE INDEX IF NOT EXISTS idx_tracked_vahan_chat ON tracked_vahan(chat_id, transport)');
-
-    for (const e of cache) {
-      await db.run(
-        `INSERT OR IGNORE INTO tracked_vahan (
-          transport, chat_id, application_number, tag, created_at, last_snapshot, last_checked_at,
-          applicant_name, service_name, application_date, vehicle_no, scrutiny_at, approval_at, dispatched_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [e.transport, e.chatId, e.applicationNumber, e.tag, e.createdAt, e.lastSnapshot, e.lastCheckedAt, e.applicantName, e.serviceName, e.applicationDate, e.vehicleNo, e.scrutinyAt, e.approvalAt, e.dispatchedAt]
-      );
-    }
-
-    const rows = await db.query('SELECT * FROM tracked_vahan');
-    cache = normalizeEntries(rows.map((r) => ({
-      transport: r.transport,
-      chatId: r.chat_id,
-      applicationNumber: r.application_number,
-      tag: r.tag,
-      createdAt: r.created_at,
-      lastSnapshot: r.last_snapshot,
-      lastCheckedAt: r.last_checked_at,
-      applicantName: r.applicant_name,
-      serviceName: r.service_name,
-      applicationDate: r.application_date,
-      vehicleNo: r.vehicle_no,
-      scrutinyAt: r.scrutiny_at,
-      approvalAt: r.approval_at,
-      dispatchedAt: r.dispatched_at,
-    })));
-
+    cache = normalizeEntries(await trackingRepository.listByType('vahan'));
     sqliteReady = true;
-    persistLegacy(cache);
   } catch (e) {
-    console.error('[vahanTrackStore] SQLite init failed:', e.message);
+    console.error('[vahanTrackStore] Postgres init failed:', e.message);
     sqliteReady = false;
   }
 }
@@ -142,18 +88,7 @@ function writeEntries(entries) {
   cache = safe;
   persistLegacy(cache);
   queueSqlWrite(async () => {
-    await runTransaction(async ({ run: txR }) => {
-      await txR('DELETE FROM tracked_vahan');
-      for (const e of safe) {
-        await txR(
-          `INSERT INTO tracked_vahan (
-            transport, chat_id, application_number, tag, created_at, last_snapshot, last_checked_at,
-            applicant_name, service_name, application_date, vehicle_no, scrutiny_at, approval_at, dispatched_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [e.transport, e.chatId, e.applicationNumber, e.tag, e.createdAt, e.lastSnapshot, e.lastCheckedAt, e.applicantName, e.serviceName, e.applicationDate, e.vehicleNo, e.scrutinyAt, e.approvalAt, e.dispatchedAt]
-        );
-      }
-    });
+    await trackingRepository.replaceType('vahan', safe);
   });
   return safe;
 }
@@ -243,7 +178,7 @@ function updateEntry({ transport, chatId, applicationNumber, updates = {} }) {
 }
 
 cache = readLegacy();
-initSqlite().catch(() => {});
+initStore().catch(() => {});
 
 module.exports = {
   addEntry,

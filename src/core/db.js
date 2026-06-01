@@ -1,7 +1,7 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
-const dbPath = process.env.DATABASE_URL || '';
+const dbPath = process.env.DATABASE_URL || 'postgres://sarathi:password@localhost:5432/sarathi';
 
 let pool;
 
@@ -86,6 +86,9 @@ function convertSql(sql) {
 
   // 8. sqlite_version() -> version()
   converted = converted.replace(/sqlite_version\(\)/gi, 'version()');
+
+  // SQLite examples commonly use lowercase `excluded`; PostgreSQL wants `EXCLUDED`.
+  converted = converted.replace(/\bexcluded\./gi, 'EXCLUDED.');
 
   return converted;
 }

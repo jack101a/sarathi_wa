@@ -1,0 +1,13 @@
+{
+  "name": "@sarathi/scheduler",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@sarathi/common": "*",
+    "node-cron": "^4.2.1",
+    "ioredis": "^5.11.0"
+  }
+}
