@@ -78,7 +78,9 @@ function convertSql(sql) {
     }
   }
 
-  // 7. datetime('now') / datetime('now', 'localtime') -> NOW()
+  // 7. datetime('now', '-30 days') -> NOW() + '-30 days'::interval / datetime('now', $1) -> NOW() + ($1)::interval
+  converted = converted.replace(/datetime\('now',\s*'([^']+)'\)/gi, "NOW() + '$1'::interval");
+  converted = converted.replace(/datetime\('now',\s*(\$\d+|\?)\)/gi, "NOW() + ($1)::interval");
   converted = converted.replace(/datetime\('now'\)/gi, 'NOW()');
   converted = converted.replace(/datetime\('now',\s*'localtime'\)/gi, 'NOW()');
 
