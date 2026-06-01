@@ -60,6 +60,7 @@ const {
   getLleditSessions,
 } = require('./workers/browserWorker');
 const fs = require('fs');
+const { redis } = require('./core/redis');
 
 const botStartupTime = Math.floor(Date.now() / 1000);
 const TRACK_DOB_TIMEOUT_MS = 120 * 1000;
@@ -844,22 +845,12 @@ async function createBot() {
     } catch (error) {
       await message.reply('Something went wrong. Please try again later.');
     }
-  }  const sentMessageIds = new Map(); // id → timestamp
-
-  // Prune entries older than 60 seconds every 30 seconds
-  const _sentIdsCleanup = setInterval(() => {
-    const cutoff = Date.now() - 60_000;
-    for (const [id, ts] of sentMessageIds) {
-      if (ts < cutoff) sentMessageIds.delete(id);
-    }
-  }, 30_000);
-  _sentIdsCleanup.unref(); // don't keep process alive just for this
-
+  }
   const originalSendMessage = client.sendMessage.bind(client);
   client.sendMessage = async function(chatId, content, options) {
     const result = await originalSendMessage(chatId, content, options);
     if (result && result.id && result.id.id) {
-      sentMessageIds.set(result.id.id, Date.now());
+      await redis.setex(`dedup:msg:${result.id.id}`, 300, Date.now()).catch(() => {});
     }
     return result;
   };
@@ -882,9 +873,12 @@ async function createBot() {
       }
     }
 
-    if (message.id && message.id.id && sentMessageIds.has(message.id.id)) {
-      sentMessageIds.delete(message.id.id);
-      return;
+    if (message.id && message.id.id) {
+      const exists = await redis.exists(`dedup:msg:${message.id.id}`).catch(() => 0);
+      if (exists) {
+        await redis.del(`dedup:msg:${message.id.id}`).catch(() => {});
+        return;
+      }
     }
 
     await handleMessage(message, 'message_create');

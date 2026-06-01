@@ -15,6 +15,7 @@
 const CONFIG = require('../config/config');
 const { query, run } = require('./db');
 const serviceRepo = require('../services/serviceRepository');
+const { redis } = require('./redis');
 
 // ─── Command category classification ────────────────────────────────────────
 
@@ -51,10 +52,7 @@ function isHeavyCommand(command) {
   return getCommandCategory(command) === 'heavy';
 }
 
-// ─── In-memory cache (10-second TTL) ────────────────────────────────────────
-
-const _cache = new Map();          // Map<userId, { counts, lastUpdated }>
-const CACHE_TTL_MS = 10_000;
+// ─── Redis Cache (10-second TTL) ────────────────────────────────────────────
 
 async function _loadCounts(userId) {
   const now = Date.now();
@@ -176,14 +174,18 @@ async function applyLimits(userId, category, limits, command) {
   const catLimits = effectiveLimits[category];
   if (!catLimits) return { allowed: true, reason: '', category };
 
-  // Use cache if still fresh
+  // Use Redis cache if still fresh
   let counts;
-  const cached = _cache.get(userId);
-  if (cached && Date.now() - cached.lastUpdated < CACHE_TTL_MS) {
-    counts = cached.counts;
-  } else {
+  try {
+    const cachedRaw = await redis.get(`ratelimit:cache:${userId}`);
+    if (cachedRaw) {
+      counts = JSON.parse(cachedRaw);
+    } else {
+      counts = await _loadCounts(userId);
+      await redis.setex(`ratelimit:cache:${userId}`, 10, JSON.stringify(counts));
+    }
+  } catch (e) {
     counts = await _loadCounts(userId);
-    _cache.set(userId, { counts, lastUpdated: Date.now() });
   }
 
   const used = counts[category] || { perDay: 0, perMonth: 0 };
@@ -216,7 +218,7 @@ async function recordRequest(userId, command) {
     'INSERT INTO rate_limit_log (user_id, timestamp, command, category) VALUES (?, ?, ?, ?)',
     [userId, new Date().toISOString(), String(command || ''), category]
   );
-  _cache.delete(userId);
+  await redis.del(`ratelimit:cache:${userId}`).catch(() => {});
 }
 
 /**

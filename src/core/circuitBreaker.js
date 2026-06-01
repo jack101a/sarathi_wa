@@ -2,8 +2,10 @@
  * Circuit breaker responsibility:
  * Wrap external calls. After N consecutive failures, open the circuit
  * for M seconds to prevent cascading failures.
+ * Distributed via Redis to share state across multiple servers.
  */
 
+const { redis } = require('./redis');
 const logger = require('./logger');
 
 class CircuitBreaker {
@@ -15,17 +17,44 @@ class CircuitBreaker {
     this.name = name;
     this.failureThreshold = options.failureThreshold || 5;
     this.resetTimeoutMs   = options.resetTimeoutMs   || 30_000;
-    this.state            = 'closed'; // 'closed' | 'open' | 'half-open'
-    this.failureCount     = 0;
-    this.lastFailureTime  = 0;
+  }
+
+  async _loadState() {
+    try {
+      const data = await redis.hgetall(`circuit:${this.name}`);
+      return {
+        name: this.name,
+        state: data.state || 'closed',
+        failureCount: parseInt(data.failureCount, 10) || 0,
+        lastFailureTime: parseInt(data.lastFailureTime, 10) || 0,
+      };
+    } catch (e) {
+      // Fallback to safe defaults if Redis fails
+      return { name: this.name, state: 'closed', failureCount: 0, lastFailureTime: 0 };
+    }
+  }
+
+  async _saveState(state, failureCount, lastFailureTime) {
+    try {
+      await redis.hset(`circuit:${this.name}`, {
+        state,
+        failureCount: String(failureCount),
+        lastFailureTime: String(lastFailureTime),
+      });
+    } catch (e) {
+      console.error(`[circuitBreaker] Failed to save state for ${this.name}:`, e.message);
+    }
   }
 
   /** Execute a function through the circuit breaker. */
   async execute(fn) {
-    if (this.state === 'open') {
-      const elapsed = Date.now() - this.lastFailureTime;
+    let { state, failureCount, lastFailureTime } = await this._loadState();
+
+    if (state === 'open') {
+      const elapsed = Date.now() - lastFailureTime;
       if (elapsed >= this.resetTimeoutMs) {
-        this.state = 'half-open';
+        state = 'half-open';
+        await this._saveState(state, failureCount, lastFailureTime);
         logger.info('circuitBreaker', `Circuit ${this.name} → half-open (testing)`);
       } else {
         throw new Error(`Circuit ${this.name} is OPEN — upstream unavailable, retrying in ${Math.ceil((this.resetTimeoutMs - elapsed) / 1000)}s`);
@@ -34,35 +63,36 @@ class CircuitBreaker {
 
     try {
       const result = await fn();
-      this._onSuccess();
+      await this._onSuccess(state);
       return result;
     } catch (err) {
-      this._onFailure(err);
+      await this._onFailure(state, failureCount, err);
       throw err;
     }
   }
 
-  _onSuccess() {
-    if (this.state !== 'closed') {
+  async _onSuccess(currentState) {
+    if (currentState !== 'closed') {
       logger.info('circuitBreaker', `Circuit ${this.name} → closed`);
     }
-    this.failureCount = 0;
-    this.state = 'closed';
+    await this._saveState('closed', 0, 0);
   }
 
-  _onFailure(err) {
-    this.failureCount++;
-    this.lastFailureTime = Date.now();
-    if (this.failureCount >= this.failureThreshold) {
-      this.state = 'open';
-      logger.warn('circuitBreaker', `Circuit ${this.name} → OPEN after ${this.failureCount} failures`, {
+  async _onFailure(currentState, currentFailureCount, err) {
+    const nextFailureCount = currentFailureCount + 1;
+    const nextFailureTime = Date.now();
+    let nextState = currentState;
+    if (nextFailureCount >= this.failureThreshold) {
+      nextState = 'open';
+      logger.warn('circuitBreaker', `Circuit ${this.name} → OPEN after ${nextFailureCount} failures`, {
         lastError: err.message,
       });
     }
+    await this._saveState(nextState, nextFailureCount, nextFailureTime);
   }
 
-  getState() {
-    return { name: this.name, state: this.state, failureCount: this.failureCount };
+  async getState() {
+    return this._loadState();
   }
 }
 

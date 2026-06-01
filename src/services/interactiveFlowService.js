@@ -1,7 +1,7 @@
 const { normalizeDob } = require('./commandInputService');
 const { query } = require('../core/db');
 
-const sessions = new Map();
+const { redis } = require('../core/redis');
 
 const COMMAND_KEYWORDS = new Set([
   'help', 'मदद', 'maddad', 'hi', 'hello',
@@ -12,15 +12,7 @@ const COMMAND_KEYWORDS = new Set([
   'dlapp', 'applydl', 'dlinfo', 'slot'
 ]);
 
-// Automatic cleanup of expired sessions every 30 seconds
-setInterval(() => {
-  const now = Date.now();
-  for (const [chatId, session] of sessions.entries()) {
-    if (session.expiresAt < now) {
-      sessions.delete(chatId);
-    }
-  }
-}, 30000);
+
 
 const DL_MENU = `Choose a Driving Licence service:
 1. DL Info
@@ -71,7 +63,8 @@ async function detectAndHandle(chatId, normalizedBody, dbUser, isAdmin) {
   }
 
   const now = Date.now();
-  const session = sessions.get(chatId);
+  const sessionRaw = await redis.get(`session:flow:${chatId}`);
+  const session = sessionRaw ? JSON.parse(sessionRaw) : null;
 
   // 1. Process active session response if present and valid
   if (session && session.expiresAt > now) {
@@ -83,7 +76,7 @@ async function detectAndHandle(chatId, normalizedBody, dbUser, isAdmin) {
       if (session.type === 'dl') {
         const choice = rawChoices[0];
         if (choice >= 1 && choice <= 5) {
-          sessions.delete(chatId);
+          await redis.del(`session:flow:${chatId}`);
           const cmds = ['dlinfo', 'dlextract', 'renewal', 'duplicate', 'replacement'];
           const commandText = `${cmds[choice - 1]} ${session.identifier} ${session.dob}`;
           return { handled: true, executeCommand: commandText };
@@ -93,7 +86,7 @@ async function detectAndHandle(chatId, normalizedBody, dbUser, isAdmin) {
       if (session.type === 'll') {
         const choice = rawChoices[0];
         if (session.presentedCommands && choice >= 1 && choice <= session.presentedCommands.length) {
-          sessions.delete(chatId);
+          await redis.del(`session:flow:${chatId}`);
           const cmdSelected = session.presentedCommands[choice - 1];
           const commandText = `${cmdSelected} ${session.identifier} ${session.dob}`;
           return { handled: true, executeCommand: commandText };
@@ -102,18 +95,18 @@ async function detectAndHandle(chatId, normalizedBody, dbUser, isAdmin) {
       
       if (session.type === 'app') {
         if (isMulti && !isAllowedMulti) {
-          sessions.delete(chatId);
+          await redis.del(`session:flow:${chatId}`);
           return { handled: true, replyText: '🚫 Multiple option selection is only available for Premium plan users.' };
         }
 
         if (session.presentedCommands) {
           const validChoices = rawChoices.filter(choice => choice >= 1 && choice <= session.presentedCommands.length);
           if (validChoices.length === 0) {
-            sessions.delete(chatId);
+            await redis.del(`session:flow:${chatId}`);
             return { handled: false };
           }
 
-          sessions.delete(chatId);
+          await redis.del(`session:flow:${chatId}`);
           const executeCommands = [];
           for (const choice of validChoices) {
             const cmdSelected = session.presentedCommands[choice - 1];
@@ -129,7 +122,7 @@ async function detectAndHandle(chatId, normalizedBody, dbUser, isAdmin) {
     }
     // If not a valid choice, we delete the session and fall through,
     // so any standard typed command works immediately.
-    sessions.delete(chatId);
+    await redis.del(`session:flow:${chatId}`);
   }
 
   const parts = text.split(' ');
@@ -195,14 +188,14 @@ async function detectAndHandle(chatId, normalizedBody, dbUser, isAdmin) {
     if (cmdPrefix === 'dl') {
       const dlNo = parts.slice(1, dobIndex).join('').replace(/[-\s]/g, '').toUpperCase();
       if (dlNo) {
-        sessions.set(chatId, {
+        await redis.setex(`session:flow:${chatId}`, 120, JSON.stringify({
           type: 'dl',
           identifier: dlNo,
           dob,
           expiresAt: now + 120000,
           isAdmin: !!isAdmin,
           isPremium,
-        });
+        }));
         return { handled: true, replyText: DL_MENU };
       }
     } else if (cmdPrefix === 'll') {
@@ -229,7 +222,7 @@ async function detectAndHandle(chatId, normalizedBody, dbUser, isAdmin) {
         }
         llMenuText += `\nReply with a number (1-${idx - 1}) to proceed.`;
 
-        sessions.set(chatId, {
+        await redis.setex(`session:flow:${chatId}`, 120, JSON.stringify({
           type: 'll',
           identifier: llNo,
           dob,
@@ -237,7 +230,7 @@ async function detectAndHandle(chatId, normalizedBody, dbUser, isAdmin) {
           isAdmin: !!isAdmin,
           isPremium,
           presentedCommands: presentedLlCommands,
-        });
+        }));
         return { handled: true, replyText: llMenuText };
       }
     } else {
@@ -268,7 +261,7 @@ async function detectAndHandle(chatId, normalizedBody, dbUser, isAdmin) {
           }
           appMenuText += `\nReply with a number (1-${idx - 1}) to proceed.`;
 
-          sessions.set(chatId, {
+          await redis.setex(`session:flow:${chatId}`, 120, JSON.stringify({
             type: 'app',
             identifier: appNo,
             dob,
@@ -276,7 +269,7 @@ async function detectAndHandle(chatId, normalizedBody, dbUser, isAdmin) {
             isAdmin: !!isAdmin,
             isPremium,
             presentedCommands: presentedAppCommands,
-          });
+          }));
           return { handled: true, replyText: appMenuText };
         }
       }
