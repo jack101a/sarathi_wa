@@ -41,7 +41,35 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 3.1 User Identities Table
+CREATE TABLE IF NOT EXISTS auth_user_identities (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  auth_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  identity_type VARCHAR(50) NOT NULL,
+  identity_value VARCHAR(255) UNIQUE NOT NULL,
+  verified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  last_seen_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  is_active BOOLEAN DEFAULT TRUE
+);
+CREATE INDEX IF NOT EXISTS idx_identities_user_fk ON auth_user_identities(auth_user_id);
+
+-- 3.2 User Verifications Table
+CREATE TABLE IF NOT EXISTS auth_verifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  channel VARCHAR(50) DEFAULT 'wa',
+  canonical_phone VARCHAR(255) NOT NULL,
+  code VARCHAR(50) NOT NULL,
+  status VARCHAR(50) DEFAULT 'pending',
+  requested_by VARCHAR(255),
+  requested_via VARCHAR(50) DEFAULT 'wa',
+  expires_at TIMESTAMP WITH TIME ZONE,
+  verified_at TIMESTAMP WITH TIME ZONE,
+  verified_identity VARCHAR(255),
+  meta_json JSONB DEFAULT '{}'::jsonb
+);
+
 -- 4. Plan Services Junction Table
+
 CREATE TABLE IF NOT EXISTS plan_services (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   plan_id VARCHAR(255) REFERENCES subscription_plans(id) ON DELETE CASCADE,
