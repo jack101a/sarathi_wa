@@ -3,6 +3,12 @@ const { handleIncomingMessage } = require('./messageHandler');
 const { startResponseListener } = require('./responseDelivery');
 const { startHeartbeat, stopHeartbeat, INSTANCE_ID, INSTANCE_ROLE } = require('./heartbeat');
 
+// Catch unhandled promise rejections (e.g. requestPairingCode before page is ready)
+// so a transient WhatsApp Web error does not crash the entire gateway process.
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Gateway] Unhandled promise rejection (non-fatal):', reason?.message || reason);
+});
+
 async function main() {
   console.log(`[Gateway] Starting WhatsApp Gateway: ID=${INSTANCE_ID}, ROLE=${INSTANCE_ROLE}`);
 

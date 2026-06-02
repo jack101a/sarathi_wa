@@ -272,6 +272,9 @@ services:
       - APP_ENV=production
       - DATABASE_URL=postgres://sarathi:${PG_PASSWORD:-sarathi_pass}@postgres:5432/sarathi
       - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_pass}@redis:6379
+      # ── Frontend tokens (needed for config validation) ────────────────────
+      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       # ── Admin Dashboard ───────────────────────────────────────────────────
       - ADMIN_TOKEN=${ADMIN_TOKEN:-changeme_set_a_real_secret}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}

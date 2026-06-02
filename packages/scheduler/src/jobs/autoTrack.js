@@ -7,7 +7,7 @@ async function runAutoTrackSarathi() {
     const job = await apiQueue.add('auto_track_check', {
       timestamp: Date.now()
     }, {
-      jobId: `auto_track_sarathi:${new Date().toISOString().slice(0, 13)}` // dedup hourly
+      jobId: `auto_track_sarathi__${new Date().toISOString().slice(0, 13).replace(/:/g, '-')}` // dedup hourly
     });
     logger.info('scheduler', `Sarathi auto-track check enqueued: job ID = ${job.id}`);
   } catch (err) {
@@ -21,7 +21,7 @@ async function runAutoTrackVahan() {
     const job = await apiQueue.add('vahan_track_check', {
       timestamp: Date.now()
     }, {
-      jobId: `auto_track_vahan:${new Date().toISOString().slice(0, 13)}` // dedup hourly
+      jobId: `auto_track_vahan__${new Date().toISOString().slice(0, 13).replace(/:/g, '-')}` // dedup hourly
     });
     logger.info('scheduler', `Vahan auto-track check enqueued: job ID = ${job.id}`);
   } catch (err) {
@@ -35,7 +35,7 @@ async function sendDailyStatusReports() {
     const job = await apiQueue.add('daily_reports_check', {
       timestamp: Date.now()
     }, {
-      jobId: `daily_reports:${new Date().toISOString().slice(0, 10)}` // dedup daily
+      jobId: `daily_reports__${new Date().toISOString().slice(0, 10)}` // dedup daily
     });
     logger.info('scheduler', `Daily status reports enqueued: job ID = ${job.id}`);
   } catch (err) {

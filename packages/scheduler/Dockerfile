@@ -11,6 +11,9 @@ FROM node:20-bookworm-slim AS runtime
 ENV NODE_ENV=production
 ENV APP_ENV=production
 
+# Install postgresql-client so the backup job can run pg_dump
+RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY package*.json ./
