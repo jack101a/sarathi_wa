@@ -165,7 +165,7 @@ if (missingCombinedConfig.length > 0) {
 const whatsappPhoneNumber = String(process.env.WHATSAPP_PHONE_NUMBER || '').trim();
 const telegramToken = String(process.env.TELEGRAM_BOT_TOKEN || '').trim();
 
-if (!whatsappPhoneNumber && !telegramToken) {
+if (!whatsappPhoneNumber && !telegramToken && process.env.REQUIRE_CHAT_FRONTEND === 'true') {
   throw new Error(
     'At least one frontend must be configured: set WHATSAPP_PHONE_NUMBER or TELEGRAM_BOT_TOKEN.'
   );
