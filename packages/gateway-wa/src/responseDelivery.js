@@ -1,6 +1,6 @@
-const { subscriber } = require('@sarathi/common');
-const { isInstanceActive } = require('./heartbeat');
+const { subscriber, redis } = require('@sarathi/common');
 const { MessageMedia } = require('whatsapp-web.js');
+const crypto = require('crypto');
 
 async function startResponseListener(client) {
   // Subscribe to both whatsapp and wa namespace patterns
@@ -9,14 +9,18 @@ async function startResponseListener(client) {
 
   subscriber.on('pmessage', async (pattern, channel, messageStr) => {
     try {
-      // 1. Is this gateway instance currently active?
-      const active = await isInstanceActive();
-      if (!active) {
-        // Ignore response delivery since we are in standby
+      // ── Response dedup ─────────────────────────────────────────────────────
+      // All gateway-wa instances subscribe to the same channel.
+      // Only the FIRST instance to claim this delivery key actually sends it.
+      const msgHash = crypto.createHash('md5').update(messageStr).digest('hex');
+      const deliveryKey = `dedup:resp:${channel}:${msgHash}`;
+      const claimed = await redis.set(deliveryKey, process.env.INSTANCE_ID || '1', 'EX', 60, 'NX');
+      if (!claimed) {
+        // Another gateway-wa instance already sent this response — skip
         return;
       }
 
-      // Channel is format: chat:response:whatsapp:1234567890@c.us or chat:response:wa:1234567890@c.us
+      // Channel is format: chat:response:whatsapp:1234567890@c.us
       const parts = channel.split(':');
       const chatId = parts[3]; // The fourth element is the JID
       if (!chatId) {
@@ -25,7 +29,7 @@ async function startResponseListener(client) {
       }
 
       const response = JSON.parse(messageStr);
-      console.log(`[ResponseDelivery] Delivering response to ${chatId}: type=${response.type}`);
+      console.log(`[ResponseDelivery][${process.env.INSTANCE_ID || 'wa'}] Delivering to ${chatId}: type=${response.type}`);
 
       if (response.type === 'text') {
         await client.sendMessage(chatId, response.text, response.options || {});

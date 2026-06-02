@@ -1,111 +1,94 @@
-version: '3.8'
+# ══════════════════════════════════════════════════════════════════════════════
+#  Sarathi Bot — Server B Stack (Home Mini PC)
+#  Branch: scaling-production
+#
+#  This runs on your HOME SERVER (mini PC).
+#  Connects to Server A (Oracle VPS) for Redis and PostgreSQL.
+#
+#  WHAT RUNS HERE:
+#  ├── gateway-wa-3  → 3rd WhatsApp linked device (hot standby)
+#  └── worker-browser → handles heavy browser jobs (DL renewal, LL print)
+#                       alongside Server A's worker-browser
+#
+#  SETUP:
+#  1. Set SERVER_A_IP to your Oracle VPS public IP in your .env
+#  2. Make sure Oracle VPS firewall allows your home IP on ports 5432 and 6379
+#  3. Run: docker compose -f docker-compose.server-b.yml up -d
+# ══════════════════════════════════════════════════════════════════════════════
 
 services:
-  gateway-wa-failover:
-    build:
-      context: .
-      dockerfile: packages/gateway-wa/Dockerfile
-    container_name: sarathi_gateway_wa_failover
+
+  gateway-wa-3:
+    image: ghcr.io/jack101a/sarathiwa_bot:gateway-wa-latest
+    container_name: sarathi_gateway_wa_3
     restart: always
     init: true
-    shm_size: "1024m"
+    stop_grace_period: 60s
+    shm_size: "512m"
     environment:
-      - APP_ENV=${APP_ENV:-production}
       - NODE_ENV=production
+      - APP_ENV=production
+      # ── Connect to Server A (Oracle VPS) ──────────────────────────────────
       - DATABASE_URL=postgres://sarathi:${PG_PASSWORD}@${SERVER_A_IP}:5432/sarathi
       - REDIS_URL=redis://:${REDIS_PASSWORD}@${SERVER_A_IP}:6379
-      - INSTANCE_ID=wa-failover
-      - INSTANCE_ROLE=failover
-      - REQUIRE_CHAT_FRONTEND=true
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER_FAILOVER:-}
-    volumes:
-      - ${CONFIG_PATH:-.}/sarathi_new_failover/auth_data:/app/.wwebjs_auth
-      - ${CONFIG_PATH:-.}/sarathi_new_failover/data:/app/data
-
-  api-secondary:
-    build:
-      context: .
-      dockerfile: packages/api/Dockerfile
-    container_name: sarathi_api_server_secondary
-    restart: always
-    ports:
-      - "${PORT:-3000}:3000"
-    environment:
-      - APP_ENV=${APP_ENV:-production}
-      - NODE_ENV=production
-      - PORT=3000
-      - DATABASE_URL=postgres://sarathi:${PG_PASSWORD}@${SERVER_A_IP}:5432/sarathi
-      - REDIS_URL=redis://:${REDIS_PASSWORD}@${SERVER_A_IP}:6379
-      - ADMIN_TOKEN=${ADMIN_TOKEN}
-      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - INSTANCE_ID=wa-3
+      # ── WhatsApp Auth ──────────────────────────────────────────────────────
+      - AUTHORIZED_USERS=${AUTHORIZED_USERS:-}
+      - AUTHORIZED_GROUPS=${AUTHORIZED_GROUPS:-}
+      - ADMIN_USERS=${ADMIN_USERS:-}
+      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER:-}
+      - SESSION_NAME=session-3
+      # ── Puppeteer ──────────────────────────────────────────────────────────
+      - PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+      - PUPPETEER_HEADLESS=true
+      - PUPPETEER_DISABLE_SANDBOX=true
+      - PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage
+      # ── Notifications ─────────────────────────────────────────────────────
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
+      # ── Payment ───────────────────────────────────────────────────────────
+      - UPI_ID=${UPI_ID:-sarathi@upi}
+      - UPI_NAME=${UPI_NAME:-Sarathi Bot}
       - LOG_LEVEL=${LOG_LEVEL:-info}
     volumes:
-      - ${CONFIG_PATH:-.}/sarathi_new_failover/data:/app/data
-
-  worker-api:
-    build:
-      context: .
-      dockerfile: packages/worker-api/Dockerfile
-    container_name: sarathi_worker_api_b
-    restart: always
-    init: true
-    shm_size: "1024m"
-    environment:
-      - APP_ENV=${APP_ENV:-production}
-      - NODE_ENV=production
-      - DATABASE_URL=postgres://sarathi:${PG_PASSWORD}@${SERVER_A_IP}:5432/sarathi
-      - REDIS_URL=redis://:${REDIS_PASSWORD}@${SERVER_A_IP}:6379
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    volumes:
-      - ${CONFIG_PATH:-.}/sarathi_new_failover/data:/app/data
+      - ${CONFIG_PATH}/sarathi_new/auth_data_3:/app/.wwebjs_auth
+      - ${CONFIG_PATH}/sarathi_new/data:/app/data
+    security_opt:
+      - seccomp:unconfined
+    networks:
+      - sarathi_home
 
   worker-browser:
-    build:
-      context: .
-      dockerfile: packages/worker-browser/Dockerfile
+    image: ghcr.io/jack101a/sarathiwa_bot:worker-browser-latest
     container_name: sarathi_worker_browser_b
     restart: always
     init: true
+    stop_grace_period: 120s
     shm_size: "2048m"
     environment:
-      - APP_ENV=${APP_ENV:-production}
       - NODE_ENV=production
+      - APP_ENV=production
+      # ── Connect to Server A (Oracle VPS) ──────────────────────────────────
       - DATABASE_URL=postgres://sarathi:${PG_PASSWORD}@${SERVER_A_IP}:5432/sarathi
       - REDIS_URL=redis://:${REDIS_PASSWORD}@${SERVER_A_IP}:6379
-      - BROWSER_ENGINE=playwright
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    deploy:
-      resources:
-        limits:
-          memory: 2g
-    volumes:
-      - ${CONFIG_PATH:-.}/sarathi_new_failover/data:/app/data
-
-  gateway-tg:
-    build:
-      context: .
-      dockerfile: packages/gateway-tg/Dockerfile
-    container_name: sarathi_gateway_tg_b
-    restart: always
-    environment:
-      - APP_ENV=${APP_ENV:-production}
-      - NODE_ENV=production
-      - DATABASE_URL=postgres://sarathi:${PG_PASSWORD}@${SERVER_A_IP}:5432/sarathi
-      - REDIS_URL=redis://:${REDIS_PASSWORD}@${SERVER_A_IP}:6379
-      - TG_TOKEN=${TG_TOKEN:-}
-      - ADMIN_USERS=${ADMIN_USERS:-}
+      # ── Browser Engine ────────────────────────────────────────────────────
+      - BROWSER_ENGINE=${BROWSER_ENGINE:-puppeteer}
+      - BROWSER_CONCURRENCY=${BROWSER_CONCURRENCY:-2}
+      - MAX_BROWSER_PAGES=${MAX_BROWSER_PAGES:-5}
+      # ── Puppeteer ──────────────────────────────────────────────────────────
+      - PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+      - PUPPETEER_HEADLESS=true
+      - PUPPETEER_DISABLE_SANDBOX=true
+      - PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage
+      # ── Notifications ─────────────────────────────────────────────────────
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
       - LOG_LEVEL=${LOG_LEVEL:-info}
     volumes:
-      - ${CONFIG_PATH:-.}/sarathi_new_failover/data:/app/data
+      - ${CONFIG_PATH}/sarathi_new/data:/app/data
+    security_opt:
+      - seccomp:unconfined
+    networks:
+      - sarathi_home
 
-  nginx:
-    image: nginx:alpine
-    container_name: sarathi_nginx_b
-    restart: always
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx/nginx-server-b.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - api-secondary
+networks:
+  sarathi_home:
+    driver: bridge

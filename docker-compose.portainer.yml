@@ -49,10 +49,13 @@ services:
       - ajax_network
 
   # ── Application Services ─────────────────────────────────────────────────────
+  # TWO WA gateways on Server A — both always active.
+  # Redis SET NX dedup ensures only ONE processes each message.
+  # First scan: gateway-wa-1 QR → second scan: gateway-wa-2 QR (separate linked devices)
 
-  gateway-wa:
+  gateway-wa-1:
     image: ghcr.io/jack101a/sarathiwa_bot:gateway-wa-latest
-    container_name: sarathi_gateway_wa
+    container_name: sarathi_gateway_wa_1
     restart: always
     init: true
     stop_grace_period: 60s
@@ -62,14 +65,13 @@ services:
       - APP_ENV=production
       - DATABASE_URL=postgres://sarathi:${PG_PASSWORD:-sarathi_pass}@postgres:5432/sarathi
       - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_pass}@redis:6379
-      - INSTANCE_ID=wa-primary
-      - WA_HEARTBEAT_ROLE=primary
+      - INSTANCE_ID=wa-1
       # ── WhatsApp Auth ──────────────────────────────────────────────────────
       - AUTHORIZED_USERS=${AUTHORIZED_USERS:-}
       - AUTHORIZED_GROUPS=${AUTHORIZED_GROUPS:-}
       - ADMIN_USERS=${ADMIN_USERS:-}
       - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER:-}
-      - SESSION_NAME=${SESSION_NAME:-default-session}
+      - SESSION_NAME=session-1
       # ── Puppeteer ──────────────────────────────────────────────────────────
       - PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
       - PUPPETEER_HEADLESS=true
@@ -80,10 +82,52 @@ services:
       # ── Payment ───────────────────────────────────────────────────────────
       - UPI_ID=${UPI_ID:-sarathi@upi}
       - UPI_NAME=${UPI_NAME:-Sarathi Bot}
-      # ── Misc ──────────────────────────────────────────────────────────────
       - LOG_LEVEL=${LOG_LEVEL:-info}
     volumes:
-      - ${CONFIG_PATH}/sarathi_new/auth_data:/app/.wwebjs_auth
+      - ${CONFIG_PATH}/sarathi_new/auth_data_1:/app/.wwebjs_auth
+      - ${CONFIG_PATH}/sarathi_new/data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    security_opt:
+      - seccomp:unconfined
+    networks:
+      - ajax_network
+
+  gateway-wa-2:
+    image: ghcr.io/jack101a/sarathiwa_bot:gateway-wa-latest
+    container_name: sarathi_gateway_wa_2
+    restart: always
+    init: true
+    stop_grace_period: 60s
+    shm_size: "512m"
+    environment:
+      - NODE_ENV=production
+      - APP_ENV=production
+      - DATABASE_URL=postgres://sarathi:${PG_PASSWORD:-sarathi_pass}@postgres:5432/sarathi
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_pass}@redis:6379
+      - INSTANCE_ID=wa-2
+      # ── WhatsApp Auth ──────────────────────────────────────────────────────
+      - AUTHORIZED_USERS=${AUTHORIZED_USERS:-}
+      - AUTHORIZED_GROUPS=${AUTHORIZED_GROUPS:-}
+      - ADMIN_USERS=${ADMIN_USERS:-}
+      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER:-}
+      - SESSION_NAME=session-2
+      # ── Puppeteer ──────────────────────────────────────────────────────────
+      - PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+      - PUPPETEER_HEADLESS=true
+      - PUPPETEER_DISABLE_SANDBOX=true
+      - PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage
+      # ── Notifications ─────────────────────────────────────────────────────
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
+      # ── Payment ───────────────────────────────────────────────────────────
+      - UPI_ID=${UPI_ID:-sarathi@upi}
+      - UPI_NAME=${UPI_NAME:-Sarathi Bot}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - ${CONFIG_PATH}/sarathi_new/auth_data_2:/app/.wwebjs_auth
       - ${CONFIG_PATH}/sarathi_new/data:/app/data
     depends_on:
       postgres:

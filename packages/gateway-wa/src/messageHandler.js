@@ -9,8 +9,6 @@ const {
   commandInputService
 } = require('@sarathi/common');
 
-const { isInstanceActive } = require('./heartbeat');
-
 function normalizeText(value) {
   return String(value || '')
     .replace(/\s+/g, ' ')
@@ -18,19 +16,13 @@ function normalizeText(value) {
 }
 
 async function handleIncomingMessage(client, message) {
-  // 1. Is this gateway instance currently active?
-  const active = await isInstanceActive();
-  if (!active) {
-    // Standby mode: completely ignore incoming messages (failover instance will handle it)
-    return;
-  }
-
   let normalizedBody = normalizeText(message.body || '');
 
-  // Deduplication check. SET NX EX is atomic across gateways.
+  // Deduplication check. SET NX EX is atomic across all gateway instances.
+  // Only the first instance to claim this key processes the message.
   if (message.id && message.id.id) {
     try {
-      const created = await redis.set(`dedup:msg:${message.id.id}`, Date.now().toString(), 'EX', 300, 'NX');
+      const created = await redis.set(`dedup:msg:${message.id.id}`, process.env.INSTANCE_ID || '1', 'EX', 300, 'NX');
       if (!created) {
         return;
       }
@@ -38,6 +30,7 @@ async function handleIncomingMessage(client, message) {
       console.error(`[MessageHandler] Redis dedup check error: ${err.message}`);
     }
   }
+
 
   try {
     // 2. Authorization check
