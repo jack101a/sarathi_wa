@@ -1,0 +1,38 @@
+# ══════════════════════════════════════════════════════════════════════════════
+#  WireGuard VPN — Oracle VPS (Server A) Config
+#  Role: VPN Server (always-on, public IP)
+#  Tunnel IP: 10.99.0.1/24
+#
+#  SETUP:
+#  1. sudo apt install wireguard
+#  2. Generate keys: wg genkey | tee /etc/wireguard/server_private.key | wg pubkey > /etc/wireguard/server_public.key
+#  3. Replace PASTE_SERVER_PRIVATE_KEY_HERE with output of: cat /etc/wireguard/server_private.key
+#  4. Replace PASTE_HOME_PUBLIC_KEY_HERE with the home server's PUBLIC key
+#  5. sudo cp this file to /etc/wireguard/wg0.conf
+#  6. sudo systemctl enable --now wg-quick@wg0
+# ══════════════════════════════════════════════════════════════════════════════
+
+[Interface]
+# This VPS's WireGuard tunnel address
+Address = 10.99.0.1/24
+
+# WireGuard listens on this port (open in Oracle firewall security list)
+ListenPort = 51820
+
+# Paste your VPS's PRIVATE key here
+PrivateKey = PASTE_SERVER_PRIVATE_KEY_HERE
+
+# Save and restore rules on start/stop
+PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o ens3 -j MASQUERADE
+PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o ens3 -j MASQUERADE
+
+# ── Home Server (Server B) Peer ───────────────────────────────────────────────
+[Peer]
+# Paste home server's PUBLIC key here
+PublicKey = PASTE_HOME_PUBLIC_KEY_HERE
+
+# The tunnel IP assigned to the home server
+AllowedIPs = 10.99.0.2/32
+
+# Optional: if home server has a static IP, add PersistentKeepalive
+# PersistentKeepalive = 25

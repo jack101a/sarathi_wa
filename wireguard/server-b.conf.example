@@ -1,0 +1,39 @@
+# ══════════════════════════════════════════════════════════════════════════════
+#  WireGuard VPN — Home Server / Mini PC (Server B) Config
+#  Role: VPN Client (connects to VPS)
+#  Tunnel IP: 10.99.0.2/24
+#
+#  SETUP:
+#  1. sudo apt install wireguard
+#  2. Generate keys: wg genkey | tee /etc/wireguard/home_private.key | wg pubkey > /etc/wireguard/home_public.key
+#  3. Replace PASTE_HOME_PRIVATE_KEY_HERE with: cat /etc/wireguard/home_private.key
+#  4. Replace PASTE_VPS_PUBLIC_KEY_HERE with VPS public key
+#  5. Replace YOUR_ORACLE_VPS_PUBLIC_IP with VPS IP
+#  6. sudo cp this file to /etc/wireguard/wg0.conf
+#  7. sudo systemctl enable --now wg-quick@wg0
+# ══════════════════════════════════════════════════════════════════════════════
+
+[Interface]
+# This home server's WireGuard tunnel address
+Address = 10.99.0.2/24
+
+# Paste home server's PRIVATE key here
+PrivateKey = PASTE_HOME_PRIVATE_KEY_HERE
+
+# DNS inside tunnel (optional, Cloudflare)
+DNS = 1.1.1.1
+
+# ── Oracle VPS (Server A) ─────────────────────────────────────────────────────
+[Peer]
+# Paste VPS's PUBLIC key here
+PublicKey = PASTE_VPS_PUBLIC_KEY_HERE
+
+# VPS public IP and WireGuard port
+Endpoint = YOUR_ORACLE_VPS_PUBLIC_IP:51820
+
+# Only route traffic destined for the VPN subnet through the tunnel
+# 10.99.0.1 = VPS tunnel IP (postgres + redis accessible here)
+AllowedIPs = 10.99.0.0/24
+
+# Keep connection alive (important when behind home NAT/router)
+PersistentKeepalive = 25
