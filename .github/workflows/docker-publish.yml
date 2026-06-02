@@ -1,52 +1,104 @@
-### SECTION: Global Config
-name: Build and Publish Docker Image (wabot)
+name: Build & Push Docker Images (scaling-production)
 
-# Triggers on pushes to 'test-scaling' branch.
-# Produces the same :wabot rolling tag so the VPS can pull it directly.
 on:
   push:
-    branches: [ "test-scaling" ]
+    branches:
+      - scaling-production
+  workflow_dispatch:        # allow manual trigger from GitHub UI
 
-### SECTION: Main Logic
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/sarathiwa_bot
+
 jobs:
-  build-and-push:
+  # ── Build each service in parallel ────────────────────────────────────────
+  build:
+    name: Build ${{ matrix.service }}
     runs-on: ubuntu-latest
-    env:
-      IMAGE_NAME: ghcr.io/jack101a/sarathiwa_bot
-      # Opt into Node.js 24 now to avoid deprecation warnings from actions
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
     permissions:
       contents: read
       packages: write
+
+    strategy:
+      fail-fast: false          # let other services continue if one fails
+      matrix:
+        include:
+          - service: gateway-wa
+            dockerfile: packages/gateway-wa/Dockerfile
+            tag_suffix: gateway-wa
+
+          - service: gateway-tg
+            dockerfile: packages/gateway-tg/Dockerfile
+            tag_suffix: gateway-tg
+
+          - service: worker-api
+            dockerfile: packages/worker-api/Dockerfile
+            tag_suffix: worker-api
+
+          - service: worker-browser
+            dockerfile: packages/worker-browser/Dockerfile
+            tag_suffix: worker-browser
+
+          - service: scheduler
+            dockerfile: packages/scheduler/Dockerfile
+            tag_suffix: scheduler
+
+          - service: api
+            dockerfile: packages/api/Dockerfile
+            tag_suffix: api
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to the Container registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract short SHA
+        id: meta
+        run: |
+          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@v5
         with:
           context: .
+          file: ${{ matrix.dockerfile }}
           push: true
-          platforms: linux/amd64,linux/arm64
-          # Cache layers in the registry to speed up future builds
-          cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache
-          cache-to:   type=registry,ref=${{ env.IMAGE_NAME }}:buildcache,mode=max
-          # :wabot = rolling tag (VPS pulls this), :wabot-N = per-run rollback tag
+          platforms: linux/amd64
           tags: |
-            ${{ env.IMAGE_NAME }}:wabot
-            ${{ env.IMAGE_NAME }}:wabot-${{ github.run_number }}
+            ${{ env.IMAGE_PREFIX }}:${{ matrix.tag_suffix }}-latest
+            ${{ env.IMAGE_PREFIX }}:${{ matrix.tag_suffix }}-${{ steps.meta.outputs.sha_short }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  # ── Summary job — only passes if ALL builds succeeded ─────────────────────
+  all-images-ready:
+    name: All images built
+    needs: build
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check all builds succeeded
+        run: |
+          if [ "${{ needs.build.result }}" != "success" ]; then
+            echo "One or more service builds FAILED"
+            exit 1
+          fi
+          echo "All 6 images built and pushed successfully ✅"
+          echo ""
+          echo "Images available:"
+          echo "  ghcr.io/${{ github.repository_owner }}/sarathiwa_bot:gateway-wa-latest"
+          echo "  ghcr.io/${{ github.repository_owner }}/sarathiwa_bot:gateway-tg-latest"
+          echo "  ghcr.io/${{ github.repository_owner }}/sarathiwa_bot:worker-api-latest"
+          echo "  ghcr.io/${{ github.repository_owner }}/sarathiwa_bot:worker-browser-latest"
+          echo "  ghcr.io/${{ github.repository_owner }}/sarathiwa_bot:scheduler-latest"
+          echo "  ghcr.io/${{ github.repository_owner }}/sarathiwa_bot:api-latest"
