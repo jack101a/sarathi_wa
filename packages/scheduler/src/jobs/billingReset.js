@@ -16,7 +16,7 @@ async function resetDailyCounts() {
 async function resetExpiredMonthlyCounts() {
   logger.info('scheduler', 'Running monthly usage reset job...');
   try {
-    const users = await authRepo.query("SELECT id, billing_cycle_start FROM auth_users WHERE is_active = 1 AND billing_cycle_start != ''");
+    const users = await authRepo.query("SELECT id, billing_cycle_start FROM auth_users WHERE is_active = 1 AND billing_cycle_start IS NOT NULL");
     const now = Date.now();
     let resetCount = 0;
     for (const u of users) {

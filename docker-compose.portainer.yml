@@ -175,6 +175,9 @@ services:
       - APP_ENV=production
       - DATABASE_URL=postgres://sarathi:${PG_PASSWORD:-sarathi_pass}@postgres:5432/sarathi
       - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_pass}@redis:6379
+      # ── Frontend tokens (needed for config validation) ────────────────────
+      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       # ── Concurrency ───────────────────────────────────────────────────────
       - API_CONCURRENCY=${API_CONCURRENCY:-8}
       - SESSION_POOL_SIZE=${SESSION_POOL_SIZE:-3}
@@ -209,6 +212,9 @@ services:
       - APP_ENV=production
       - DATABASE_URL=postgres://sarathi:${PG_PASSWORD:-sarathi_pass}@postgres:5432/sarathi
       - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_pass}@redis:6379
+      # ── Frontend tokens (needed for config validation) ────────────────────
+      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       # ── Browser Engine (puppeteer | playwright) ───────────────────────────
       - BROWSER_ENGINE=${BROWSER_ENGINE:-puppeteer}
       - BROWSER_CONCURRENCY=${BROWSER_CONCURRENCY:-2}
