@@ -60,11 +60,104 @@ async function cancelQueueJob(q, jobId) {
 router.post('/login', handleLogin);
 router.post('/logout', handleLogout);
 
+/**
+ * Razorpay Webhook — auto-credits user when QR payment is received.
+ * MUST be before requireAdminAuth since Razorpay calls this without cookies.
+ * Uses express.raw() to preserve raw body for HMAC signature verification.
+ */
+router.post('/payments/razorpay/webhook',
+  require('express').raw({ type: 'application/json' }),
+  async (req, res) => {
+    const { razorpayService } = require('@sarathi/common');
+    const sig = req.headers['x-razorpay-signature'] || '';
+
+    // 1. Verify signature
+    if (!razorpayService.verifyWebhookSignature(req.body, sig)) {
+      logger.warn('razorpay', 'Webhook signature verification FAILED');
+      return res.status(400).json({ error: 'Invalid signature' });
+    }
+
+    let event;
+    try {
+      event = JSON.parse(req.body.toString());
+    } catch (err) {
+      return res.status(400).json({ error: 'Invalid JSON body' });
+    }
+
+    const eventName = event.event || '';
+    logger.info('razorpay', `Webhook received: ${eventName}`);
+
+    // 2. Handle payment captured on a QR code
+    if (eventName === 'payment.captured' || eventName === 'qr_code.credited') {
+      try {
+        const payment  = event.payload?.payment?.entity || event.payload?.qr_code?.entity || {};
+        const notes    = payment.notes || {};
+        const userId   = notes.user_id;
+        const chatId   = notes.chat_id;
+        const transport = notes.transport || 'whatsapp';
+        const amount   = parseInt(notes.amount || payment.amount / 100, 10);
+
+        if (!userId || !chatId || isNaN(amount) || amount <= 0) {
+          logger.warn('razorpay', 'Webhook missing user_id/chat_id/amount in notes', notes);
+          return res.status(200).json({ status: 'ok_ignored' });
+        }
+
+        // Idempotency: use payment ID as dedup key
+        const paymentId = payment.id || '';
+        if (paymentId) {
+          const already = await redis.set(`razorpay:processed:${paymentId}`, '1', 'EX', 86400, 'NX');
+          if (!already) {
+            logger.info('razorpay', `Duplicate webhook for payment ${paymentId} — skipped`);
+            return res.status(200).json({ status: 'ok_duplicate' });
+          }
+        }
+
+        // Credit the user
+        const user = await authRepo.getUserById(userId);
+        if (!user) {
+          logger.warn('razorpay', `User not found: ${userId}`);
+          return res.status(200).json({ status: 'ok_user_not_found' });
+        }
+
+        await authRepo.addCreditsAudited(userId, amount, `Razorpay auto-topup ₹${amount} (${paymentId})`, 'razorpay');
+        logger.info('razorpay', `Credited ${amount} credits to user ${userId} (${user.canonical_phone})`);
+
+        // Notify user via Redis (gateway picks this up and sends WhatsApp/TG message)
+        const responseChannel = `chat:response:${transport}:${chatId}`;
+        await redis.publish(responseChannel, JSON.stringify({
+          type: 'text',
+          text:
+            `✅ *₹${amount} का भुगतान प्राप्त हुआ!*\n\n` +
+            `🎉 *${amount} क्रेडिट* आपके खाते में जोड़ दिए गए हैं।\n` +
+            `💰 नया बैलेंस देखने के लिए \`balance\` टाइप करें।`,
+        }));
+
+        // Discord alert
+        const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+        if (webhookUrl) {
+          const { chatNotifier } = require('@sarathi/common');
+          await chatNotifier.sendDiscordAlert(
+            '💰 Razorpay Auto-Topup',
+            `**User:** ${user.name || user.canonical_phone}\n**Amount:** ₹${amount}\n**Payment ID:** ${paymentId}`,
+            'success'
+          ).catch(() => {});
+        }
+      } catch (err) {
+        logger.error('razorpay', `Webhook processing error: ${err.message}`);
+        // Still respond 200 so Razorpay doesn't retry
+      }
+    }
+
+    return res.status(200).json({ status: 'ok' });
+  }
+);
+
 /** Verify current session */
 router.get('/verify', requireAdminAuth, handleVerify);
 
 // ─── Protected routes ───────────────────────────────────────────────────────
 router.use(requireAdminAuth);
+
 
 // ── Bootstrap (loads everything the dashboard needs) ──────────────────────
 router.get('/bootstrap', async (req, res) => {

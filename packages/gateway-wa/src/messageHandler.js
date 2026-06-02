@@ -229,22 +229,76 @@ async function handleIncomingMessage(client, message) {
     }
 
     if (type === 'topup') {
-      const upiId = CONFIG.PAYMENT?.UPI_ID || process.env.UPI_ID || 'sarathi@upi';
-      const upiName = CONFIG.PAYMENT?.UPI_NAME || process.env.UPI_NAME || 'Sarathi Bot';
-      
-      const response = `💰 *बैलेंस रिचार्ज निर्देश (Topup Instructions):* 💰\n\n` +
-        `क्रेडिट खरीदने के लिए नीचे दिए गए UPI पर भुगतान करें:\n` +
-        `👉 *UPI ID:* \`${upiId}\`\n` +
-        `👉 *Name:* ${upiName}\n\n` +
-        `*मूल्य (Pricing):*\n` +
-        `• ₹1 = 1 Credit\n` +
-        `• Minimum purchase: 100 Credits (₹100)\n\n` +
-        `*भुगतान के बाद (After Payment):*\n` +
-        `पेमेंट करने के बाद, प्राप्त हुआ 12-अंकों का UPI UTR नंबर इस प्रकार भेजें:\n` +
-        `👉 \`paid <UTR_NUMBER>\`\n` +
-        `*(उदाहरण: paid 412345678901)*\n\n` +
-        `बॉट एडमिन पेमेंट की पुष्टि करने के बाद क्रेडिट आपके खाते में जोड़ देगा।`;
-      await message.reply(response);
+      const { razorpayService } = require('@sarathi/common');
+      const https = require('https');
+      const http = require('http');
+
+      // Amount from command: "topup 500" → ₹500, default ₹100
+      const requestedAmount = payload.amount ? parseInt(payload.amount, 10) : 100;
+      const amount = (isNaN(requestedAmount) || requestedAmount < 100) ? 100 : requestedAmount;
+
+      if (razorpayService.isRazorpayEnabled()) {
+        // ── Razorpay QR flow (fully automated) ─────────────────────────────
+        try {
+          await message.reply(`⏳ *₹${amount} का QR कोड बना रहे हैं...*`);
+
+          const chatId = message.from;
+          const transport = 'whatsapp';
+          const qr = await razorpayService.createPaymentQR(amount, dbUser.id, chatId, transport);
+
+          if (qr && qr.imageUrl) {
+            // Download QR image and send as WhatsApp image
+            const downloadImage = (url) => new Promise((resolve, reject) => {
+              const proto = url.startsWith('https') ? https : http;
+              proto.get(url, (res) => {
+                const chunks = [];
+                res.on('data', (chunk) => chunks.push(chunk));
+                res.on('end', () => resolve(Buffer.concat(chunks)));
+                res.on('error', reject);
+              }).on('error', reject);
+            });
+
+            const imgBuffer = await downloadImage(qr.imageUrl);
+            const base64 = imgBuffer.toString('base64');
+
+            const { MessageMedia } = require('whatsapp-web.js');
+            const media = new MessageMedia('image/png', base64, 'topup_qr.png');
+
+            const caption =
+              `💰 *₹${amount} रिचार्ज QR कोड*\n\n` +
+              `📲 इस QR को किसी भी UPI ऐप से स्कैन करें:\n` +
+              `_(Google Pay, PhonePe, Paytm, BHIM)_\n\n` +
+              `✅ भुगतान होते ही *क्रेडिट स्वचालित रूप से जुड़ जाएंगे।*\n` +
+              `⚠️ यह QR एक बार उपयोग के लिए है।\n\n` +
+              `_अलग राशि के लिए:_ \`topup 200\` _या_ \`topup 500\``;
+
+            await client.sendMessage(chatId, media, { caption });
+          } else {
+            throw new Error('QR creation returned null');
+          }
+        } catch (err) {
+          console.error(`[MessageHandler] Razorpay QR error: ${err.message}`);
+          // Fallback to manual UPI flow on Razorpay error
+          await message.reply(
+            `❌ QR बनाने में समस्या आई। कृपया मैन्युअल UPI से भुगतान करें:\n\n` +
+            `👉 *UPI ID:* \`${process.env.UPI_ID || 'sarathi@upi'}\`\n` +
+            `भुगतान के बाद \`paid <UTR_NUMBER>\` भेजें।`
+          );
+        }
+      } else {
+        // ── Manual UPI fallback (no Razorpay configured) ───────────────────
+        const upiId   = process.env.UPI_ID   || CONFIG.PAYMENT?.UPI_ID   || 'sarathi@upi';
+        const upiName = process.env.UPI_NAME  || CONFIG.PAYMENT?.UPI_NAME || 'Sarathi Bot';
+        const response =
+          `💰 *बैलेंस रिचार्ज (Topup Instructions)*\n\n` +
+          `👉 *UPI ID:* \`${upiId}\`\n` +
+          `👉 *Name:* ${upiName}\n\n` +
+          `*मूल्य (Pricing):*\n• ₹1 = 1 Credit\n• Minimum: ₹100\n\n` +
+          `*भुगतान के बाद:*\n\`paid <UTR_NUMBER>\` भेजें\n` +
+          `_(उदाहरण: paid 412345678901)_\n\n` +
+          `एडमिन 24 घंटे में पुष्टि करेंगे।`;
+        await message.reply(response);
+      }
       return;
     }
 

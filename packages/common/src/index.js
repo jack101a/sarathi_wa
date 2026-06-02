@@ -20,6 +20,7 @@ module.exports = {
   commandInputService: require('./commandInputService'),
   rateLimiter: require('./rateLimiter'),
   planRepository: require('./planRepository'),
+  razorpayService: require('./razorpayService'),
   serviceRepository: require('./serviceRepository'),
   trackingRepository: require('./trackingRepository'),
   jobRepository: require('./jobRepository'),
