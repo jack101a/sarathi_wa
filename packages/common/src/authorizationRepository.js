@@ -10,7 +10,7 @@ function planOf(user) { return user && (user.plan_id || user.subscription_plan) 
 
 async function addColumnIfMissing(table, column, definition) {
   const rows = await query(
-    'SELECT 1 FROM information_schema.columns WHERE table_name = ? AND column_name = ? LIMIT 1',
+    'SELECT 1 FROM information_schema.columns WHERE table_schema = \'public\' AND table_name = ? AND column_name = ? LIMIT 1',
     [table, column]
   );
   if (rows.length === 0) {

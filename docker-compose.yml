@@ -161,6 +161,45 @@ services:
       redis:
         condition: service_healthy
 
+  gateway-tg:
+    build:
+      context: .
+      dockerfile: packages/gateway-tg/Dockerfile
+    container_name: sarathi_gateway_tg
+    restart: always
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      NODE_ENV: production
+      DATABASE_URL: postgres://sarathi:${PG_PASSWORD:-sarathi_pass}@postgres:5432/sarathi
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_pass}@redis:6379
+      TG_TOKEN: ${TG_TOKEN:-}
+      ADMIN_USERS: ${ADMIN_USERS:-}
+      AUTHORIZED_USERS: ${AUTHORIZED_USERS:-}
+      AUTHORIZED_GROUPS: ${AUTHORIZED_GROUPS:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ${CONFIG_PATH:-.}/sarathi_new/data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  nginx:
+    image: nginx:alpine
+    container_name: sarathi_nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
+    depends_on:
+      - api
+
 volumes:
   pg_data:
   redis_data:

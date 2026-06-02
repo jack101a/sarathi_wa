@@ -1,0 +1,15 @@
+{
+  "name": "@sarathi/gateway-tg",
+  "version": "1.0.0",
+  "description": "Sarathi Telegram Gateway — BullMQ producer, message intake, Redis pub/sub response delivery",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@sarathi/common": "*",
+    "node-telegram-bot-api": "^0.66.0",
+    "ioredis": "^5.3.2",
+    "dotenv": "^16.0.3"
+  }
+}

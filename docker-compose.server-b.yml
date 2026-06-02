@@ -73,6 +73,7 @@ services:
       - NODE_ENV=production
       - DATABASE_URL=postgres://sarathi:${PG_PASSWORD}@${SERVER_A_IP}:5432/sarathi
       - REDIS_URL=redis://:${REDIS_PASSWORD}@${SERVER_A_IP}:6379
+      - BROWSER_ENGINE=playwright
       - LOG_LEVEL=${LOG_LEVEL:-info}
     deploy:
       resources:
@@ -80,3 +81,31 @@ services:
           memory: 2g
     volumes:
       - ${CONFIG_PATH:-.}/sarathi_new_failover/data:/app/data
+
+  gateway-tg:
+    build:
+      context: .
+      dockerfile: packages/gateway-tg/Dockerfile
+    container_name: sarathi_gateway_tg_b
+    restart: always
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - NODE_ENV=production
+      - DATABASE_URL=postgres://sarathi:${PG_PASSWORD}@${SERVER_A_IP}:5432/sarathi
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@${SERVER_A_IP}:6379
+      - TG_TOKEN=${TG_TOKEN:-}
+      - ADMIN_USERS=${ADMIN_USERS:-}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - ${CONFIG_PATH:-.}/sarathi_new_failover/data:/app/data
+
+  nginx:
+    image: nginx:alpine
+    container_name: sarathi_nginx_b
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx-server-b.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api-secondary
