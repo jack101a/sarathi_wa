@@ -63,10 +63,10 @@ async function main() {
       if (payload.type === 'text') {
         await bot.sendMessage(chatId, payload.text || '');
       } else if (payload.type === 'photo') {
-        const buf = Buffer.from(payload.data, 'base64');
+        const buf = Buffer.from(payload.buffer, 'base64');
         await bot.sendPhoto(chatId, buf, { caption: payload.caption || '' });
       } else if (payload.type === 'document') {
-        const buf = Buffer.from(payload.data, 'base64');
+        const buf = Buffer.from(payload.buffer, 'base64');
         await bot.sendDocument(chatId, buf, { caption: payload.caption || '' }, { filename: payload.filename || 'document' });
       } else if (payload.text) {
         // Fallback: if there's a text field, send it
@@ -81,7 +81,7 @@ async function main() {
     logger.error('gateway-tg', `Redis subscriber error: ${err.message}`);
   });
 
-  logger.info('gateway-tg', 'Redis response delivery listener started (chat:response:telegram:*)');
+  logger.info('gateway-tg', 'Redis response delivery listener started on chat:response:telegram:*');
 
   // ── Graceful Shutdown ──────────────────────────────────────────────────────
   const handleShutdown = async (signal) => {

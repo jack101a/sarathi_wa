@@ -44,7 +44,7 @@ async function startResponseListener(client) {
     }
   });
 
-  console.log('[ResponseDelivery] Redis subscriber listening on chat:presponse:*');
+  console.log('[ResponseDelivery] Redis subscriber listening on chat:response:whatsapp:* and chat:response:wa:*');
 }
 
 module.exports = {
