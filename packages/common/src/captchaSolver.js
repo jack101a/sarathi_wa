@@ -134,7 +134,7 @@ function getVahanModelPath() {
     if (path.isAbsolute(mp)) return mp;
     return path.join(__dirname, '..', '..', '..', mp);
   }
-  return path.join(__dirname, '..', '..', '..', 'godmode_solver.onnx');
+  return path.join(__dirname, '..', '..', '..', 'models', 'godmode_solver.onnx');
 }
 
 async function getVahanSession() {
