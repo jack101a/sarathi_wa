@@ -11,6 +11,7 @@ COPY packages/gateway-tg ./packages/gateway-tg
 
 # Copy legacy monolith src (business logic, actively used by workers)
 COPY src ./src
+COPY config.example.yml ./
 
 RUN npm install --workspaces --if-present --include-workspace-root
 

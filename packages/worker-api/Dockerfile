@@ -30,5 +30,6 @@ COPY package*.json ./
 COPY packages/common ./packages/common
 COPY packages/worker-api ./packages/worker-api
 COPY src ./src
+COPY config.example.yml ./
 
 CMD ["node", "packages/worker-api/src/index.js"]

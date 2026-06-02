@@ -30,6 +30,7 @@ COPY package*.json ./
 COPY packages/common ./packages/common
 COPY packages/worker-browser ./packages/worker-browser
 COPY src ./src
+COPY config.example.yml ./
 
 # Install Playwright chromium browser and its OS dependencies
 RUN npx playwright install --with-deps chromium

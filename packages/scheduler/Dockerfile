@@ -17,5 +17,6 @@ COPY package*.json ./
 COPY packages/common ./packages/common
 COPY packages/scheduler ./packages/scheduler
 COPY src ./src
+COPY config.example.yml ./
 
 CMD ["node", "packages/scheduler/src/index.js"]

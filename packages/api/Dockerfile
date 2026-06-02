@@ -27,6 +27,7 @@ COPY package*.json ./
 COPY packages/common ./packages/common
 COPY packages/api ./packages/api
 COPY src ./src
+COPY config.example.yml ./
 
 EXPOSE 3000
 CMD ["node", "packages/api/src/index.js"]

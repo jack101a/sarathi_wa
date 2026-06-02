@@ -30,6 +30,7 @@ COPY package*.json ./
 COPY packages/common ./packages/common
 COPY packages/gateway-wa ./packages/gateway-wa
 COPY src ./src
+COPY config.example.yml ./
 
 # Create volume mount for whatsapp session data
 RUN mkdir -p /app/.wwebjs_auth
