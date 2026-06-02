@@ -224,7 +224,7 @@ async function initDb() {
       ['appl_image', 'Acknowledgement Image', 'light', 'api', 0, 125],
       ['slot_pdf', 'Slot Booking Receipt', 'light', 'api', 0, 130],
       ['alive', 'Bot Health Check', 'light', 'api', 0, 140],
-      ['resend_otp', 'LL Password Resend', 'medium', 'api', 0, 200],
+      ['resend_otp', 'LL Password Resend', 'medium', 'browser', 0, 200],
       ['llprint_start', 'LL Print / Download', 'medium', 'browser', 0, 210],
       ['fee_print_start', 'Fee Receipt Print', 'medium', 'browser', 0, 220],
       ['pay_fee_start', 'Fee Payment', 'medium', 'browser', 0, 230],
@@ -565,7 +565,9 @@ async function rejectPaymentRequest(id, note = '') {
   return true;
 }
 
-initDb().catch(() => {});
+initDb().catch((err) => {
+  console.error('[authRepo] DB init failed — will retry on next request:', err.message);
+});
 
 module.exports = {
   initDb,

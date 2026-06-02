@@ -3,11 +3,10 @@ const { authorizationRepository: authRepo, logger } = require('@sarathi/common')
 async function resetDailyCounts() {
   logger.info('scheduler', 'Running daily usage reset job...');
   try {
-    const users = await authRepo.query('SELECT id FROM auth_users WHERE is_active = 1');
-    for (const u of users) {
-      await authRepo.resetDailyCount(u.id);
-    }
-    logger.info('scheduler', `Successfully reset daily counts for ${users.length} users`);
+    await authRepo.query(
+      'UPDATE auth_users SET daily_count = 0, last_daily_reset = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE is_active = 1'
+    );
+    logger.info('scheduler', 'Successfully reset daily counts for all active users');
   } catch (err) {
     logger.error('scheduler', `Failed to reset daily counts: ${err.stack}`);
   }

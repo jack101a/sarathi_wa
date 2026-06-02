@@ -8,6 +8,7 @@ const {
   subscriber,
   config: CONFIG, 
   logger, 
+  chatNotifier,
   authorizationRepository: authRepo,
   authorizationService: authService,
   jobRepository,
@@ -311,7 +312,6 @@ router.post('/users', async (req, res) => {
 
     if (channel === 'wa' || channel === 'whatsapp') {
       const waVerificationService = require('../../../../src/services/waVerificationService');
-      const chatNotifier = require('../../../../src/services/chatNotifier');
       
       const verif = await waVerificationService.startVerification(phone, 'admin', 'wa');
       if (verif) {
@@ -362,7 +362,6 @@ router.post('/users/:phone/resend-activation', async (req, res) => {
   try {
     const { phone } = req.params;
     const waVerificationService = require('../../../../src/services/waVerificationService');
-    const chatNotifier = require('../../../../src/services/chatNotifier');
     
     const verif = await waVerificationService.resendVerification(phone);
     if (!verif) {

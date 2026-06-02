@@ -14,7 +14,7 @@ require('dotenv').config();
 
 const TelegramBot = require('node-telegram-bot-api');
 const Redis = require('ioredis');
-const { config: CONFIG, logger, chatNotifier } = require('@sarathi/common');
+const { config: CONFIG, logger } = require('@sarathi/common');
 const { handleIncomingMessage } = require('./messageHandler');
 
 const TG_TOKEN = process.env.TG_TOKEN || (CONFIG.TELEGRAM && CONFIG.TELEGRAM.TOKEN) || null;
@@ -30,11 +30,6 @@ async function main() {
 
   // ── Telegram Bot Client ────────────────────────────────────────────────────
   const bot = new TelegramBot(TG_TOKEN, { polling: true });
-
-  // Register the chatNotifier Telegram bot instance for sending responses
-  if (chatNotifier.setTelegramBot) {
-    chatNotifier.setTelegramBot(bot);
-  }
 
   bot.on('polling_error', (err) => {
     logger.error('gateway-tg', `Polling error: ${err.message}`);
