@@ -22,7 +22,7 @@ services:
       POSTGRES_USER: sarathi
       POSTGRES_PASSWORD: ${PG_PASSWORD:-sarathi_pass}
     volumes:
-      - pg_data:/var/lib/postgresql/data
+      - ${CONFIG_PATH}/sarathi_new/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U sarathi"]
       interval: 10s
@@ -38,7 +38,7 @@ services:
     restart: always
     command: redis-server --requirepass ${REDIS_PASSWORD:-redis_pass} --appendonly yes
     volumes:
-      - redis_data:/data
+      - ${CONFIG_PATH}/sarathi_new/redis:/data
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis_pass}", "ping"]
       interval: 10s
@@ -304,11 +304,6 @@ services:
         condition: service_healthy
     networks:
       - ajax_network
-
-# ── Volumes ────────────────────────────────────────────────────────────────────
-volumes:
-  pg_data:
-  redis_data:
 
 # ── Networks ───────────────────────────────────────────────────────────────────
 networks:
