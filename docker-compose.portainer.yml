@@ -54,7 +54,7 @@ services:
   # First scan: gateway-wa-1 QR → second scan: gateway-wa-2 QR (separate linked devices)
 
   gateway-wa-1:
-    image: ghcr.io/jack101a/sarathiwa_bot:gateway-wa-latest
+    image: ghcr.io/jack101a/sarathiwa_bot:gateway-wa-${IMAGE_TAG:-latest}
     container_name: sarathi_gateway_wa_1
     restart: always
     init: true
@@ -97,7 +97,7 @@ services:
       - ajax_network
 
   gateway-wa-2:
-    image: ghcr.io/jack101a/sarathiwa_bot:gateway-wa-latest
+    image: ghcr.io/jack101a/sarathiwa_bot:gateway-wa-${IMAGE_TAG:-latest}
     container_name: sarathi_gateway_wa_2
     restart: always
     init: true
@@ -140,7 +140,7 @@ services:
       - ajax_network
 
   gateway-tg:
-    image: ghcr.io/jack101a/sarathiwa_bot:gateway-tg-latest
+    image: ghcr.io/jack101a/sarathiwa_bot:gateway-tg-${IMAGE_TAG:-latest}
     container_name: sarathi_gateway_tg
     restart: always
     environment:
@@ -167,7 +167,7 @@ services:
       - ajax_network
 
   worker-api:
-    image: ghcr.io/jack101a/sarathiwa_bot:worker-api-latest
+    image: ghcr.io/jack101a/sarathiwa_bot:worker-api-${IMAGE_TAG:-latest}
     container_name: sarathi_worker_api
     restart: always
     environment:
@@ -201,7 +201,7 @@ services:
       - ajax_network
 
   worker-browser:
-    image: ghcr.io/jack101a/sarathiwa_bot:worker-browser-latest
+    image: ghcr.io/jack101a/sarathiwa_bot:worker-browser-${IMAGE_TAG:-latest}
     container_name: sarathi_worker_browser
     restart: always
     init: true
@@ -241,7 +241,7 @@ services:
       - ajax_network
 
   scheduler:
-    image: ghcr.io/jack101a/sarathiwa_bot:scheduler-latest
+    image: ghcr.io/jack101a/sarathiwa_bot:scheduler-${IMAGE_TAG:-latest}
     container_name: sarathi_scheduler
     restart: always
     environment:
@@ -270,7 +270,7 @@ services:
       - ajax_network
 
   api:
-    image: ghcr.io/jack101a/sarathiwa_bot:api-latest
+    image: ghcr.io/jack101a/sarathiwa_bot:api-${IMAGE_TAG:-latest}
     container_name: sarathi_api
     restart: always
     environment:

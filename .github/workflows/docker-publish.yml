@@ -64,11 +64,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Extract short SHA
-        id: meta
-        run: |
-          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-          echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
 
       - name: Build and push ${{ matrix.service }}
         uses: docker/build-push-action@v5
@@ -81,7 +76,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: |
             ${{ env.IMAGE_PREFIX }}:${{ matrix.tag_suffix }}-latest
-            ${{ env.IMAGE_PREFIX }}:${{ matrix.tag_suffix }}-${{ steps.meta.outputs.sha_short }}
+            ${{ env.IMAGE_PREFIX }}:${{ matrix.tag_suffix }}-${{ github.run_number }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
