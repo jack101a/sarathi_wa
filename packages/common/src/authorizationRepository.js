@@ -23,6 +23,21 @@ async function initDb() {
   if (initPromise) return initPromise;
 
   initPromise = (async () => {
+    // ── Serialize cross-container schema init with a PG advisory lock ────────
+    // Multiple containers starting simultaneously on a fresh DB all race to run
+    // CREATE TABLE. PG creates a pg_type entry before the table exists — if two
+    // processes race, the second fails with "duplicate key on pg_type_typname_nsp_index".
+    // Advisory lock (bigint key 987654321) ensures only ONE container runs initDb.
+    let lockAcquired = false;
+    for (let i = 0; i < 10; i++) {
+      try {
+        const [r] = await query('SELECT pg_try_advisory_lock(987654321) AS ok');
+        if (r && r.ok) { lockAcquired = true; break; }
+      } catch (_) { /* pg not ready yet */ }
+      await new Promise(res => setTimeout(res, 500));
+    }
+
+    try {
     await run('CREATE EXTENSION IF NOT EXISTS pgcrypto');
 
     await run(`
@@ -265,8 +280,14 @@ async function initDb() {
       await createUserIdentity(user.id, 'wa_cus', `${digits}@c.us`);
     }
 
-    initialized = true;
-    return true;
+      initialized = true;
+      return true;
+    } finally {
+      // Always release the advisory lock so other containers can proceed
+      if (lockAcquired) {
+        await query('SELECT pg_advisory_unlock(987654321)').catch(() => {});
+      }
+    }
   })().catch((err) => {
     console.error('[authRepo] Database initialization failed:', err.message);
     initPromise = null;
