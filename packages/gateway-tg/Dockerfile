@@ -1,6 +1,13 @@
+# syntax=docker/dockerfile:1
 FROM node:20-slim
 
 WORKDIR /app
+ENV npm_config_fetch_retries=5 \
+    npm_config_fetch_retry_factor=2 \
+    npm_config_fetch_retry_mintimeout=20000 \
+    npm_config_fetch_retry_maxtimeout=120000 \
+    npm_config_audit=false \
+    npm_config_fund=false
 
 # Copy root workspace manifests
 COPY package.json package-lock.json ./
@@ -13,7 +20,7 @@ COPY packages/gateway-tg ./packages/gateway-tg
 COPY src ./src
 COPY config.example.yml ./
 
-RUN npm install --workspaces --if-present --include-workspace-root
+RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
 
 WORKDIR /app/packages/gateway-tg
 

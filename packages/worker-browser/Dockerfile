@@ -2,10 +2,16 @@
 ### Stage 1: Install production dependencies
 FROM node:20-bookworm-slim AS deps
 WORKDIR /app
+ENV npm_config_fetch_retries=5 \
+    npm_config_fetch_retry_factor=2 \
+    npm_config_fetch_retry_mintimeout=20000 \
+    npm_config_fetch_retry_maxtimeout=120000 \
+    npm_config_audit=false \
+    npm_config_fund=false
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 COPY package*.json ./
 COPY packages ./packages
-RUN npm ci --omit=dev
+RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
 
 ### Stage 2: Runtime image
 FROM node:20-bookworm-slim AS runtime
