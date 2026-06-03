@@ -51,9 +51,10 @@
     "chatids": "node tests/manual/whatsapp/listWhatsAppChats.js",
     "manual:vahan-research": "node tests/manual/vahan/vahanResearch.js",
     "build:frontend": "cd frontend && npm ci && npm run build",
-    "docker:up": "docker compose up -d --build",
-    "docker:down": "docker compose down",
-    "docker:logs": "docker compose logs -f"
+    "docker:up": "./scripts/compose.sh up -d --build",
+    "docker:down": "./scripts/compose.sh down",
+    "docker:logs": "./scripts/compose.sh logs -f",
+    "compose:config": "./scripts/compose.sh config"
   },
   "keywords": [],
   "author": "",

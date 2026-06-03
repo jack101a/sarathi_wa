@@ -3,11 +3,36 @@ const cookieParser = require('cookie-parser');
 const path = require('path');
 const fs = require('fs');
 const { config: CONFIG, logger, db, redis } = require('@sarathi/common');
+const requestContext = require('./middleware/requestContext');
+const { apiNotFound, errorHandler } = require('./middleware/errorHandler');
+
+async function checkDependencies() {
+  const checks = { db: 'unknown', redis: 'unknown' };
+
+  try {
+    await db.query('SELECT 1');
+    checks.db = 'ok';
+  } catch (err) {
+    checks.db = 'error';
+  }
+
+  try {
+    await redis.ping();
+    checks.redis = 'ok';
+  } catch (err) {
+    checks.redis = 'error';
+  }
+
+  const healthy = checks.db === 'ok' && checks.redis === 'ok';
+  return { healthy, checks };
+}
 
 async function main() {
-  console.log('[API] Starting API server...');
+  logger.info('api', 'Starting API server');
   const app = express();
-  
+
+  app.disable('x-powered-by');
+  app.use(requestContext);
   app.use(cookieParser());
   app.use(express.json({
     verify: (req, _res, buf) => {
@@ -20,23 +45,28 @@ async function main() {
   // Mount Admin API routes
   const adminRouter = require('./routes/adminRouter');
   app.use('/admin/api', adminRouter);
+  app.use('/admin/api', apiNotFound);
 
-  // Expose health status
+  // Process liveness: use this for "is the container running?" probes.
+  app.get('/livez', (_req, res) => {
+    res.json({
+      status: 'ok',
+      uptime: Math.floor(process.uptime()),
+    });
+  });
+
+  // Dependency readiness: use this before routing production traffic.
+  app.get('/readyz', async (_req, res) => {
+    const { healthy, checks } = await checkDependencies();
+    res.status(healthy ? 200 : 503).json({
+      status: healthy ? 'ok' : 'degraded',
+      checks,
+    });
+  });
+
+  // Existing health endpoint kept for backwards compatibility.
   app.get('/health', async (req, res) => {
-    const checks = { db: 'unknown', redis: 'unknown' };
-    try {
-      await db.query('SELECT 1');
-      checks.db = 'ok';
-    } catch (err) {
-      checks.db = 'error';
-    }
-    try {
-      await redis.ping();
-      checks.redis = 'ok';
-    } catch (err) {
-      checks.redis = 'error';
-    }
-    const healthy = checks.db === 'ok' && checks.redis === 'ok';
+    const { healthy, checks } = await checkDependencies();
     res.status(healthy ? 200 : 503).json({
       status: healthy ? 'ok' : 'degraded',
       checks,
@@ -56,6 +86,8 @@ async function main() {
     logger.warn('api', 'Admin frontend dist not found — serving fallback placeholder');
   }
 
+  app.use(errorHandler);
+
   const port = process.env.PORT || CONFIG.PORT || 3000;
   const server = app.listen(port, () => {
     logger.info('api', `HTTP server listening on port ${port}`, {
@@ -65,10 +97,10 @@ async function main() {
   });
 
   const handleShutdown = async (signal) => {
-    console.log(`[API] Received ${signal}. Shutting down server...`);
+    logger.info('api', `Received ${signal}. Shutting down server...`);
     server.close(async () => {
       await db.close().catch(() => {});
-      console.log('[API] Server closed.');
+      logger.info('api', 'Server closed.');
       process.exit(0);
     });
   };
@@ -78,6 +110,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(`[API] Fatal startup error: ${err.stack}`);
+  logger.error('api', 'Fatal startup error', { error: err.stack });
   process.exit(1);
 });

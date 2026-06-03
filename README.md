@@ -1,68 +1,103 @@
 # Sarathi WA Bot
 
-WhatsApp-first bot for Sarathi and Vahan workflows, with optional Telegram support for notifications and Sarathi commands.
+WhatsApp-first bot for Sarathi and Vahan workflows, with optional Telegram support, admin dashboard, background workers, scheduler jobs, PostgreSQL, Redis, and Docker deployment support.
 
-## Start Here
+The core business workflow from `test-scaling` is intentionally preserved in `src/`. The `scaling-production` branch adds production wrappers around that workflow so services can be deployed and scaled more safely.
 
-Read [docs/AI_AGENT_GUIDE.md](docs/AI_AGENT_GUIDE.md) first.
-
-That guide is the main project map for future agents and contributors. It covers:
-
-- architecture
-- runtime flow
-- Sarathi tracking
-- Vahan captcha/session flow
-- config variables
-- repo layout
-- tests and manual helpers
-
-## Repo Layout
+## Current Architecture
 
 ```text
-src/            runtime code
-tests/          automated and script-style tests
-tests/manual/   manual helpers and research scripts
-trash/          non-runtime leftover artifacts
-docs/           documentation
+packages/api/              Admin API, health endpoints, frontend hosting
+packages/common/           Shared config, DB, Redis, queues, repositories, services
+packages/gateway-wa/       WhatsApp message gateway
+packages/gateway-tg/       Telegram message gateway
+packages/worker-api/       Non-browser/background job worker
+packages/worker-browser/   Browser-heavy job worker
+packages/scheduler/        Cron jobs for tracking, cleanup, billing, backups
+src/                       Proven legacy business logic still used by workers/gateways
+frontend/                  React admin dashboard
+scripts/migrations/        SQL schema initialization/migrations
+docs/                      Architecture and deployment notes
+models/                    ONNX captcha/model files used by workers/API
 ```
 
-## Setup
+Read more:
 
-1. Copy `.env.example` to `.env`
-2. Copy `config.example.yml` to `data/config.yml`
-3. Fill in the core portal/runtime values in `data/config.yml`
-4. Fill in the operational frontend values in `.env`
-5. Install dependencies:
+- [Architecture](docs/ARCHITECTURE.md)
+- [Deployment checklist](docs/DEPLOYMENT_CHECKLIST.md)
+
+## Required Runtime Secrets
+
+Do not hardcode these in code or Compose files:
+
+- `PG_PASSWORD`
+- `REDIS_PASSWORD`
+- `ADMIN_TOKEN`
+- `RAZORPAY_WEBHOOK_SECRET` if Razorpay webhooks are enabled
+- `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` if Razorpay payments are enabled
+
+## Local Setup
+
+1. Copy `.env.example` to `.env`.
+2. Copy `config.example.yml` to `data/config.yml` if it does not already exist.
+3. Fill required values in `.env` and `data/config.yml`.
+4. Install dependencies:
 
 ```bash
 npm install
 ```
 
-6. Start the app:
+5. Start the API locally:
 
 ```bash
 npm run start
+```
+
+## Docker Setup
+
+Render and validate the main Compose file before starting containers:
+
+```bash
+ADMIN_TOKEN=your_admin_token \
+PG_PASSWORD=your_postgres_password \
+REDIS_PASSWORD=your_redis_password \
+./scripts/compose.sh config
+```
+
+Start the stack:
+
+```bash
+ADMIN_TOKEN=your_admin_token \
+PG_PASSWORD=your_postgres_password \
+REDIS_PASSWORD=your_redis_password \
+./scripts/compose.sh up -d --build
 ```
 
 ## Useful Commands
 
 ```bash
-npm run start
+npm test
 npm run test:status
 npm run test:ack
+npm run test:receipt
 npm run test:vahan
-npm run chatid:helper
-npm run chatids
-npm run manual:vahan-research
+npm run build:frontend
+npm run docker:up
+npm run docker:logs
+npm run docker:down
 ```
 
-## Notes
+## Health Endpoints
 
-- WhatsApp auth persists in `.wwebjs_auth/` and `.wwebjs_cache/`.
-- Dynamic authorization can be managed via the `auth` admin command.
-- Available auth commands: `auth list`, `auth add wa/tg user/group <id>`, and `auth remove wa/tg user/group <id>`.
+- `GET /livez`: process liveness.
+- `GET /readyz`: PostgreSQL and Redis readiness.
+- `GET /health`: backwards-compatible detailed health response.
 
-- Core static config now lives in `data/config.yml` or the path pointed to by `CONFIG_FILE`.
-- If `CONFIG_FILE` is missing at startup, the app will auto-create it from the bundled `config.example.yml`.
-- `tests/manual/` is for helpful manual-testing utilities, not production code.
-- `trash/` contains old temporary or debug artifacts and should not be treated as active runtime code.
+## Production Notes
+
+- PostgreSQL is the durable database.
+- Redis is used for queues, short-lived sessions, pub/sub, idempotency, and throttling.
+- WhatsApp auth data must be persisted through the configured volume/bind mount.
+- `models/godmode_solver.onnx` must be present for Vahan captcha solving.
+- Unknown `/admin/api/*` routes return JSON 404 responses.
+- Request logs include `X-Request-Id` for production debugging.

@@ -1,0 +1,69 @@
+name: CI Checks
+
+on:
+  pull_request:
+    branches:
+      - scaling-production
+  push:
+    branches:
+      - scaling-production
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: Validate code and deployment config
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check JavaScript syntax
+        run: find packages src scripts tests -type f -name '*.js' -print0 | xargs -0 -r -n 1 node --check
+
+      - name: Run smoke tests
+        run: |
+          npm test
+          npm run test:status
+          npm run test:ack
+          npm run test:receipt
+          npm run test:vahan
+
+      - name: Build frontend
+        run: npm run build:frontend
+
+      - name: Validate main Compose file
+        env:
+          ADMIN_TOKEN: ci-admin-token
+          PG_PASSWORD: ci-postgres-password
+          REDIS_PASSWORD: ci-redis-password
+        run: ./scripts/compose.sh config >/tmp/sarathi-compose.yml
+
+      - name: Validate Portainer Compose file
+        env:
+          CONFIG_PATH: /opt/sarathi
+          ADMIN_TOKEN: ci-admin-token
+          PG_PASSWORD: ci-postgres-password
+          REDIS_PASSWORD: ci-redis-password
+        run: ./scripts/compose.sh -f docker-compose.portainer.yml config >/tmp/sarathi-portainer-compose.yml
+
+      - name: Validate Server-B Compose file
+        env:
+          CONFIG_PATH: /opt/sarathi
+          SERVER_A_IP: 10.99.0.1
+          PG_PASSWORD: ci-postgres-password
+          REDIS_PASSWORD: ci-redis-password
+        run: ./scripts/compose.sh -f docker-compose.server-b.yml config >/tmp/sarathi-server-b-compose.yml
+
+      - name: Check dependency audit status
+        continue-on-error: true
+        run: npm audit --audit-level=moderate
