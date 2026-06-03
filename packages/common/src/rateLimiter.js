@@ -143,14 +143,16 @@ async function applyLimits(userId, category, limits, command) {
 
   // ── Heavy: credit balance check only ──────────────────────────────────────
   if (category === 'heavy') {
-    const [user] = await query('SELECT credits FROM auth_users WHERE id = ?', [userId]);
+    const [user] = await query('SELECT credits, COALESCE(reserved_credits,0) AS reserved_credits FROM auth_users WHERE id = ?', [userId]);
     const credits = Number((user && user.credits) || 0);
+    const reservedCredits = Number((user && user.reserved_credits) || 0);
+    const availableCredits = Math.max(0, credits - reservedCredits);
     const cost    = getCreditCost(command);
-    if (credits < cost) {
+    if (availableCredits < cost) {
       return {
         allowed: false,
         reason: `credit_balance`,
-        message: `⚠️ *Insufficient Credits*\n\nThis is a premium professional service.\n💰 Cost: *${cost} credits* per successful job.\n📊 Your balance: *${credits} credits*\n\nPlease contact admin to top up your balance.`,
+        message: `⚠️ *Insufficient Credits*\n\nThis is a premium professional service.\n💰 Cost: *${cost} credits* per successful job.\n📊 Your available balance: *${availableCredits} credits*\n\nPlease contact admin to top up your balance.`,
       };
     }
     return { allowed: true, reason: '', category };

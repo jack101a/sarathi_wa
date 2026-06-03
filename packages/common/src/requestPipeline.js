@@ -61,34 +61,64 @@ async function processRequest(message, transport, commandInfo) {
   // 5. Create job record + enqueue
   const queueType   = getQueueType(commandInfo.command);
   const jobId       = makeJobId();
-  const payloadJson = JSON.stringify(commandInfo.payload || {});
+  const payload = { ...(commandInfo.payload || {}) };
+  let billing = null;
 
-  await jobRepository.createJob({
-    id: jobId,
-    userId: user.id,
-    userPhone: user.canonical_phone,
-    queueType,
-    command: commandInfo.command,
-    payloadJson,
-    chatId: commandInfo.chatId,
-    transport,
-    dedupKey: commandInfo.dedupKey || jobId,
-  });
+  if (rateLimiter.isHeavyCommand(commandInfo.command)) {
+    const creditCost = rateLimiter.getCreditCost(commandInfo.command);
+    try {
+      await authRepo.reserveCreditsForJob(user.id, creditCost, commandInfo.command, jobId);
+      billing = { creditReserved: true, creditCost };
+      payload.__billing = billing;
+    } catch (err) {
+      if (err && err.code === 'INSUFFICIENT_CREDITS') {
+        return {
+          blocked: true,
+          reason: 'credit_balance',
+          message: `⚠️ *Insufficient Credits*\n\nThis service costs *${creditCost} credits*. Your available balance is *${err.available} credits*.`,
+        };
+      }
+      throw err;
+    }
+  }
 
-  const job = {
-    id: jobId,
-    command: commandInfo.command,
-    payload_json: payloadJson,
-    chat_id: commandInfo.chatId,
-    transport,
-    user_phone: user.canonical_phone,
-    user_id: user.id,          // needed by jobQueue for credit deduction
-  };
+  const payloadJson = JSON.stringify(payload);
 
-  if (queueType === 'browser') {
-    await browserQueue.add(job.command, job, { jobId: job.id });
-  } else {
-    await apiQueue.add(job.command, job, { jobId: job.id });
+  try {
+    await jobRepository.createJob({
+      id: jobId,
+      userId: user.id,
+      userPhone: user.canonical_phone,
+      queueType,
+      command: commandInfo.command,
+      payloadJson,
+      chatId: commandInfo.chatId,
+      transport,
+      dedupKey: commandInfo.dedupKey || jobId,
+    });
+
+    const job = {
+      id: jobId,
+      command: commandInfo.command,
+      payload_json: payloadJson,
+      chat_id: commandInfo.chatId,
+      transport,
+      user_phone: user.canonical_phone,
+      user_id: user.id,          // needed by jobQueue for credit deduction
+      credit_reserved: Boolean(billing && billing.creditReserved),
+      credit_cost: billing ? billing.creditCost : 0,
+    };
+
+    if (queueType === 'browser') {
+      await browserQueue.add(job.command, job, { jobId: job.id });
+    } else {
+      await apiQueue.add(job.command, job, { jobId: job.id });
+    }
+  } catch (err) {
+    if (billing && billing.creditReserved) {
+      await authRepo.releaseReservedCreditsForJob(user.id, billing.creditCost, jobId).catch(() => {});
+    }
+    throw err;
   }
 
   return { blocked: false, jobId };

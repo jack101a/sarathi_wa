@@ -27,7 +27,7 @@ whatsapp:
 
 vahan:
   captcha_auto_solve: true
-  captcha_model_path: godmode_solver.onnx
+  captcha_model_path: models/godmode_solver.onnx
   captcha_max_attempts: 8
   captcha_retry_min_ms: 3000
   captcha_retry_max_ms: 5000

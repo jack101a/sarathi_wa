@@ -2,23 +2,44 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 const path = require('path');
 const fs = require('fs');
-const { config: CONFIG, logger, db } = require('@sarathi/common');
+const { config: CONFIG, logger, db, redis } = require('@sarathi/common');
 
 async function main() {
   console.log('[API] Starting API server...');
   const app = express();
   
   app.use(cookieParser());
-  app.use(express.json());
+  app.use(express.json({
+    verify: (req, _res, buf) => {
+      if (req.originalUrl === '/admin/api/payments/razorpay/webhook') {
+        req.rawBody = Buffer.from(buf);
+      }
+    },
+  }));
 
   // Mount Admin API routes
   const adminRouter = require('./routes/adminRouter');
   app.use('/admin/api', adminRouter);
 
   // Expose health status
-  app.get('/health', (req, res) => {
-    res.json({
-      status: 'ok',
+  app.get('/health', async (req, res) => {
+    const checks = { db: 'unknown', redis: 'unknown' };
+    try {
+      await db.query('SELECT 1');
+      checks.db = 'ok';
+    } catch (err) {
+      checks.db = 'error';
+    }
+    try {
+      await redis.ping();
+      checks.redis = 'ok';
+    } catch (err) {
+      checks.redis = 'error';
+    }
+    const healthy = checks.db === 'ok' && checks.redis === 'ok';
+    res.status(healthy ? 200 : 503).json({
+      status: healthy ? 'ok' : 'degraded',
+      checks,
       uptime: Math.floor(process.uptime()),
       memory: process.memoryUsage(),
     });

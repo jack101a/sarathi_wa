@@ -184,7 +184,7 @@ const sessionName = String(
 
 const CONFIG = {
   APP_ENV,
-  DATABASE_URL: process.env.DATABASE_URL || 'postgres://sarathi:password@localhost:5432/sarathi',
+  DATABASE_URL: process.env.DATABASE_URL || 'postgres://sarathi@localhost:5432/sarathi',
   REDIS_URL: process.env.REDIS_URL || 'redis://localhost:6379',
   CONFIG_FILE_PATH: yamlConfig.path,
   PORT: asNumber(process.env.PORT, DEFAULTS.PORT),
@@ -356,7 +356,7 @@ const CONFIG = {
   MAX_BROWSER_PAGES: asNumber(process.env.MAX_BROWSER_PAGES, 5),
 
   ADMIN: {
-    TOKEN:    String(process.env.ADMIN_TOKEN    || 'changeme').trim(),
+    TOKEN:    String(process.env.ADMIN_TOKEN    || '').trim(),
     USERNAME: String(process.env.ADMIN_USERNAME || 'admin').trim(),
   },
 
@@ -372,5 +372,4 @@ const CONFIG = {
 };
 
 module.exports = CONFIG;
-
 

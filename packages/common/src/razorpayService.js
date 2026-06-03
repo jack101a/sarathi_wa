@@ -90,8 +90,12 @@ async function createPaymentQR(amountInRupees, userId, chatId, transport) {
  */
 function verifyWebhookSignature(rawBody, signature) {
   if (!WEBHOOK_SECRET) {
-    console.warn('[razorpayService] RAZORPAY_WEBHOOK_SECRET not set — skipping signature check');
-    return true; // allow in dev; block in prod by setting the secret
+    if ((process.env.APP_ENV || process.env.NODE_ENV || '').toLowerCase() === 'production') {
+      console.warn('[razorpayService] RAZORPAY_WEBHOOK_SECRET not set — rejecting production webhook');
+      return false;
+    }
+    console.warn('[razorpayService] RAZORPAY_WEBHOOK_SECRET not set — skipping signature check outside production');
+    return true;
   }
   const digest = crypto
     .createHmac('sha256', WEBHOOK_SECRET)

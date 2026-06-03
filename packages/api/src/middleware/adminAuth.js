@@ -3,20 +3,31 @@ const { redis, config: CONFIG, logger } = require('@sarathi/common');
 
 const COOKIE_NAME = 'sarathi_admin_session';
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
+const LOGIN_WINDOW_SECONDS = 15 * 60;
+const LOGIN_MAX_FAILURES = 8;
 
 async function handleLogin(req, res) {
   const { username, token } = req.body || {};
   const expectedUser = CONFIG.ADMIN.USERNAME;
   const expectedToken = CONFIG.ADMIN.TOKEN;
+  const remoteId = String(req.ip || req.headers['x-forwarded-for'] || 'unknown').split(',')[0].trim();
+  const failKey = `adminlogin:fail:${remoteId}`;
+
+  const failedCount = Number(await redis.get(failKey).catch(() => 0) || 0);
+  if (failedCount >= LOGIN_MAX_FAILURES) {
+    return res.status(429).json({ ok: false, message: 'Too many login attempts. Try again later.' });
+  }
 
   if (
     String(username || '').trim() !== expectedUser ||
     String(token || '').trim() !== expectedToken
   ) {
+    await redis.multi().incr(failKey).expire(failKey, LOGIN_WINDOW_SECONDS).exec().catch(() => {});
     logger.warn('adminAuth', 'Failed login attempt', { username });
     return res.status(401).json({ ok: false, message: 'Invalid credentials.' });
   }
 
+  await redis.del(failKey).catch(() => {});
   const sessionToken = crypto.randomBytes(32).toString('hex');
   
   // Store session in Redis with 8 hours TTL
@@ -25,6 +36,7 @@ async function handleLogin(req, res) {
   res.cookie(COOKIE_NAME, sessionToken, {
     httpOnly: true,
     sameSite: 'strict',
+    secure: CONFIG.APP_ENV === 'production',
     maxAge: SESSION_TTL_MS,
     path: '/admin',
   });

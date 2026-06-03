@@ -45,6 +45,16 @@ async function tryForwardOtp(chatId, text) {
   return false;
 }
 
+async function clearPendingSessions(chatId) {
+  const keys = [`session:otp:${chatId}`, `session:dob:${chatId}`];
+  let cleared = 0;
+  for (const key of keys) {
+    const existed = await redis.del(key).catch(() => 0);
+    cleared += Number(existed || 0);
+  }
+  return cleared;
+}
+
 async function handleIncomingMessage(bot, msg) {
   const chatId = String((msg && msg.chat && msg.chat.id) || '').trim();
   if (!chatId) return;
@@ -144,6 +154,14 @@ async function handleIncomingMessage(bot, msg) {
       const m = Math.floor((uptime % 3600) / 60);
       const s = uptime % 60;
       await bot.sendMessage(chatId, `✅ *Sarathi Bot is Online*\n⏱️ *Uptime:* ${h}h ${m}m ${s}s\n📡 *Gateway:* tg-primary`);
+      return;
+    }
+
+    if (type === 'stop') {
+      const cleared = await clearPendingSessions(chatId);
+      if (cleared > 0) {
+        await bot.sendMessage(chatId, '✅ Pending session stopped.');
+      }
       return;
     }
 

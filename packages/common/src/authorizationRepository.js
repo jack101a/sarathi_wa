@@ -86,6 +86,7 @@ async function initDb() {
         name VARCHAR(255) DEFAULT '',
         plan_id VARCHAR(255) REFERENCES subscription_plans(id) ON DELETE SET NULL,
         credits INTEGER DEFAULT 0,
+        reserved_credits INTEGER DEFAULT 0,
         used_count INTEGER DEFAULT 0,
         daily_count INTEGER DEFAULT 0,
         expiry_date TIMESTAMPTZ,
@@ -98,6 +99,7 @@ async function initDb() {
     `);
     await addColumnIfMissing('auth_users', 'plan_id', "VARCHAR(255) REFERENCES subscription_plans(id) ON DELETE SET NULL");
     await addColumnIfMissing('auth_users', 'rate_limit_overrides', "JSONB DEFAULT '{}'::jsonb");
+    await addColumnIfMissing('auth_users', 'reserved_credits', 'INTEGER DEFAULT 0');
 
     await run(`
       CREATE TABLE IF NOT EXISTS auth_user_identities (
@@ -484,6 +486,58 @@ async function deductCreditsAudited(userId, amount, note = '', jobId = '') {
   });
 }
 
+async function reserveCreditsForJob(userId, amount, command = '', jobId = '') {
+  const n = Math.max(0, Number(amount) || 0);
+  if (n === 0) return { reserved: 0 };
+  return runTransaction(async ({ query: txQ, run: txR }) => {
+    const [user] = await txQ('SELECT credits, COALESCE(reserved_credits,0) AS reserved_credits FROM auth_users WHERE id = ? FOR UPDATE', [userId]);
+    if (!user) throw new Error('User not found for credit reservation');
+    const credits = Number(user.credits || 0);
+    const reserved = Number(user.reserved_credits || 0);
+    const available = credits - reserved;
+    if (available < n) {
+      const err = new Error(`Insufficient available credits. Required ${n}, available ${available}.`);
+      err.code = 'INSUFFICIENT_CREDITS';
+      err.available = available;
+      err.required = n;
+      throw err;
+    }
+    await txR('UPDATE auth_users SET reserved_credits = COALESCE(reserved_credits,0) + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [n, userId]);
+    return { reserved: n, availableBefore: available, command, jobId };
+  });
+}
+
+async function finalizeReservedCreditsForJob(userId, amount, note = '', jobId = '') {
+  const n = Math.max(0, Number(amount) || 0);
+  if (n === 0) return { newBalance: await getCredits(userId) };
+  return runTransaction(async ({ query: txQ, run: txR }) => {
+    const [user] = await txQ('SELECT credits, COALESCE(reserved_credits,0) AS reserved_credits FROM auth_users WHERE id = ? FOR UPDATE', [userId]);
+    if (!user) throw new Error('User not found for credit finalization');
+    const before = Number(user.credits || 0);
+    const reserved = Number(user.reserved_credits || 0);
+    const finalAmount = Math.min(n, reserved);
+    const after = Math.max(0, before - finalAmount);
+    await txR('UPDATE auth_users SET credits = ?, reserved_credits = GREATEST(COALESCE(reserved_credits,0) - ?, 0), updated_at = CURRENT_TIMESTAMP WHERE id = ?', [after, finalAmount, userId]);
+    await txR(
+      'INSERT INTO credit_transactions (user_id, action, amount, balance_before, balance_after, note, triggered_by, job_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)',
+      [userId, 'deduct', finalAmount, before, after, note, 'job_completion', jobId]
+    );
+    return { newBalance: after };
+  });
+}
+
+async function releaseReservedCreditsForJob(userId, amount, jobId = '') {
+  const n = Math.max(0, Number(amount) || 0);
+  if (n === 0) return { released: 0 };
+  return runTransaction(async ({ query: txQ, run: txR }) => {
+    const [user] = await txQ('SELECT COALESCE(reserved_credits,0) AS reserved_credits FROM auth_users WHERE id = ? FOR UPDATE', [userId]);
+    if (!user) return { released: 0 };
+    const released = Math.min(n, Number(user.reserved_credits || 0));
+    await txR('UPDATE auth_users SET reserved_credits = GREATEST(COALESCE(reserved_credits,0) - ?, 0), updated_at = CURRENT_TIMESTAMP WHERE id = ?', [released, userId]);
+    return { released, jobId };
+  });
+}
+
 async function getCreditHistory(userId, limit = 50) {
   return query('SELECT * FROM credit_transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT ?', [userId, limit]);
 }
@@ -619,6 +673,9 @@ module.exports = {
   addCreditsAudited,
   setCreditsAudited,
   deductCreditsAudited,
+  reserveCreditsForJob,
+  finalizeReservedCreditsForJob,
+  releaseReservedCreditsForJob,
   getCreditHistory,
   getUserRateOverrides,
   setUserRateOverrides,

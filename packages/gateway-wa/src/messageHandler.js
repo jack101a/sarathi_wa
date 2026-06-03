@@ -15,6 +15,16 @@ function normalizeText(value) {
     .trim();
 }
 
+async function clearPendingSessions(chatId) {
+  const keys = [`session:otp:${chatId}`, `session:dob:${chatId}`];
+  let cleared = 0;
+  for (const key of keys) {
+    const existed = await redis.del(key).catch(() => 0);
+    cleared += Number(existed || 0);
+  }
+  return cleared;
+}
+
 async function handleIncomingMessage(client, message) {
   let normalizedBody = normalizeText(message.body || '');
 
@@ -157,6 +167,14 @@ async function handleIncomingMessage(client, message) {
       const minutes = Math.floor((uptime % 3600) / 60);
       const seconds = uptime % 60;
       await message.reply(`✅ *Sarathi Bot is Online*\n⏱️ *Uptime:* ${hours}h ${minutes}m ${seconds}s\n📡 *Gateway:* ${process.env.INSTANCE_ID || 'wa-primary'}`);
+      return;
+    }
+
+    if (type === 'stop') {
+      const cleared = await clearPendingSessions(message.from);
+      if (cleared > 0) {
+        await message.reply('✅ Pending session stopped.');
+      }
       return;
     }
 

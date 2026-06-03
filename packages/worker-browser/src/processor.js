@@ -63,6 +63,15 @@ async function sendText(t, c, x) { return t === 'telegram' ? chatNotifier.sendTe
 async function sendImageFile(t, c, p, cap = '') { const b = fs.readFileSync(p); const n = path.basename(p); return t === 'telegram' ? chatNotifier.sendTelegramPhoto(c, b, n, cap, 'image/png') : chatNotifier.sendWhatsAppMedia(c, b, 'image/png', n, cap); }
 async function sendPdfFile(t, c, p, cap = '') { const b = fs.readFileSync(p); const n = path.basename(p); return t === 'telegram' ? chatNotifier.sendTelegramDocument(c, b, n, cap, 'application/pdf') : chatNotifier.sendWhatsAppMedia(c, b, 'application/pdf', n, cap); }
 
+function getBillingInfo(job) {
+  const payload = JSON.parse(job.payload_json || '{}');
+  const billing = payload.__billing || {};
+  return {
+    creditReserved: Boolean(job.credit_reserved || billing.creditReserved),
+    creditCost: Number(job.credit_cost || billing.creditCost || 0),
+  };
+}
+
 async function handleJob(job) {
   const payload = JSON.parse(job.payload_json || '{}');
   const transport = job.transport || 'whatsapp';
@@ -399,11 +408,16 @@ function startBrowserWorker() {
       
       // Perform usage and credit deductions in PostgreSQL
       if (rateLimiter.isHeavyCommand(job.command) && job.user_id) {
-        const cost = rateLimiter.getCreditCost(job.command);
+        const billing = getBillingInfo(job);
+        const cost = billing.creditCost || rateLimiter.getCreditCost(job.command);
         let deducted = false;
         for (let attempt = 1; attempt <= 3; attempt++) {
           try {
-            await authRepo.deductCreditsAudited(job.user_id, cost, `Heavy job completion: ${job.command}`, job.id);
+            if (billing.creditReserved) {
+              await authRepo.finalizeReservedCreditsForJob(job.user_id, cost, `Heavy job completion: ${job.command}`, job.id);
+            } else {
+              await authRepo.deductCreditsAudited(job.user_id, cost, `Heavy job completion: ${job.command}`, job.id);
+            }
             logger.info('worker-browser', `Deducted ${cost} credits from user ${job.user_id} for ${job.command}`);
             deducted = true;
             break;
@@ -431,6 +445,14 @@ function startBrowserWorker() {
     } catch (error) {
       const errMsg = error.message || String(error);
       logger.error('worker-browser', `Job ${job.id} failed: ${errMsg}`);
+      if (rateLimiter.isHeavyCommand(job.command) && job.user_id) {
+        const billing = getBillingInfo(job);
+        if (billing.creditReserved && billing.creditCost > 0) {
+          await authRepo.releaseReservedCreditsForJob(job.user_id, billing.creditCost, job.id).catch((releaseErr) => {
+            logger.error('worker-browser', `Failed to release reserved credits for failed job ${job.id}`, { error: releaseErr.message });
+          });
+        }
+      }
       await jobRepository.updateJobStatus(job.id, 'failed', '{}', errMsg);
 
       const webhookUrl = process.env.DISCORD_WEBHOOK_URL || process.env.DISCORD_WEBHOOK;

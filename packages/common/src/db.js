@@ -1,7 +1,7 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
-const dbPath = process.env.DATABASE_URL || 'postgres://sarathi:password@localhost:5432/sarathi';
+const dbPath = process.env.DATABASE_URL || 'postgres://sarathi@localhost:5432/sarathi';
 
 let pool;
 

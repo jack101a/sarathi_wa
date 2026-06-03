@@ -67,20 +67,20 @@ router.post('/logout', handleLogout);
  * Uses express.raw() to preserve raw body for HMAC signature verification.
  */
 router.post('/payments/razorpay/webhook',
-  require('express').raw({ type: 'application/json' }),
   async (req, res) => {
     const { razorpayService } = require('@sarathi/common');
     const sig = req.headers['x-razorpay-signature'] || '';
+    const rawBody = req.rawBody || Buffer.from(JSON.stringify(req.body || {}));
 
     // 1. Verify signature
-    if (!razorpayService.verifyWebhookSignature(req.body, sig)) {
+    if (!razorpayService.verifyWebhookSignature(rawBody, sig)) {
       logger.warn('razorpay', 'Webhook signature verification FAILED');
       return res.status(400).json({ error: 'Invalid signature' });
     }
 
     let event;
     try {
-      event = JSON.parse(req.body.toString());
+      event = Buffer.isBuffer(req.body) ? JSON.parse(req.body.toString()) : req.body;
     } catch (err) {
       return res.status(400).json({ error: 'Invalid JSON body' });
     }

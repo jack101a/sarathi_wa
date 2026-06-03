@@ -27,6 +27,7 @@ COPY package*.json ./
 COPY packages/common ./packages/common
 COPY packages/api ./packages/api
 COPY src ./src
+COPY models ./models
 COPY config.example.yml ./
 
 EXPOSE 3000

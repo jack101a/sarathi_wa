@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS auth_users (
   name VARCHAR(255) DEFAULT '',
   plan_id VARCHAR(255) REFERENCES subscription_plans(id) ON DELETE SET NULL,
   credits INTEGER DEFAULT 0,
+  reserved_credits INTEGER DEFAULT 0,
   used_count INTEGER DEFAULT 0,
   daily_count INTEGER DEFAULT 0,
   expiry_date TIMESTAMPTZ,
