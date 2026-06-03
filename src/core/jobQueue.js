@@ -1,5 +1,5 @@
 const { Queue, Worker } = require('bullmq');
-const Redis = require('ioredis');
+const { createRedisClient } = require('@sarathi/common/src/redisConfig');
 const CONFIG = require('../config/config');
 const { redis } = require('./redis');
 
@@ -9,8 +9,7 @@ class JobQueue {
     this.concurrency = concurrency;
     this.options = options;
     
-    this.redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-    this.connection = new Redis(this.redisUrl, { maxRetriesPerRequest: null });
+    this.connection = createRedisClient();
     
     this.queue = new Queue(this.name, {
       connection: this.connection,
@@ -37,7 +36,7 @@ class JobQueue {
   }
 
   process(handlerFn) {
-    const workerConnection = new Redis(this.redisUrl, { maxRetriesPerRequest: null });
+    const workerConnection = createRedisClient();
     
     this.worker = new Worker(this.name, async (bullJob) => {
       const job = bullJob.data;

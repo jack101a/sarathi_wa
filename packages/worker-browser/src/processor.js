@@ -1,6 +1,5 @@
 const { Worker } = require('bullmq');
-const Redis = require('ioredis');
-const { config: CONFIG, redis, subscriber, logger, rateLimiter, authorizationRepository: authRepo, jobRepository, queue } = require('@sarathi/common');
+const { config: CONFIG, redis, subscriber, logger, rateLimiter, authorizationRepository: authRepo, jobRepository, queue, redisConfig } = require('@sarathi/common');
 const fs = require('fs');
 const path = require('path');
 
@@ -393,8 +392,7 @@ async function handleJob(job) {
 }
 
 function startBrowserWorker() {
-  const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-  const connection = new Redis(redisUrl, { maxRetriesPerRequest: null });
+  const connection = redisConfig.createRedisClient();
   const concurrency = CONFIG.QUEUE.BROWSER_CONCURRENCY || 1;
 
   const worker = new Worker(queue.BROWSER_QUEUE_NAME, async (bullJob) => {

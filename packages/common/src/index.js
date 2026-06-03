@@ -8,6 +8,7 @@ module.exports = {
   config: require('./config'),
   db: require('./db'),
   redis: require('./redis').redis,
+  redisConfig: require('./redisConfig'),
   subscriber: require('./redis').subscriber,
   logger: require('./logger'),
   httpClient: require('./httpClient'),

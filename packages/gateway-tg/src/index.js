@@ -13,12 +13,10 @@
 require('dotenv').config();
 
 const TelegramBot = require('node-telegram-bot-api');
-const Redis = require('ioredis');
-const { config: CONFIG, logger } = require('@sarathi/common');
+const { config: CONFIG, logger, redisConfig } = require('@sarathi/common');
 const { handleIncomingMessage } = require('./messageHandler');
 
 const TG_TOKEN = process.env.TG_TOKEN || (CONFIG.TELEGRAM && CONFIG.TELEGRAM.TOKEN) || null;
-const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 
 if (!TG_TOKEN) {
   console.warn('[gateway-tg] TG_TOKEN not set — Telegram bot will not start.');
@@ -46,7 +44,7 @@ async function main() {
   // Workers publish results to:  chat:response:telegram:{chatId}
   // Message payload: JSON string of { type, text, filePath, mimeType, filename, caption }
   //
-  const subscriber = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
+  const subscriber = redisConfig.createRedisClient();
   await subscriber.psubscribe('chat:response:telegram:*');
 
   subscriber.on('pmessage', async (_pattern, channel, message) => {

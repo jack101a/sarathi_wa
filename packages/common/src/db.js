@@ -3,13 +3,27 @@ require('dotenv').config();
 
 const dbPath = process.env.DATABASE_URL || 'postgres://sarathi@localhost:5432/sarathi';
 
+function getPgConfig() {
+  if (process.env.PGHOST || process.env.PGPASSWORD) {
+    return {
+      host: process.env.PGHOST || 'localhost',
+      port: Number(process.env.PGPORT || 5432),
+      database: process.env.PGDATABASE || 'sarathi',
+      user: process.env.PGUSER || 'sarathi',
+      password: process.env.PGPASSWORD || undefined,
+    };
+  }
+
+  return { connectionString: dbPath };
+}
+
 let pool;
 
 function getDb() {
   if (pool) return pool;
   
   pool = new Pool({
-    connectionString: dbPath,
+    ...getPgConfig(),
     max: 20,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,

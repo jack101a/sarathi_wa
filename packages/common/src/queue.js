@@ -1,9 +1,8 @@
 const { Queue } = require('bullmq');
-const Redis = require('ioredis');
 const CONFIG = require('./config');
+const { createRedisClient } = require('./redisConfig');
 
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-const connection = new Redis(redisUrl, { maxRetriesPerRequest: null });
+const connection = createRedisClient();
 
 const API_QUEUE_NAME = process.env.API_QUEUE_NAME || 'sarathi-api-jobs';
 const BROWSER_QUEUE_NAME = process.env.BROWSER_QUEUE_NAME || 'sarathi-browser-jobs';
@@ -35,5 +34,5 @@ module.exports = {
   browserQueue,
   connection,
   API_QUEUE_NAME,
-  BROWSER_QUEUE_NAME
+  BROWSER_QUEUE_NAME,
 };

@@ -45,3 +45,13 @@ Set these in the deployment environment. Do not hardcode them in code or Compose
 - Keep database migrations small and reviewed before running them.
 - If a gateway fails, roll back that gateway image first; workers/API can often stay on the newer image if API contracts were not changed.
 - If workers fail, pause new traffic and roll back worker images before changing gateway behavior.
+
+## Password/Volume Troubleshooting
+
+Changing `PG_PASSWORD` in Compose does not update an already-initialized PostgreSQL data volume. If logs show `password authentication failed for user "sarathi"`, either:
+
+- set `PG_PASSWORD` back to the password that initialized the existing volume, or
+- connect as a Postgres admin and run `ALTER USER sarathi WITH PASSWORD 'new-password';`, then restart app containers, or
+- create a fresh database volume only if you are intentionally discarding old database data.
+
+Changing `REDIS_PASSWORD` requires the Redis container to be recreated with the current Compose command. If app logs say Redis has no password but a password was supplied, inspect the running Redis command and recreate the Redis container from the current Compose file.

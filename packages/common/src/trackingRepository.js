@@ -1,5 +1,8 @@
 const { query, run } = require('./db');
 
+const TRACKING_SCHEMA_LOCK_ID = 987654322;
+let ensureSchemaPromise = null;
+
 function metaOf(row) {
   if (!row) return {};
   if (!row.meta_json) return {};
@@ -52,26 +55,42 @@ function toVahan(row) {
   };
 }
 
+async function createSchema() {
+  await query('SELECT pg_advisory_lock(?)', [TRACKING_SCHEMA_LOCK_ID]);
+  try {
+    await run(`
+      CREATE TABLE IF NOT EXISTS tracked_applications (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID REFERENCES auth_users(id) ON DELETE CASCADE,
+        app_number VARCHAR(255) NOT NULL,
+        app_type VARCHAR(50) NOT NULL,
+        chat_id VARCHAR(255) NOT NULL,
+        transport VARCHAR(50) NOT NULL,
+        last_snapshot JSONB DEFAULT '{}'::jsonb,
+        last_signature VARCHAR(255),
+        last_checked_at TIMESTAMPTZ,
+        meta_json JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(app_type, transport, chat_id, app_number)
+      )
+    `);
+    await run('CREATE INDEX IF NOT EXISTS idx_tracked_applications_chat ON tracked_applications(app_type, transport, chat_id)');
+    await run('CREATE INDEX IF NOT EXISTS idx_tracked_applications_app ON tracked_applications(app_type, app_number)');
+  } finally {
+    await query('SELECT pg_advisory_unlock(?)', [TRACKING_SCHEMA_LOCK_ID]).catch(() => {});
+  }
+}
+
 async function ensureSchema() {
-  await run(`
-    CREATE TABLE IF NOT EXISTS tracked_applications (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      user_id UUID REFERENCES auth_users(id) ON DELETE CASCADE,
-      app_number VARCHAR(255) NOT NULL,
-      app_type VARCHAR(50) NOT NULL,
-      chat_id VARCHAR(255) NOT NULL,
-      transport VARCHAR(50) NOT NULL,
-      last_snapshot JSONB DEFAULT '{}'::jsonb,
-      last_signature VARCHAR(255),
-      last_checked_at TIMESTAMPTZ,
-      meta_json JSONB DEFAULT '{}'::jsonb,
-      created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(app_type, transport, chat_id, app_number)
-    )
-  `);
-  await run('CREATE INDEX IF NOT EXISTS idx_tracked_applications_chat ON tracked_applications(app_type, transport, chat_id)');
-  await run('CREATE INDEX IF NOT EXISTS idx_tracked_applications_app ON tracked_applications(app_type, app_number)');
+  if (!ensureSchemaPromise) {
+    ensureSchemaPromise = createSchema().catch((err) => {
+      ensureSchemaPromise = null;
+      throw err;
+    });
+  }
+
+  return ensureSchemaPromise;
 }
 
 async function listByType(appType) {

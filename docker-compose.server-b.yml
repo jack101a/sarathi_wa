@@ -30,7 +30,15 @@ services:
       - APP_ENV=production
       # ── Connect to Server A (Oracle VPS) ──────────────────────────────────
       - DATABASE_URL=postgres://sarathi:${PG_PASSWORD:?set_PG_PASSWORD}@${SERVER_A_IP:?set_SERVER_A_IP}:5432/sarathi
+      - PGHOST=${SERVER_A_IP:?set_SERVER_A_IP}
+      - PGPORT=5432
+      - PGDATABASE=sarathi
+      - PGUSER=sarathi
+      - PGPASSWORD=${PG_PASSWORD:?set_PG_PASSWORD}
       - REDIS_URL=redis://:${REDIS_PASSWORD:?set_REDIS_PASSWORD}@${SERVER_A_IP:?set_SERVER_A_IP}:6379
+      - REDIS_HOST=${SERVER_A_IP:?set_SERVER_A_IP}
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?set_REDIS_PASSWORD}
       - INSTANCE_ID=wa-3
       # ── WhatsApp Auth ──────────────────────────────────────────────────────
       - AUTHORIZED_USERS=${AUTHORIZED_USERS:-}
@@ -71,7 +79,15 @@ services:
       - APP_ENV=production
       # ── Connect to Server A (Oracle VPS) ──────────────────────────────────
       - DATABASE_URL=postgres://sarathi:${PG_PASSWORD:?set_PG_PASSWORD}@${SERVER_A_IP:?set_SERVER_A_IP}:5432/sarathi
+      - PGHOST=${SERVER_A_IP:?set_SERVER_A_IP}
+      - PGPORT=5432
+      - PGDATABASE=sarathi
+      - PGUSER=sarathi
+      - PGPASSWORD=${PG_PASSWORD:?set_PG_PASSWORD}
       - REDIS_URL=redis://:${REDIS_PASSWORD:?set_REDIS_PASSWORD}@${SERVER_A_IP:?set_SERVER_A_IP}:6379
+      - REDIS_HOST=${SERVER_A_IP:?set_SERVER_A_IP}
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?set_REDIS_PASSWORD}
       # ── Browser Engine ────────────────────────────────────────────────────
       - BROWSER_ENGINE=${BROWSER_ENGINE:-puppeteer}
       - BROWSER_CONCURRENCY=${BROWSER_CONCURRENCY:-2}

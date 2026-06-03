@@ -1,15 +1,8 @@
-const Redis = require('ioredis');
 require('dotenv').config();
+const { createRedisClient } = require('./redisConfig');
 
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-
-const redis = new Redis(redisUrl, {
-  maxRetriesPerRequest: null, // Required for BullMQ
-});
-
-const subscriber = new Redis(redisUrl, {
-  maxRetriesPerRequest: null,
-});
+const redis = createRedisClient();
+const subscriber = createRedisClient();
 
 redis.on('error', (err) => {
   console.error('Redis connection error:', err.message);
