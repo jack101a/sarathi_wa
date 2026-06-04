@@ -13,14 +13,14 @@ jobs:
     timeout-minutes: 45
 
     env:
-      CONFIG_PATH: ${{ runner.temp }}/sarathi-runtime
+      CONFIG_PATH: /tmp/sarathi-runtime
       ADMIN_TOKEN: ci-admin-token
       ADMIN_USERNAME: admin
       PG_PASSWORD: ci-postgres-password
       REDIS_PASSWORD: ci-redis-password
-      PORT: 13000
-      PG_PORT: 15432
-      REDIS_PORT: 16379
+      PORT: '13000'
+      PG_PORT: '15432'
+      REDIS_PORT: '16379'
       WHATSAPP_PHONE_NUMBER: '911234567890'
       TG_TOKEN: '123456789:CIContainerSmokeTokenDoNotUse'
       TELEGRAM_BOT_TOKEN: '123456789:CIContainerSmokeTokenDoNotUse'
