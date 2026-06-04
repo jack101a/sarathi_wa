@@ -1,7 +1,7 @@
 /**
  * cloudBackupSettings.js
  * DB-backed settings store for cloud backup providers.
- * Uses the existing authz SQLite DB — one row per provider.
+ * Legacy compatibility module. Cloud backup settings are PostgreSQL-backed in production.
  */
 
 const { query, run } = require('../core/db');

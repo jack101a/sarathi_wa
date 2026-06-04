@@ -17,7 +17,10 @@ async function startVerification(phone, actor = 'admin', viaChannel = 'wa') {
 async function resendVerification(phone) {
   const digits = normalizePhone(phone);
   if (!digits) return null;
-  const existing = await repo.query('SELECT * FROM auth_verifications WHERE canonical_phone = ? AND status = "pending"', [digits]);
+  const existing = await repo.query(
+    "SELECT * FROM auth_verifications WHERE canonical_phone = ? AND status = 'pending'",
+    [digits]
+  );
   for (const r of existing) await repo.updateVerificationStatus(r.id, 'cancelled', '');
   return repo.createVerification(digits, generateCode(), 'admin', 'wa');
 }
@@ -25,7 +28,10 @@ async function resendVerification(phone) {
 async function cancelVerification(phone) {
   const digits = normalizePhone(phone);
   if (!digits) return false;
-  const existing = await repo.query('SELECT * FROM auth_verifications WHERE canonical_phone = ? AND status = "pending"', [digits]);
+  const existing = await repo.query(
+    "SELECT * FROM auth_verifications WHERE canonical_phone = ? AND status = 'pending'",
+    [digits]
+  );
   if (!existing.length) return false;
   for (const r of existing) await repo.updateVerificationStatus(r.id, 'cancelled', '');
   return true;
@@ -46,6 +52,7 @@ async function consumeVerificationMessage(messageText, identityContext) {
   let verif = null;
 
   const textClean = String(messageText).trim().toUpperCase();
+  const compactText = textClean.replace(/[^A-Z0-9]/g, '');
   const parts = textClean.split(/\s+/);
 
   if (parts[0] === 'AUTH') {
@@ -55,11 +62,14 @@ async function consumeVerificationMessage(messageText, identityContext) {
     if (phone && code) {
       verif = await repo.getPendingVerification(phone, code);
     }
-  } else if (textClean.length === 8 && /^[A-Z0-9]{8}$/.test(textClean)) {
+  } else if (compactText.length === 8 && /^[A-Z0-9]{8}$/.test(compactText)) {
     // Convenient format: just the 8-digit OTP code itself!
-    code = textClean;
+    code = compactText;
     const nowStr = new Date().toISOString();
-    const rows = await repo.query('SELECT * FROM auth_verifications WHERE code = ? AND status = "pending" AND expires_at > ?', [code, nowStr]);
+    const rows = await repo.query(
+      "SELECT * FROM auth_verifications WHERE code = ? AND status = 'pending' AND expires_at > ?",
+      [code, nowStr]
+    );
     if (rows && rows.length > 0) {
       verif = rows[0];
       phone = verif.canonical_phone;
@@ -72,7 +82,7 @@ async function consumeVerificationMessage(messageText, identityContext) {
 
   // Cancel ALL other pending verifications for this phone so hasPendingVerification() returns false
   const otherPending = await repo.query(
-    'SELECT id FROM auth_verifications WHERE canonical_phone = ? AND status = "pending" AND id != ?',
+    "SELECT id FROM auth_verifications WHERE canonical_phone = ? AND status = 'pending' AND id != ?",
     [phone, verif.id]
   );
   for (const r of otherPending) {
@@ -91,8 +101,9 @@ async function consumeVerificationMessage(messageText, identityContext) {
     }
   }
 
-  // Always ensure the canonical @c.us alias is saved (91+10digit@c.us template)
-  const canonicalCus = `91${phone}@c.us`;
+  // Always ensure the canonical @c.us alias is saved. Indian 10-digit numbers need 91.
+  const canonicalCusPhone = phone.length === 10 ? `91${phone}` : phone;
+  const canonicalCus = `${canonicalCusPhone}@c.us`;
   const cusExists = await repo.getIdentity(canonicalCus);
   if (!cusExists) {
     await repo.createUserIdentity(user.id, 'wa_cus', canonicalCus);

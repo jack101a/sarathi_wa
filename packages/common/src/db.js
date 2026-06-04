@@ -1,7 +1,8 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
-const dbPath = process.env.DATABASE_URL || 'postgres://sarathi@localhost:5432/sarathi';
+const APP_ENV = String(process.env.APP_ENV || process.env.NODE_ENV || 'development').toLowerCase();
+const dbPath = process.env.DATABASE_URL || '';
 
 function getPgConfig() {
   if (process.env.PGHOST || process.env.PGPASSWORD) {
@@ -12,6 +13,14 @@ function getPgConfig() {
       user: process.env.PGUSER || 'sarathi',
       password: process.env.PGPASSWORD || undefined,
     };
+  }
+
+  if (!dbPath && APP_ENV === 'production') {
+    throw new Error('PostgreSQL is not configured. Set PGHOST/PGUSER/PGDATABASE/PGPASSWORD or DATABASE_URL.');
+  }
+
+  if (!dbPath) {
+    return { connectionString: 'postgres://sarathi@localhost:5432/sarathi' };
   }
 
   return { connectionString: dbPath };

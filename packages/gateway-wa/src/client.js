@@ -98,7 +98,7 @@ async function createWhatsAppClient(onMessageReceived) {
     // Allow self-issued command messages, but ignore self echo chatter/status texts.
     if (message.fromMe) {
       const ownBody = String(message.body || '').trim();
-      const looksLikeCommand = /^(help|track|add|remove|refresh|list|alive|suno|appl|app|dl|ll|slot|form1|form1a|form2|formset|stop|auth|resend|\/?llprint|\/?lledit|\/?payfee|\/?feeprint|\/?fees|\/?dlrenewal|\/?dlapp|\/?bookslot|\/?mobupdate|\/?send(?:_|\s+)chatid)\b/i.test(ownBody);
+      const looksLikeCommand = /^(help|balance|bal|history|txn|plan|topup|track|add|remove|refresh|list|alive|suno|appl|app|dl|ll|slot|form1|form1a|form2|formset|stop|auth|resend|\/?llprint|\/?lledit|\/?payfee|\/?feeprint|\/?fees|\/?dlrenewal|\/?dlapp|\/?bookslot|\/?mobupdate|\/?send(?:_|\s+)chatid)\b/i.test(ownBody);
       if (!looksLikeCommand) {
         return;
       }

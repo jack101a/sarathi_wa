@@ -38,7 +38,7 @@ async function uploadViaTelegram(filePath, fileName, config) {
     buffer,
     fileName,
     caption,
-    'application/x-sqlite3'
+    'application/octet-stream'
   );
 
   logger.info('cloudBackup', `Telegram upload OK → chat ${chatId}`, { fileName });
@@ -132,7 +132,7 @@ async function uploadViaR2(filePath, fileName, config) {
     Key:           `backups/${fileName}`,
     Body:          fileStream,
     ContentLength: fileStat.size,
-    ContentType:   'application/x-sqlite3',
+    ContentType:   'application/octet-stream',
     Metadata: {
       'backup-source': 'sarathiwa-bot',
       'backup-date':   new Date().toISOString(),
@@ -156,7 +156,7 @@ const ADAPTERS = {
  * Each provider runs independently — one failure does not stop others.
  * Results are persisted back to cloud_backup_settings.
  *
- * @param {string} filePath   Absolute path to the .sqlite backup file
+ * @param {string} filePath   Absolute path to the PostgreSQL backup file
  * @param {string} fileName   Just the filename (for caption/key)
  * @returns {Promise<Array<{ provider, ok, result?, error? }>>}
  */

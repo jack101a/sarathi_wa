@@ -53,11 +53,10 @@ services:
       - PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage
       # ── Notifications ─────────────────────────────────────────────────────
       - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
-      # ── Payment ───────────────────────────────────────────────────────────
+      # ── Razorpay Wallet Top-up ────────────────────────────────────────────
       - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-}
       - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:-}
-      - UPI_ID=${UPI_ID:-sarathi@upi}
-      - UPI_NAME=${UPI_NAME:-Sarathi Bot}
+      - RAZORPAY_QR_NAME=${RAZORPAY_QR_NAME:-Sarathi Bot}
       - LOG_LEVEL=${LOG_LEVEL:-info}
     volumes:
       - ${CONFIG_PATH}/sarathi_new/auth_data_3:/app/.wwebjs_auth

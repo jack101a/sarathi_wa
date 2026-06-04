@@ -604,12 +604,14 @@ async function getUsersWithSpentCredits() {
   `);
 }
 
+function manualWalletTopupDisabled() {
+  const err = new Error('Manual UPI/UTR wallet top-up is disabled. Use Razorpay QR top-up.');
+  err.code = 'MANUAL_WALLET_TOPUP_DISABLED';
+  throw err;
+}
+
 async function createPaymentRequest(userId, utr, amount = 0) {
-  const rows = await query(
-    "INSERT INTO payment_requests (user_id, utr, amount, status, admin_note, created_at) VALUES (?, ?, ?, 'pending', '', CURRENT_TIMESTAMP) RETURNING *",
-    [userId, utr, amount]
-  );
-  return rows[0];
+  manualWalletTopupDisabled();
 }
 async function getPendingPaymentRequests() {
   return query("SELECT p.*, u.canonical_phone, u.name AS user_name FROM payment_requests p LEFT JOIN auth_users u ON p.user_id = u.id WHERE p.status = 'pending' ORDER BY p.created_at DESC");
@@ -618,26 +620,10 @@ async function getAllPaymentRequests() {
   return query("SELECT p.*, u.canonical_phone, u.name AS user_name FROM payment_requests p LEFT JOIN auth_users u ON p.user_id = u.id ORDER BY p.created_at DESC LIMIT 100");
 }
 async function approvePaymentRequest(id, amount, note = '', adminName = 'admin') {
-  return runTransaction(async ({ query: txQ, run: txR }) => {
-    const [payReq] = await txQ('SELECT * FROM payment_requests WHERE id = ? FOR UPDATE', [id]);
-    if (!payReq) throw new Error('Payment request not found');
-    if (payReq.status !== 'pending') throw new Error('Payment request already processed');
-    const [user] = await txQ('SELECT credits, canonical_phone FROM auth_users WHERE id = ? FOR UPDATE', [payReq.user_id]);
-    if (!user) throw new Error('User associated with payment request not found');
-    const before = Number(user.credits || 0);
-    const after = before + Number(amount);
-    await txR('UPDATE auth_users SET credits = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [after, payReq.user_id]);
-    await txR(
-      'INSERT INTO credit_transactions (user_id, action, amount, balance_before, balance_after, note, triggered_by, payment_reference, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)',
-      [payReq.user_id, 'add', amount, before, after, note || 'UPI Topup Approved', adminName, payReq.utr]
-    );
-    await txR("UPDATE payment_requests SET status = 'approved', amount = ?, admin_note = ?, verified_at = CURRENT_TIMESTAMP WHERE id = ?", [amount, note, id]);
-    return { userPhone: user.canonical_phone, before, after, utr: payReq.utr };
-  });
+  manualWalletTopupDisabled();
 }
 async function rejectPaymentRequest(id, note = '') {
-  await run("UPDATE payment_requests SET status = 'rejected', admin_note = ?, verified_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'", [note || 'Payment proof rejected', id]);
-  return true;
+  manualWalletTopupDisabled();
 }
 
 initDb().catch((err) => {

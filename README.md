@@ -35,6 +35,7 @@ Do not hardcode these in code or Compose files:
 - `ADMIN_TOKEN`
 - `RAZORPAY_WEBHOOK_SECRET` if Razorpay webhooks are enabled
 - `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` if Razorpay payments are enabled
+- `RAZORPAY_QR_NAME` optional display name for generated Razorpay QR codes
 
 ## Local Setup
 

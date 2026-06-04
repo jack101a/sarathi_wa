@@ -39,7 +39,7 @@ function normalizeEntries(data) {
 }
 
 let cache = [];
-let sqliteReady = false;
+let storeReady = false;
 let writeQueue = Promise.resolve();
 
 function readLegacy() {
@@ -65,17 +65,17 @@ async function initStore() {
       for (const e of cache) await trackingRepository.upsert('vahan', e);
     }
     cache = normalizeEntries(await trackingRepository.listByType('vahan'));
-    sqliteReady = true;
+    storeReady = true;
   } catch (e) {
     console.error('[vahanTrackStore] Postgres init failed:', e.message);
-    sqliteReady = false;
+    storeReady = false;
   }
 }
 
-function queueSqlWrite(task) {
-  if (!sqliteReady) return;
+function queuePostgresWrite(task) {
+  if (!storeReady) return;
   writeQueue = writeQueue.then(task).catch((err) => {
-    console.error('[vahanTrackStore] SQLite write failed:', err.message);
+    console.error('[vahanTrackStore] Postgres write failed:', err.message);
   });
 }
 
@@ -87,7 +87,7 @@ function writeEntries(entries) {
   const safe = normalizeEntries(entries);
   cache = safe;
   persistLegacy(cache);
-  queueSqlWrite(async () => {
+  queuePostgresWrite(async () => {
     await trackingRepository.replaceType('vahan', safe);
   });
   return safe;

@@ -6,13 +6,21 @@ const {
   authorizationService,
   authorizationRepository: authRepo,
   interactiveFlowService,
-  commandInputService
+  commandInputService,
+  authorizationNormalizer
 } = require('@sarathi/common');
+const { consumeVerificationMessage } = require('../../../src/services/waVerificationService');
 
 function normalizeText(value) {
   return String(value || '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function maskChatId(value) {
+  const text = String(value || '');
+  if (text.length <= 8) return text;
+  return `${text.slice(0, 4)}...${text.slice(-8)}`;
 }
 
 async function clearPendingSessions(chatId) {
@@ -25,8 +33,45 @@ async function clearPendingSessions(chatId) {
   return cleared;
 }
 
+async function replyPendingActivationIfAny(message) {
+  const pureSender = authorizationService.getWhatsAppSenderId(message);
+  if (!pureSender) return false;
+
+  const candidates = [pureSender];
+  if (pureSender.length > 10) {
+    candidates.push(pureSender.slice(-10));
+  }
+
+  for (const phone of [...new Set(candidates)]) {
+    const user = await authRepo.getUserByPhone(phone);
+    if (!user || Number(user.is_active) !== 1) {
+      continue;
+    }
+
+    const hasPending = await authRepo.hasPendingVerification(user.canonical_phone);
+    if (!hasPending) {
+      continue;
+    }
+
+    const [row] = await authRepo.query(
+      "SELECT code FROM auth_verifications WHERE canonical_phone = ? AND status = 'pending' AND expires_at > CURRENT_TIMESTAMP ORDER BY expires_at DESC LIMIT 1",
+      [user.canonical_phone]
+    );
+    if (!row || !row.code) {
+      continue;
+    }
+
+    await message.reply(`⚠️ *Account Pending Activation*\n\nYour account has been created by the administrator but is not active yet.\n\nPlease reply directly to this chat with your 8-character activation code: *${row.code}* to link and activate your WhatsApp account.`);
+    return true;
+  }
+
+  return false;
+}
+
 async function handleIncomingMessage(client, message) {
   let normalizedBody = normalizeText(message.body || '');
+
+  console.log(`[MessageHandler] Incoming WA message from=${maskChatId(message.from)} author=${maskChatId(message.author)} type=${message.type || 'unknown'} length=${normalizedBody.length}`);
 
   // Deduplication check. SET NX EX is atomic across all gateway instances.
   // Only the first instance to claim this key processes the message.
@@ -43,9 +88,24 @@ async function handleIncomingMessage(client, message) {
 
 
   try {
+    const compactCode = normalizedBody.replace(/[^a-z0-9]/gi, '').toUpperCase();
+    const isVerificationFormat = /^(?:auth\s+\d+\s+[a-z0-9]{6,8})$/i.test(normalizedBody) || /^[A-Z0-9]{8}$/.test(compactCode);
+    if (isVerificationFormat) {
+      const idContext = authorizationNormalizer.extractIdentityFromMessage(message);
+      const ok = await consumeVerificationMessage(normalizedBody, idContext);
+      console.log(`[MessageHandler] Verification code attempt from=${maskChatId(message.from)} matched=${ok}`);
+      if (ok) {
+        await message.reply('✅ Verification successful! Your WhatsApp account has been fully activated and linked.');
+        return;
+      }
+    }
+
     // 2. Authorization check
     const isAuth = await authorizationService.isAuthorizedWhatsApp(message, CONFIG);
     if (!isAuth) {
+      if (await replyPendingActivationIfAny(message)) {
+        return;
+      }
       console.log(`[MessageHandler] Unauthorized message from ${message.from} blocked.`);
       return;
     }
@@ -255,111 +315,58 @@ async function handleIncomingMessage(client, message) {
       const requestedAmount = payload.amount ? parseInt(payload.amount, 10) : 100;
       const amount = (isNaN(requestedAmount) || requestedAmount < 100) ? 100 : requestedAmount;
 
-      if (razorpayService.isRazorpayEnabled()) {
-        // ── Razorpay QR flow (fully automated) ─────────────────────────────
-        try {
-          await message.reply(`⏳ *₹${amount} का QR कोड बना रहे हैं...*`);
+      if (!razorpayService.isRazorpayEnabled()) {
+        await message.reply(
+          '❌ Razorpay top-up is not configured right now.\nPlease ask the admin to set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.'
+        );
+        return;
+      }
 
-          const chatId = message.from;
-          const transport = 'whatsapp';
-          const qr = await razorpayService.createPaymentQR(amount, dbUser.id, chatId, transport);
+      try {
+        await message.reply(`⏳ *₹${amount} का Razorpay QR कोड बना रहे हैं...*`);
 
-          if (qr && qr.imageUrl) {
-            // Download QR image and send as WhatsApp image
-            const downloadImage = (url) => new Promise((resolve, reject) => {
-              const proto = url.startsWith('https') ? https : http;
-              proto.get(url, (res) => {
-                const chunks = [];
-                res.on('data', (chunk) => chunks.push(chunk));
-                res.on('end', () => resolve(Buffer.concat(chunks)));
-                res.on('error', reject);
-              }).on('error', reject);
-            });
+        const chatId = message.from;
+        const transport = 'whatsapp';
+        const qr = await razorpayService.createPaymentQR(amount, dbUser.id, chatId, transport);
 
-            const imgBuffer = await downloadImage(qr.imageUrl);
-            const base64 = imgBuffer.toString('base64');
-
-            const { MessageMedia } = require('whatsapp-web.js');
-            const media = new MessageMedia('image/png', base64, 'topup_qr.png');
-
-            const caption =
-              `💰 *₹${amount} रिचार्ज QR कोड*\n\n` +
-              `📲 इस QR को किसी भी UPI ऐप से स्कैन करें:\n` +
-              `_(Google Pay, PhonePe, Paytm, BHIM)_\n\n` +
-              `✅ भुगतान होते ही *क्रेडिट स्वचालित रूप से जुड़ जाएंगे।*\n` +
-              `⚠️ यह QR एक बार उपयोग के लिए है।\n\n` +
-              `_अलग राशि के लिए:_ \`topup 200\` _या_ \`topup 500\``;
-
-            await client.sendMessage(chatId, media, { caption });
-          } else {
-            throw new Error('QR creation returned null');
-          }
-        } catch (err) {
-          console.error(`[MessageHandler] Razorpay QR error: ${err.message}`);
-          // Fallback to manual UPI flow on Razorpay error
-          await message.reply(
-            `❌ QR बनाने में समस्या आई। कृपया मैन्युअल UPI से भुगतान करें:\n\n` +
-            `👉 *UPI ID:* \`${process.env.UPI_ID || 'sarathi@upi'}\`\n` +
-            `भुगतान के बाद \`paid <UTR_NUMBER>\` भेजें।`
-          );
+        if (!qr || !qr.imageUrl) {
+          throw new Error('QR creation returned null');
         }
-      } else {
-        // ── Manual UPI fallback (no Razorpay configured) ───────────────────
-        const upiId   = process.env.UPI_ID   || CONFIG.PAYMENT?.UPI_ID   || 'sarathi@upi';
-        const upiName = process.env.UPI_NAME  || CONFIG.PAYMENT?.UPI_NAME || 'Sarathi Bot';
-        const response =
-          `💰 *बैलेंस रिचार्ज (Topup Instructions)*\n\n` +
-          `👉 *UPI ID:* \`${upiId}\`\n` +
-          `👉 *Name:* ${upiName}\n\n` +
-          `*मूल्य (Pricing):*\n• ₹1 = 1 Credit\n• Minimum: ₹100\n\n` +
-          `*भुगतान के बाद:*\n\`paid <UTR_NUMBER>\` भेजें\n` +
-          `_(उदाहरण: paid 412345678901)_\n\n` +
-          `एडमिन 24 घंटे में पुष्टि करेंगे।`;
-        await message.reply(response);
+
+        const downloadImage = (url) => new Promise((resolve, reject) => {
+          const proto = url.startsWith('https') ? https : http;
+          proto.get(url, (res) => {
+            const chunks = [];
+            res.on('data', (chunk) => chunks.push(chunk));
+            res.on('end', () => resolve(Buffer.concat(chunks)));
+            res.on('error', reject);
+          }).on('error', reject);
+        });
+
+        const imgBuffer = await downloadImage(qr.imageUrl);
+        const base64 = imgBuffer.toString('base64');
+
+        const { MessageMedia } = require('whatsapp-web.js');
+        const media = new MessageMedia('image/png', base64, 'topup_qr.png');
+
+        const caption =
+          `💰 *₹${amount} Razorpay रिचार्ज QR कोड*\n\n` +
+          `📲 इस QR को किसी भी UPI ऐप से स्कैन करें:\n` +
+          `_(Google Pay, PhonePe, Paytm, BHIM)_\n\n` +
+          `✅ भुगतान होते ही *क्रेडिट स्वचालित रूप से जुड़ जाएंगे।*\n` +
+          `⚠️ यह QR एक बार उपयोग के लिए है।\n\n` +
+          `_अलग राशि के लिए:_ \`topup 200\` _या_ \`topup 500\``;
+
+        await client.sendMessage(chatId, media, { caption });
+      } catch (err) {
+        console.error(`[MessageHandler] Razorpay QR error: ${err.message}`);
+        await message.reply('❌ Razorpay QR बनाने में समस्या आई। कृपया कुछ देर बाद फिर कोशिश करें या admin से संपर्क करें।');
       }
       return;
     }
 
     if (type === 'paid') {
-      const { utr, amount = 0 } = payload;
-      
-      // Clean UTR (ensure it's digits and 12-digits standard)
-      const cleanUtr = String(utr).trim().replace(/\D/g, '');
-      if (cleanUtr.length !== 12) {
-        await message.reply('❌ *गलत UTR नंबर!*\nUPI UTR नंबर हमेशा 12 अंकों का होता है। कृपया सही नंबर दोबारा जांच कर दर्ज करें।');
-        return;
-      }
-
-      try {
-        // Check if UTR already submitted
-        const [existing] = await authRepo.query('SELECT status FROM payment_requests WHERE utr = ?', [cleanUtr]);
-        if (existing) {
-          await message.reply(`⚠️ *UTR पहले से दर्ज है!*\nयह UTR पहले ही सबमिट किया जा चुका है (स्थिति: ${existing.status.toUpperCase()})।`);
-          return;
-        }
-
-        // Insert payment request
-        await authRepo.createPaymentRequest(dbUser.id, cleanUtr, amount);
-
-        // Notify user
-        await message.reply('✅ *पेमेंट दर्ज कर लिया गया है!*\n\nएडमिन आपके पेमेंट की पुष्टि (Verify) 24 घंटे के भीतर कर देंगे। पुष्टि होने के बाद क्रेडिट आपके बैलेंस में जोड़ दिए जाएंगे। धन्यवाद!');
-
-        // Discord alerts (if webhook is set)
-        const webhookUrl = process.env.DISCORD_WEBHOOK_URL || process.env.DISCORD_WEBHOOK;
-        if (webhookUrl) {
-          const { chatNotifier } = require('@sarathi/common');
-          try {
-            const title = `💰 New Payment Request Received`;
-            const description = `**User:** ${dbUser.name || 'Unknown'} (${dbUser.canonical_phone})\n` +
-              `**UTR:** \`${cleanUtr}\`\n` +
-              `**Suggested Amount:** ₹${amount || 'Unspecified'}`;
-            await chatNotifier.sendDiscordAlert(title, description, 'info');
-          } catch (_) {}
-        }
-      } catch (err) {
-        console.error(`[MessageHandler] Paid UTR submission error: ${err.message}`);
-        await message.reply('❌ पेमेंट दर्ज करने में असमर्थ। कृपया बाद में प्रयास करें।');
-      }
+      await message.reply('❌ Manual UPI/UTR wallet top-up is disabled. Please send `topup 100` or `topup 500` to generate a Razorpay QR code.');
       return;
     }
 

@@ -28,6 +28,15 @@ assert.deepStrictEqual(parse('stop'), {
   type: 'stop',
 });
 
+assert.deepStrictEqual(parse('topup 500'), {
+  success: true,
+  type: 'topup',
+  payload: { amount: 500 },
+});
+
+assert.strictEqual(parse('paid 412345678901').success, false);
+assert.match(parse('paid 412345678901').error, /Manual UPI\/UTR wallet top-up is disabled/);
+
 assert.strictEqual(parse('payfee 2982778275 01-02-2003').silent, true);
 assert.strictEqual(parse('payfee 2982778275 01-02-2003', true).type, 'pay_fee_start');
 

@@ -13,7 +13,7 @@
  *   6. verifyWebhookSignature() validates it
  *   7. Handler looks up userId from QR notes → credits user → notifies via Redis
  *
- * If RAZORPAY_KEY_ID is not set → returns null (caller falls back to manual UPI flow).
+ * If RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET are not set, QR creation returns null.
  */
 
 const crypto = require('crypto');
@@ -57,7 +57,7 @@ async function createPaymentQR(amountInRupees, userId, chatId, transport) {
   try {
     const qr = await instance.qrCode.create({
       type: 'upi_qr',
-      name: process.env.UPI_NAME || 'Sarathi Bot',
+      name: process.env.RAZORPAY_QR_NAME || 'Sarathi Bot',
       usage: 'single_use',       // auto-closes after one payment
       fixed_amount: true,
       payment_amount: amountInPaise,

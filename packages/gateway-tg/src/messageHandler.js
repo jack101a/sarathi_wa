@@ -7,9 +7,11 @@
  *  - OTP session forwarding via Redis Pub/Sub
  *  - DOB / interactive flow session handling
  *  - Command normalization and BullMQ enqueue via requestPipeline
- *  - New WA-parity commands: balance, history, plan, topup, paid <UTR>
+ *  - New WA-parity commands: balance, history, plan, Razorpay topup
  */
 
+const http = require('http');
+const https = require('https');
 const {
   config: CONFIG,
   redis,
@@ -19,13 +21,29 @@ const {
   authorizationRepository: authRepo,
   interactiveFlowService,
   commandInputService,
-  chatNotifier,
 } = require('@sarathi/common');
 
 function normalizeTgText(value) {
   return String(value || '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function downloadImage(url) {
+  return new Promise((resolve, reject) => {
+    const proto = String(url || '').startsWith('https') ? https : http;
+    proto.get(url, (res) => {
+      if (res.statusCode && res.statusCode >= 400) {
+        reject(new Error(`Image download failed with HTTP ${res.statusCode}`));
+        res.resume();
+        return;
+      }
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+      res.on('error', reject);
+    }).on('error', reject);
+  });
 }
 
 /**
@@ -231,51 +249,39 @@ async function handleIncomingMessage(bot, msg) {
     }
 
     if (type === 'topup') {
-      const upiId = CONFIG.PAYMENT?.UPI_ID || process.env.UPI_ID || 'sarathi@upi';
-      const upiName = CONFIG.PAYMENT?.UPI_NAME || process.env.UPI_NAME || 'Sarathi Bot';
-      await bot.sendMessage(chatId,
-        `💰 *Topup Instructions:*\n\n` +
-        `Send payment to UPI:\n` +
-        `👉 *UPI ID:* \`${upiId}\`\n` +
-        `👉 *Name:* ${upiName}\n\n` +
-        `*Pricing:*\n• ₹1 = 1 Credit\n• Minimum: 100 Credits (₹100)\n\n` +
-        `*After Payment:*\nSend the 12-digit UTR number:\n` +
-        `👉 \`paid <UTR_NUMBER>\``,
-        { parse_mode: 'Markdown' }
-      );
+      const { razorpayService } = require('@sarathi/common');
+      const requestedAmount = payload.amount ? parseInt(payload.amount, 10) : 100;
+      const amount = (isNaN(requestedAmount) || requestedAmount < 100) ? 100 : requestedAmount;
+
+      if (!razorpayService.isRazorpayEnabled()) {
+        await bot.sendMessage(chatId, '❌ Razorpay top-up is not configured right now. Please ask the admin to set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.');
+        return;
+      }
+
+      try {
+        await bot.sendMessage(chatId, `⏳ Creating Razorpay QR for ₹${amount}...`);
+        const qr = await razorpayService.createPaymentQR(amount, dbUser.id, chatId, 'telegram');
+        if (!qr || !qr.imageUrl) {
+          throw new Error('QR creation returned null');
+        }
+
+        const imgBuffer = await downloadImage(qr.imageUrl);
+        await bot.sendPhoto(chatId, imgBuffer, {
+          caption:
+            `💰 ₹${amount} Razorpay recharge QR\n\n` +
+            `Scan this QR using any UPI app.\n` +
+            `Credits will be added automatically after payment.\n\n` +
+            `For another amount, send: topup 200 or topup 500`,
+        });
+      } catch (err) {
+        console.error(`[gateway-tg] Razorpay QR error: ${err.message}`);
+        await bot.sendMessage(chatId, '❌ Failed to create Razorpay QR. Please try again later or contact admin.');
+      }
       return;
     }
 
     if (type === 'paid') {
-      const { utr, amount = 0 } = payload;
-      const cleanUtr = String(utr).trim().replace(/\D/g, '');
-      if (cleanUtr.length !== 12) {
-        await bot.sendMessage(chatId, '❌ Invalid UTR number! UPI UTR must be exactly 12 digits.');
-        return;
-      }
-      try {
-        const [existing] = await authRepo.query('SELECT status FROM payment_requests WHERE utr = ?', [cleanUtr]);
-        if (existing) {
-          await bot.sendMessage(chatId, `⚠️ This UTR has already been submitted (status: ${existing.status.toUpperCase()}).`);
-          return;
-        }
-        await authRepo.createPaymentRequest(dbUser.id, cleanUtr, amount);
-        await bot.sendMessage(chatId, '✅ Payment submitted! Admin will verify within 24 hours. Credits will be added after verification.');
-
-        const webhookUrl = process.env.DISCORD_WEBHOOK_URL || process.env.DISCORD_WEBHOOK;
-        if (webhookUrl) {
-          try {
-            await chatNotifier.sendDiscordAlert(
-              '💰 New Payment Request (Telegram)',
-              `**User:** ${dbUser.name || 'Unknown'} (${dbUser.canonical_phone})\n**UTR:** \`${cleanUtr}\`\n**Amount:** ₹${amount || 'Unspecified'}`,
-              'info'
-            );
-          } catch (_) {}
-        }
-      } catch (err) {
-        console.error(`[gateway-tg] UTR submission error: ${err.message}`);
-        await bot.sendMessage(chatId, '❌ Failed to submit payment. Please try again later.');
-      }
+      await bot.sendMessage(chatId, '❌ Manual UPI/UTR wallet top-up is disabled. Please send `topup 100` or `topup 500` to generate a Razorpay QR code.');
       return;
     }
 

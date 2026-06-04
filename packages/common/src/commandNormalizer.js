@@ -27,8 +27,7 @@ const USER_HELP_TEXT = `📋 *Sarathi Bot Help (मदद)*
 • \`balance\` / \`bal\` - बैलेंस और प्लान की जानकारी देखने के लिए
 • \`history\` / \`txn\` - पिछले 10 क्रेडिट लेन-देन देखने के लिए
 • \`plan\` - आपके सक्रिय प्लान और लिमिट की जानकारी
-• \`topup\` - बैलेंस रिचार्ज करने का तरीका
-• \`paid <UTR>\` - UPI पेमेंट का UTR नंबर दर्ज करने के लिए
+• \`topup [amount]\` - Razorpay QR से बैलेंस रिचार्ज करने के लिए
 
 *DL/RC की जानकारी (Tracking):*
 • \`track DL <appl_no> <DOB>\` - DL का स्टेटस देखने के लिए
@@ -68,8 +67,7 @@ const ADMIN_HELP_TEXT = `📋 *Sarathi Bot Help (मदद) - Admin Mode*
 • \`balance\` / \`bal\` - बैलेंस और प्लान की जानकारी देखने के लिए
 • \`history\` / \`txn\` - पिछले 10 क्रेडिट लेन-देन देखने के लिए
 • \`plan\` - आपके सक्रिय प्लान और लिमिट की जानकारी
-• \`topup\` - बैलेंस रिचार्ज करने का तरीका
-• \`paid <UTR>\` - UPI पेमेंट का UTR नंबर दर्ज करने के लिए
+• \`topup [amount]\` - Razorpay QR से बैलेंस रिचार्ज करने के लिए
 
 *DL/RC की जानकारी (Tracking):*
 • \`track DL <appl_no> <DOB>\` - DL का स्टेटस देखने के लिए
@@ -225,15 +223,18 @@ function parseCommand(rawText, hasMedia, user, isAdmin) {
     return { success: true, type: 'plan', payload: {} };
   }
   if (cmd === 'topup') {
-    return { success: true, type: 'topup', payload: {} };
+    const amount = parts[1] ? parseInt(parts[1], 10) : undefined;
+    return {
+      success: true,
+      type: 'topup',
+      payload: { amount: Number.isFinite(amount) ? amount : undefined },
+    };
   }
   if (cmd === 'paid') {
-    const utr = parts[1] || '';
-    if (!utr) {
-      return { success: false, error: '❌ *UTR नंबर नहीं मिला!*\nकृपया कमांड के बाद 12-अंकों का UPI UTR नंबर दर्ज करें।\n\n*उदाहरण (Example):*\n👉 `paid 412345678901`' };
-    }
-    const amount = parts[2] ? parseInt(parts[2], 10) : 0;
-    return { success: true, type: 'paid', payload: { utr, amount: isNaN(amount) ? 0 : amount } };
+    return {
+      success: false,
+      error: '❌ Manual UPI/UTR wallet top-up is disabled.\nPlease send `topup 100` or `topup 500` to generate a Razorpay QR code.',
+    };
   }
 
   // 2. ALIVE/SUNO

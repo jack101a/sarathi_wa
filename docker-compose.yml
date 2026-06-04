@@ -62,8 +62,7 @@ services:
       AUTHORIZED_GROUPS: ${AUTHORIZED_GROUPS:-}
       RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
       RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
-      UPI_ID: ${UPI_ID:-sarathi@upi}
-      UPI_NAME: ${UPI_NAME:-Sarathi Bot}
+      RAZORPAY_QR_NAME: ${RAZORPAY_QR_NAME:-Sarathi Bot}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - ${CONFIG_PATH:-.}/sarathi_new/auth_data:/app/.wwebjs_auth
@@ -227,8 +226,7 @@ services:
       TELEGRAM_NOTIFY_CHAT_IDS: ${TELEGRAM_NOTIFY_CHAT_IDS:-}
       RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
       RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
-      UPI_ID: ${UPI_ID:-sarathi@upi}
-      UPI_NAME: ${UPI_NAME:-Sarathi Bot}
+      RAZORPAY_QR_NAME: ${RAZORPAY_QR_NAME:-Sarathi Bot}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - ${CONFIG_PATH:-.}/sarathi_new/data:/app/data

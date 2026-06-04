@@ -28,5 +28,7 @@ module.exports = {
   queue: require('./queue'),
   requestPipeline: require('./requestPipeline'),
   interactiveFlowService: require('./interactiveFlowService'),
-  chatNotifier: require('./chatNotifier')
+  chatNotifier: require('./chatNotifier'),
+  cloudBackupSettings: require('./cloudBackupSettings'),
+  cloudBackup: require('./cloudBackup')
 };

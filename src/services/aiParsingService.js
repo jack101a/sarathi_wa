@@ -20,7 +20,7 @@ async function initializeCache() {
     }
     console.log(`[AI Parsing] Initialized cache with ${inMemoryCache.size} layouts.`);
   } catch (err) {
-    console.error('[AI Parsing] Failed to initialize layout mapping cache from SQLite:', err);
+    console.error('[AI Parsing] Failed to initialize layout mapping cache from PostgreSQL:', err);
   }
 }
 

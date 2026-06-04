@@ -9,6 +9,13 @@ const path = require('path');
 const router = express.Router();
 const { query: dbQuery } = require('../core/db');
 const logger = require('../core/logger');
+
+function toWhatsAppUserJid(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits) return '';
+  const withCountryCode = digits.length === 10 ? `91${digits}` : digits;
+  return `${withCountryCode}@c.us`;
+}
 const CONFIG = require('../config/config');
 
 const { handleLogin, handleLogout, handleVerify, requireAdminAuth } = require('./adminAuth');
@@ -204,8 +211,7 @@ router.post('/users', async (req, res) => {
       const verif = await waVerificationService.startVerification(phone, 'admin', 'wa');
       if (verif) {
         verificationCode = verif.code;
-        const digits = String(phone).trim().replace(/\D/g, '');
-        const targetJid = digits.endsWith('@c.us') ? digits : `${digits}@c.us`;
+        const targetJid = toWhatsAppUserJid(phone);
         const messageText = `Welcome to Sarathi Bot! 🚀\n\nYour account activation code is: *${verificationCode}*\n\nPlease reply directly to this chat with this 8-digit code to activate and link your WhatsApp account.`;
         
         try {
@@ -257,8 +263,7 @@ router.post('/users/:phone/resend-activation', async (req, res) => {
       return res.status(400).json({ ok: false, message: 'Failed to generate verification code' });
     }
     
-    const digits = String(phone).trim().replace(/\D/g, '');
-    const targetJid = digits.endsWith('@c.us') ? digits : `${digits}@c.us`;
+    const targetJid = toWhatsAppUserJid(phone);
     const messageText = `Sarathi Bot Activation Code 🚀\n\nYour new account activation code is: *${verif.code}*\n\nPlease reply directly to this chat with this 8-digit code to activate and link your WhatsApp account.`;
     
     try {
@@ -633,7 +638,7 @@ router.get('/backups/health', (req, res) => {
 router.post('/backups/:fileName/restore', async (req, res) => {
   try {
     const fileName = path.basename(req.params.fileName);
-    if (!fileName.startsWith('authz_backup_') || !fileName.endsWith('.sqlite')) {
+    if (!fileName.startsWith('pg_backup_') || !fileName.endsWith('.dump')) {
       return res.status(400).json({ ok: false, message: 'Invalid backup file name' });
     }
     logger.warn('adminRouter', 'Restore initiated', { fileName, ip: req.ip });
@@ -650,7 +655,7 @@ router.get('/backups/:fileName/download', (req, res) => {
   const fs = require('fs');
   const BACKUP_DIR = path.resolve(__dirname, '../../data/backups');
   const fileName = path.basename(req.params.fileName);
-  if (!fileName.startsWith('authz_backup_') || !fileName.endsWith('.sqlite')) {
+  if (!fileName.startsWith('pg_backup_') || !fileName.endsWith('.dump')) {
     return res.status(400).json({ ok: false, message: 'Invalid backup file name' });
   }
   const filePath = path.join(BACKUP_DIR, fileName);
@@ -763,4 +768,3 @@ router.post('/cloud-backup/upload-now', async (req, res) => {
 });
 
 module.exports = router;
-

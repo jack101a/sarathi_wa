@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 const { logger } = require('@sarathi/common');
 
 const BACKUP_DIR = path.resolve(__dirname, '../../../../data/backups');
@@ -61,9 +61,10 @@ async function runBackup() {
   logger.info('scheduler', 'Running PostgreSQL backup job...');
   ensureBackupDir();
 
-  const dbUrl = process.env.DATABASE_URL;
-  if (!dbUrl) {
-    logger.warn('scheduler', 'PostgreSQL backup skipped: DATABASE_URL not set');
+  const dbUrl = process.env.DATABASE_URL || '';
+  const hasDiscretePgConfig = Boolean(process.env.PGHOST || process.env.PGDATABASE || process.env.PGUSER || process.env.PGPASSWORD);
+  if (!dbUrl && !hasDiscretePgConfig) {
+    logger.warn('scheduler', 'PostgreSQL backup skipped: database environment is not configured');
     return;
   }
 
@@ -71,31 +72,48 @@ async function runBackup() {
   const backupFileName = `pg_backup_${timestamp}.dump`;
   const backupPath = path.join(BACKUP_DIR, backupFileName);
 
-  // Parse connection string to log safely
-  let safeDbUrl = dbUrl;
+  // Parse connection string to log safely. Passwords must never be logged.
+  let safeDbTarget = 'discrete-pg-env';
   try {
-    const parsed = new URL(dbUrl);
-    parsed.password = '****';
-    safeDbUrl = parsed.toString();
+    if (dbUrl) {
+      const parsed = new URL(dbUrl);
+      parsed.password = parsed.password ? '****' : '';
+      safeDbTarget = parsed.toString();
+    }
   } catch (_) {}
 
   logger.info('scheduler', `Starting pg_dump to ${backupFileName}`);
 
-  // Use pg_dump tool
-  const cmd = `pg_dump --dbname="${dbUrl}" -F c -b -v -f "${backupPath}"`;
+  const args = ['-F', 'c', '-b', '-v', '-f', backupPath];
+  const env = { ...process.env };
 
-  exec(cmd, (err, stdout, stderr) => {
-    if (err) {
-      logger.error('scheduler', `pg_dump failed: ${err.message}. Ensure pg_dump is installed and in path.`, { safeDbUrl });
-      // Clean up empty file if created
-      if (fs.existsSync(backupPath)) {
-        try { fs.unlinkSync(backupPath); } catch (_) {}
+  if (hasDiscretePgConfig) {
+    args.unshift(
+      '-h', process.env.PGHOST || 'postgres',
+      '-p', String(process.env.PGPORT || 5432),
+      '-U', process.env.PGUSER || 'sarathi',
+      '-d', process.env.PGDATABASE || 'sarathi'
+    );
+    if (process.env.PGPASSWORD) env.PGPASSWORD = process.env.PGPASSWORD;
+  } else {
+    args.unshift('--dbname', dbUrl);
+  }
+
+  await new Promise((resolve) => {
+    execFile('pg_dump', args, { env, timeout: 10 * 60 * 1000 }, (err) => {
+      if (err) {
+        logger.error('scheduler', `pg_dump failed: ${err.message}. Ensure pg_dump is installed and the database credentials are correct.`, { safeDbTarget });
+        if (fs.existsSync(backupPath)) {
+          try { fs.unlinkSync(backupPath); } catch (_) {}
+        }
+        resolve();
+        return;
       }
-      return;
-    }
 
-    logger.info('scheduler', `PostgreSQL backup created successfully: ${backupFileName}`);
-    rotateBackups();
+      logger.info('scheduler', `PostgreSQL backup created successfully: ${backupFileName}`);
+      rotateBackups();
+      resolve();
+    });
   });
 }
 

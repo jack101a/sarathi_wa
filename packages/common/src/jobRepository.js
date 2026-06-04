@@ -1,6 +1,8 @@
 const { query, run } = require('./db');
+const crypto = require('crypto');
 
 function nowIso() { return new Date().toISOString(); }
+function makeJobId() { return `job_${crypto.randomUUID()}`; }
 
 function normalizeJob(row) {
   if (!row) return row;
@@ -16,21 +18,24 @@ function normalizeJob(row) {
 }
 
 async function createJob({ id, userId, userPhone, queueType, command, payloadJson, payload, chatId, transport, priority = 0, dedupKey }) {
+  const jobId = id || makeJobId();
   const body = payload || JSON.parse(payloadJson || '{}');
   await run(
     `INSERT INTO jobs (id, user_id, user_phone, queue_type, command, payload, status, chat_id, transport, priority, dedup_key, created_at)
      VALUES (?, ?, ?, ?, ?, ?::jsonb, 'pending', ?, ?, ?, ?, CURRENT_TIMESTAMP)
      ON CONFLICT (id) DO NOTHING`,
-    [id, userId, userPhone, queueType, command, JSON.stringify(body || {}), chatId, transport || 'wa', priority, dedupKey || id]
+    [jobId, userId || null, userPhone || '', queueType, command, JSON.stringify(body || {}), chatId, transport || 'wa', priority, dedupKey || jobId]
   );
 
   try {
     const { redis } = require('./redis');
     await redis.publish('admin:broadcast', JSON.stringify({
       event: 'job_created',
-      job: { id, user_id: userId, user_phone: userPhone, queue_type: queueType, command, status: 'pending', created_at: nowIso() }
+      job: { id: jobId, user_id: userId || null, user_phone: userPhone || '', queue_type: queueType, command, status: 'pending', created_at: nowIso() }
     }));
   } catch (_) {}
+
+  return getJobById(jobId);
 }
 
 async function updateJobStatus(jobId, status, resultJson = '{}', errorText = '', workerId = '') {

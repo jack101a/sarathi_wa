@@ -184,7 +184,7 @@ const sessionName = String(
 
 const CONFIG = {
   APP_ENV,
-  DATABASE_URL: process.env.DATABASE_URL || 'postgres://sarathi@localhost:5432/sarathi',
+  DATABASE_URL: process.env.DATABASE_URL || '',
   REDIS_URL: process.env.REDIS_URL || 'redis://localhost:6379',
   CONFIG_FILE_PATH: yamlConfig.path,
   PORT: asNumber(process.env.PORT, DEFAULTS.PORT),
@@ -372,4 +372,3 @@ const CONFIG = {
 };
 
 module.exports = CONFIG;
-

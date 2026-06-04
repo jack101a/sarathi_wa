@@ -15,11 +15,14 @@ const {
   planRepository,
   serviceRepository,
   trackingRepository,
-  queue
+  queue,
+  cloudBackupSettings,
+  cloudBackup
 } = require('@sarathi/common');
 
 const { apiQueue, browserQueue } = queue;
 const { handleLogin, handleLogout, handleVerify, requireAdminAuth } = require('../middleware/adminAuth');
+const BACKUP_DIR = path.resolve(__dirname, '../../../../data/backups');
 
 // Heavy refresh still uses the command services, but tracking storage is Postgres-backed.
 const { refreshAllTrackedApplications } = require('../../../../src/services/trackingControlService');
@@ -55,6 +58,71 @@ async function cancelQueueJob(q, jobId) {
     }
   } catch (_) {}
   return false;
+}
+
+function listPostgresBackups() {
+  if (!fs.existsSync(BACKUP_DIR)) return [];
+
+  return fs.readdirSync(BACKUP_DIR)
+    .filter(f => f.startsWith('pg_backup_') && f.endsWith('.dump'))
+    .map(f => {
+      const p = path.join(BACKUP_DIR, f);
+      const stat = fs.statSync(p);
+      return {
+        fileName: f,
+        path: p,
+        sizeBytes: stat.size,
+        createdAt: stat.mtime.toISOString(),
+        type: 'postgres',
+        verified: true
+      };
+    })
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+function isValidPostgresBackupName(fileName) {
+  return /^pg_backup_[A-Za-z0-9_.-]+\.dump$/.test(fileName || '');
+}
+
+function toWhatsAppUserJid(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits) return '';
+  const withCountryCode = digits.length === 10 ? `91${digits}` : digits;
+  return `${withCountryCode}@c.us`;
+}
+
+function getMaskedRuntimeConfig() {
+  return {
+    app: {
+      env: CONFIG.APP_ENV,
+      nodeEnv: process.env.NODE_ENV || '',
+      port: CONFIG.PORT,
+      adminUrl: CONFIG.ADMIN_URL || '/admin'
+    },
+    admin: {
+      username: CONFIG.ADMIN?.USERNAME || '',
+      passwordConfigured: Boolean(CONFIG.ADMIN?.PASSWORD_HASH || process.env.ADMIN_PASSWORD || process.env.ADMIN_PASSWORD_HASH)
+    },
+    database: {
+      mode: process.env.PGHOST || process.env.PGPASSWORD ? 'discrete-env' : 'database-url',
+      hostConfigured: Boolean(process.env.PGHOST),
+      database: process.env.PGDATABASE || '',
+      user: process.env.PGUSER || '',
+      passwordConfigured: Boolean(process.env.PGPASSWORD),
+      urlConfigured: Boolean(process.env.DATABASE_URL)
+    },
+    redis: {
+      mode: process.env.REDIS_HOST || process.env.REDIS_PASSWORD ? 'discrete-env' : 'redis-url',
+      hostConfigured: Boolean(process.env.REDIS_HOST),
+      passwordConfigured: Boolean(process.env.REDIS_PASSWORD),
+      urlConfigured: Boolean(process.env.REDIS_URL)
+    },
+    backup: {
+      type: 'postgres',
+      directory: BACKUP_DIR,
+      restoreFromAdminApi: false
+    }
+  };
 }
 
 // ── Public routes (no auth required) ──────────────────────────────────────
@@ -159,6 +227,9 @@ router.get('/verify', requireAdminAuth, handleVerify);
 // ─── Protected routes ───────────────────────────────────────────────────────
 router.use(requireAdminAuth);
 
+router.get('/config', async (req, res) => {
+  res.json({ ok: true, config: getMaskedRuntimeConfig() });
+});
 
 // ── Bootstrap (loads everything the dashboard needs) ──────────────────────
 router.get('/bootstrap', async (req, res) => {
@@ -316,8 +387,7 @@ router.post('/users', async (req, res) => {
       const verif = await waVerificationService.startVerification(phone, 'admin', 'wa');
       if (verif) {
         verificationCode = verif.code;
-        const digits = String(phone).trim().replace(/\D/g, '');
-        const targetJid = digits.endsWith('@c.us') ? digits : `${digits}@c.us`;
+        const targetJid = toWhatsAppUserJid(phone);
         const messageText = `Welcome to Sarathi Bot! 🚀\n\nYour account activation code is: *${verificationCode}*\n\nPlease reply directly to this chat with this 8-digit code to activate and link your WhatsApp account.`;
         
         try {
@@ -368,8 +438,7 @@ router.post('/users/:phone/resend-activation', async (req, res) => {
       return res.status(400).json({ ok: false, message: 'Failed to generate verification code' });
     }
     
-    const digits = String(phone).trim().replace(/\D/g, '');
-    const targetJid = digits.endsWith('@c.us') ? digits : `${digits}@c.us`;
+    const targetJid = toWhatsAppUserJid(phone);
     const messageText = `Sarathi Bot Activation Code 🚀\n\nYour new account activation code is: *${verif.code}*\n\nPlease reply directly to this chat with this 8-digit code to activate and link your WhatsApp account.`;
     
     try {
@@ -757,28 +826,12 @@ router.post('/backup', async (req, res) => {
 });
 
 router.get('/backups', (req, res) => {
-  // Returns empty list or we can read from shared data/backups directory if mounted
-  const BACKUP_DIR = path.resolve(__dirname, '../../../../data/backups');
-  let backups = [];
   try {
-    if (fs.existsSync(BACKUP_DIR)) {
-      backups = fs.readdirSync(BACKUP_DIR)
-        .filter(f => f.startsWith('pg_backup_') && f.endsWith('.dump'))
-        .map(f => {
-          const p = path.join(BACKUP_DIR, f);
-          const stat = fs.statSync(p);
-          return {
-            fileName: f,
-            path: p,
-            sizeBytes: stat.size,
-            createdAt: stat.mtime.toISOString(),
-            type: 'manual',
-            verified: true
-          };
-        });
-    }
-  } catch (_) {}
-  res.json({ ok: true, backups });
+    res.json({ ok: true, backups: listPostgresBackups() });
+  } catch (err) {
+    logger.error('adminRouter', 'Failed to list backups', { error: err.message });
+    res.status(500).json({ ok: false, message: 'Failed to list backups' });
+  }
 });
 
 router.get('/backups/health', (req, res) => {
@@ -786,10 +839,8 @@ router.get('/backups/health', (req, res) => {
 });
 
 router.get('/backups/:fileName/download', (req, res) => {
-  const fs = require('fs');
-  const BACKUP_DIR = path.resolve(__dirname, '../../../../data/backups');
   const fileName = path.basename(req.params.fileName);
-  if (!fileName.startsWith('pg_backup_') || !fileName.endsWith('.dump')) {
+  if (!isValidPostgresBackupName(fileName)) {
     return res.status(400).json({ ok: false, message: 'Invalid backup file name' });
   }
   const filePath = path.join(BACKUP_DIR, fileName);
@@ -797,6 +848,77 @@ router.get('/backups/:fileName/download', (req, res) => {
     return res.status(404).json({ ok: false, message: 'Backup not found' });
   }
   res.download(filePath, fileName);
+});
+
+router.post('/backups/:fileName/restore', (req, res) => {
+  const fileName = path.basename(req.params.fileName);
+  if (!isValidPostgresBackupName(fileName)) {
+    return res.status(400).json({ ok: false, message: 'Invalid backup file name' });
+  }
+
+  const filePath = path.join(BACKUP_DIR, fileName);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ ok: false, message: 'Backup not found' });
+  }
+
+  return res.status(501).json({
+    ok: false,
+    message: 'PostgreSQL restore is intentionally disabled from the admin web API. Run a controlled restore from the server/scheduler container after taking the stack offline.'
+  });
+});
+
+router.get('/cloud-backup/providers', async (req, res) => {
+  try {
+    const providers = await cloudBackupSettings.getAllProviders(false);
+    res.json({
+      ok: true,
+      providers,
+      rcloneInstalled: cloudBackup.checkRcloneInstalled()
+    });
+  } catch (err) {
+    logger.error('adminRouter', 'Failed to load cloud backup providers', { error: err.message });
+    res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+router.put('/cloud-backup/providers/:provider', async (req, res) => {
+  try {
+    const provider = await cloudBackupSettings.updateProvider(req.params.provider, req.body || {});
+    if (provider.provider === 'r2' && provider.config.secretAccessKey) {
+      provider.config = { ...provider.config, secretAccessKey: '***' };
+    }
+    res.json({ ok: true, provider });
+  } catch (err) {
+    const status = /Unsupported cloud backup provider/.test(err.message) ? 400 : 500;
+    logger.error('adminRouter', 'Failed to update cloud backup provider', { provider: req.params.provider, error: err.message });
+    res.status(status).json({ ok: false, message: err.message });
+  }
+});
+
+router.post('/cloud-backup/test/:provider', async (req, res) => {
+  try {
+    const result = await cloudBackup.testProvider(req.params.provider);
+    res.json(result);
+  } catch (err) {
+    const status = /Unsupported cloud backup provider/.test(err.message) ? 400 : 500;
+    logger.error('adminRouter', 'Cloud backup provider test failed', { provider: req.params.provider, error: err.message });
+    res.status(status).json({ ok: false, message: err.message });
+  }
+});
+
+router.post('/cloud-backup/upload-now', async (req, res) => {
+  try {
+    const latest = listPostgresBackups()[0];
+    if (!latest) {
+      return res.status(404).json({ ok: false, message: 'No PostgreSQL backup file exists yet' });
+    }
+
+    const result = await cloudBackup.uploadToCloud(latest.path, latest.fileName);
+    res.status(result.ok ? 200 : 400).json(result);
+  } catch (err) {
+    logger.error('adminRouter', 'Manual cloud backup upload failed', { error: err.message });
+    res.status(500).json({ ok: false, message: err.message });
+  }
 });
 
 /** GET /admin/api/stats/credits — enhanced credit breakdown */
@@ -834,120 +956,19 @@ router.get('/stats/credits', async (req, res) => {
   }
 });
 
-// ── Payment Requests ────────────────────────────────────────────────────────
-router.get('/payments/pending', async (req, res) => {
-  try {
-    const pending = await authRepo.getPendingPaymentRequests();
-    res.json({ ok: true, pending });
-  } catch (err) {
-    res.status(500).json({ ok: false, message: err.message });
-  }
-});
+// ── Legacy Manual UPI Payment Requests ──────────────────────────────────────
+function manualWalletTopupDisabled(_req, res) {
+  res.status(410).json({
+    ok: false,
+    disabled: true,
+    message: 'Manual UPI/UTR wallet top-up is disabled. Use Razorpay QR top-up and /admin/api/payments/razorpay/webhook.',
+  });
+}
 
-router.get('/payments', async (req, res) => {
-  try {
-    const payments = await authRepo.getAllPaymentRequests();
-    res.json({ ok: true, payments });
-  } catch (err) {
-    res.status(500).json({ ok: false, message: err.message });
-  }
-});
-
-router.post('/payments/:id/approve', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { amount, note = '' } = req.body || {};
-    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
-      return res.status(400).json({ ok: false, message: 'Valid amount is required' });
-    }
-
-    const adminName = req.admin?.username || 'admin';
-    const result = await authRepo.approvePaymentRequest(id, Number(amount), note, adminName);
-    
-    // Notify the user on WhatsApp about credit add!
-    const chatNotifier = require('@sarathi/common').chatNotifier;
-    try {
-      const targetJid = `${result.userPhone}@c.us`;
-      const notificationText = `💰 *क्रेडिट जोड़े गए (Credits Added!)* 💰\n\n` +
-        `आपका पेमेंट (UTR: ${result.utr}) स्वीकृत कर लिया गया है।\n` +
-        `• *जोड़े गए क्रेडिट (Added):* +${amount} credits\n` +
-        `• *नया बैलेंस (New Balance):* ${result.after} credits\n\n` +
-        `सरथी बॉट का उपयोग करने के लिए धन्यवाद! 🚀`;
-      await chatNotifier.sendWhatsAppText(targetJid, notificationText);
-    } catch (sendErr) {
-      logger.error('adminRouter', `Failed to send WhatsApp topup approval notification to ${result.userPhone}`, { error: sendErr.message });
-    }
-
-    // Send Discord notification if configured
-    const webhookUrl = process.env.DISCORD_WEBHOOK_URL || process.env.DISCORD_WEBHOOK;
-    if (webhookUrl) {
-      try {
-        const title = `🟢 Payment Request Approved`;
-        const description = `**User:** ${result.userPhone}\n` +
-          `**Amount Approved:** ₹${amount}\n` +
-          `**UTR:** \`${result.utr}\`\n` +
-          `**Approved By:** ${adminName}\n` +
-          `**New Balance:** ${result.after} credits`;
-        await chatNotifier.sendDiscordAlert(title, description, 'success');
-      } catch (_) {}
-    }
-
-    logger.info('adminRouter', `Payment request ${id} approved`, { amount, adminName });
-    res.json({ ok: true, message: 'Payment request approved and credits added.' });
-  } catch (err) {
-    res.status(500).json({ ok: false, message: err.message });
-  }
-});
-
-router.post('/payments/:id/reject', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { note = '' } = req.body || {};
-    const adminName = req.admin?.username || 'admin';
-    
-    // Fetch payment details to notify the user
-    const [payReq] = await authRepo.query('SELECT p.*, u.canonical_phone FROM payment_requests p LEFT JOIN auth_users u ON p.user_id = u.id WHERE p.id = ?', [id]);
-    if (!payReq) {
-      return res.status(404).json({ ok: false, message: 'Payment request not found' });
-    }
-
-    await authRepo.rejectPaymentRequest(id, note, adminName);
-
-    // Notify the user on WhatsApp about rejection
-    if (payReq.canonical_phone) {
-      const chatNotifier = require('@sarathi/common').chatNotifier;
-      try {
-        const targetJid = `${payReq.canonical_phone}@c.us`;
-        const notificationText = `❌ *पेमेंट अस्वीकृत (Payment Rejected)* ❌\n\n` +
-          `आपका पेमेंट (UTR: ${payReq.utr}) अस्वीकृत कर दिया गया है।\n` +
-          `• *कारण (Reason):* ${note || 'अमान्य पेमेंट प्रूफ (Invalid payment proof)'}\n\n` +
-          `यदि यह एक त्रुटि है, तो कृपया एडमिन से संपर्क करें।`;
-        await chatNotifier.sendWhatsAppText(targetJid, notificationText);
-      } catch (sendErr) {
-        logger.error('adminRouter', `Failed to send WhatsApp rejection notification to ${payReq.canonical_phone}`, { error: sendErr.message });
-      }
-    }
-
-    // Send Discord notification if configured
-    const webhookUrl = process.env.DISCORD_WEBHOOK_URL || process.env.DISCORD_WEBHOOK;
-    if (webhookUrl) {
-      const chatNotifier = require('@sarathi/common').chatNotifier;
-      try {
-        const title = `🔴 Payment Request Rejected`;
-        const description = `**User:** ${payReq.canonical_phone || 'Unknown'}\n` +
-          `**UTR:** \`${payReq.utr}\`\n` +
-          `**Rejected By:** ${adminName}\n` +
-          `**Reason:** ${note || 'Invalid payment proof'}`;
-        await chatNotifier.sendDiscordAlert(title, description, 'danger');
-      } catch (_) {}
-    }
-
-    logger.info('adminRouter', `Payment request ${id} rejected`, { adminName, note });
-    res.json({ ok: true, message: 'Payment request rejected.' });
-  } catch (err) {
-    res.status(500).json({ ok: false, message: err.message });
-  }
-});
+router.get('/payments/pending', manualWalletTopupDisabled);
+router.get('/payments', manualWalletTopupDisabled);
+router.post('/payments/:id/approve', manualWalletTopupDisabled);
+router.post('/payments/:id/reject', manualWalletTopupDisabled);
 
 // Keeping track of active SSE connections
 let sseClients = [];

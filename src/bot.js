@@ -609,7 +609,10 @@ async function createBot() {
           const hasPending = await repo.hasPendingVerification(user.canonical_phone);
           if (hasPending) {
             const nowStr = new Date().toISOString();
-            const rows = await repo.query('SELECT code FROM auth_verifications WHERE canonical_phone = ? AND status = "pending" AND expires_at > ? LIMIT 1', [user.canonical_phone, nowStr]);
+            const rows = await repo.query(
+              "SELECT code FROM auth_verifications WHERE canonical_phone = ? AND status = 'pending' AND expires_at > ? LIMIT 1",
+              [user.canonical_phone, nowStr]
+            );
             const code = (rows && rows[0] && rows[0].code) || '';
             if (code) {
               await message.reply(`⚠️ *Account Pending Activation*\n\nYour account has been created by the administrator but is not active yet.\n\nPlease reply directly to this chat with your 8-character activation code: *${code}* to link and activate your WhatsApp account.`);
@@ -867,7 +870,7 @@ async function createBot() {
     // Allow self-issued command messages, but ignore self echo chatter/status texts.
     if (message.fromMe) {
       const ownBody = normalizeText(message.body || '');
-      const looksLikeCommand = /^(help|track|add|remove|refresh|list|alive|suno|appl|app|dl|ll|slot|form1|form1a|form2|formset|stop|auth|resend|\/?llprint|\/?lledit|\/?payfee|\/?feeprint|\/?fees|\/?dlrenewal|\/?dlapp|\/?bookslot|\/?mobupdate|\/?send(?:_|\s+)chatid)\b/i.test(ownBody);
+      const looksLikeCommand = /^(help|balance|bal|history|txn|plan|topup|track|add|remove|refresh|list|alive|suno|appl|app|dl|ll|slot|form1|form1a|form2|formset|stop|auth|resend|\/?llprint|\/?lledit|\/?payfee|\/?feeprint|\/?fees|\/?dlrenewal|\/?dlapp|\/?bookslot|\/?mobupdate|\/?send(?:_|\s+)chatid)\b/i.test(ownBody);
       if (!looksLikeCommand) {
         return;
       }
@@ -892,6 +895,4 @@ async function createBot() {
 module.exports = {
   createBot,
 };
-
-
 
