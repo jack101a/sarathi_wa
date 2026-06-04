@@ -6,6 +6,10 @@ on:
     branches:
       - scaling-production
 
+concurrency:
+  group: container-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   compose-smoke:
     name: Build and run full compose stack

@@ -6,6 +6,7 @@ ENV npm_config_fetch_retries=5 \
     npm_config_fetch_retry_factor=2 \
     npm_config_fetch_retry_mintimeout=20000 \
     npm_config_fetch_retry_maxtimeout=120000 \
+    npm_config_fetch_timeout=300000 \
     npm_config_audit=false \
     npm_config_fund=false
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true

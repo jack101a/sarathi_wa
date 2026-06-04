@@ -6,6 +6,10 @@ on:
       - scaling-production
   workflow_dispatch:        # allow manual trigger from GitHub UI
 
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/sarathiwa_bot
