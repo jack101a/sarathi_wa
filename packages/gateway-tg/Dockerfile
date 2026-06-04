@@ -20,7 +20,7 @@ COPY packages/gateway-tg ./packages/gateway-tg
 COPY src ./src
 COPY config.example.yml ./
 
-RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
+RUN npm ci --omit=dev
 
 WORKDIR /app/packages/gateway-tg
 

@@ -11,11 +11,13 @@ ENV npm_config_fetch_retries=5 \
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 COPY package*.json ./
 COPY packages ./packages
-RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
+RUN npm ci --omit=dev
 
 ### Stage 2: Runtime image
 FROM node:20-bookworm-slim AS runtime
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN echo 'APT::Sandbox::User "root";' > /etc/apt/apt.conf.d/99rootless-sandbox \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
     chromium \
     fonts-liberation \
     fonts-noto-core \

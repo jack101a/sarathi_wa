@@ -10,7 +10,7 @@ ENV npm_config_fetch_retries=5 \
     npm_config_fund=false
 COPY package*.json ./
 COPY packages ./packages
-RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
+RUN npm ci --omit=dev
 
 ### Stage 2: Runtime image
 FROM node:20-bookworm-slim AS runtime
@@ -18,7 +18,10 @@ ENV NODE_ENV=production
 ENV APP_ENV=production
 
 # Install postgresql-client so the backup job can run pg_dump
-RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client && rm -rf /var/lib/apt/lists/*
+RUN echo 'APT::Sandbox::User "root";' > /etc/apt/apt.conf.d/99rootless-sandbox \
+    && touch /etc/inputrc \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules

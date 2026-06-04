@@ -1,0 +1,111 @@
+name: Container Smoke Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - scaling-production
+
+jobs:
+  compose-smoke:
+    name: Build and run full compose stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      CONFIG_PATH: ${{ runner.temp }}/sarathi-runtime
+      ADMIN_TOKEN: ci-admin-token
+      ADMIN_USERNAME: admin
+      PG_PASSWORD: ci-postgres-password
+      REDIS_PASSWORD: ci-redis-password
+      PORT: 13000
+      PG_PORT: 15432
+      REDIS_PORT: 16379
+      WHATSAPP_PHONE_NUMBER: '911234567890'
+      TG_TOKEN: '123456789:CIContainerSmokeTokenDoNotUse'
+      TELEGRAM_BOT_TOKEN: '123456789:CIContainerSmokeTokenDoNotUse'
+      LOG_LEVEL: info
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare runtime directories
+        run: |
+          mkdir -p "$CONFIG_PATH/sarathi_new/data" "$CONFIG_PATH/sarathi_new/auth_data"
+          cp config.example.yml "$CONFIG_PATH/sarathi_new/data/config.yml"
+
+      - name: Create CI compose override
+        run: |
+          cat > /tmp/sarathi-compose-smoke.override.yml <<'YAML'
+          services:
+            api:
+              ports:
+                - "13000:3000"
+            postgres:
+              ports:
+                - "15432:5432"
+            redis:
+              ports:
+                - "16379:6379"
+            nginx:
+              ports:
+                - "18080:80"
+                - "18443:443"
+          YAML
+
+      - name: Render compose config
+        run: ./scripts/compose.sh -f docker-compose.yml -f /tmp/sarathi-compose-smoke.override.yml config >/tmp/sarathi-compose-smoke.rendered.yml
+
+      - name: Build all service images
+        run: ./scripts/compose.sh -f docker-compose.yml -f /tmp/sarathi-compose-smoke.override.yml build
+
+      - name: Start full stack
+        run: ./scripts/compose.sh -f docker-compose.yml -f /tmp/sarathi-compose-smoke.override.yml up -d
+
+      - name: Wait for API liveness
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:13000/livez; then
+              exit 0
+            fi
+            sleep 2
+          done
+          ./scripts/compose.sh -f docker-compose.yml -f /tmp/sarathi-compose-smoke.override.yml ps
+          ./scripts/compose.sh -f docker-compose.yml -f /tmp/sarathi-compose-smoke.override.yml logs --tail=200 api postgres redis
+          exit 1
+
+      - name: Check API dependency readiness
+        run: curl -fsS http://127.0.0.1:13000/readyz
+
+      - name: Verify Postgres and Redis auth from containers
+        run: |
+          ./scripts/compose.sh -f docker-compose.yml -f /tmp/sarathi-compose-smoke.override.yml exec -T postgres pg_isready -U sarathi -d sarathi
+          ./scripts/compose.sh -f docker-compose.yml -f /tmp/sarathi-compose-smoke.override.yml exec -T redis redis-cli -a "$REDIS_PASSWORD" ping | grep -qx PONG
+
+      - name: Check container states
+        run: |
+          ./scripts/compose.sh -f docker-compose.yml -f /tmp/sarathi-compose-smoke.override.yml ps
+          exited="$(./scripts/compose.sh -f docker-compose.yml -f /tmp/sarathi-compose-smoke.override.yml ps -q --status exited || true)"
+          if [ -n "$exited" ]; then
+            echo "One or more containers exited unexpectedly:"
+            docker inspect --format '{{.Name}} {{.State.Status}} exit={{.State.ExitCode}} error={{.State.Error}}' $exited
+            ./scripts/compose.sh -f docker-compose.yml -f /tmp/sarathi-compose-smoke.override.yml logs --tail=250
+            exit 1
+          fi
+
+      - name: Scan logs for known production wiring failures
+        run: |
+          ./scripts/compose.sh -f docker-compose.yml -f /tmp/sarathi-compose-smoke.override.yml logs --no-color > /tmp/sarathi-compose-smoke.log
+          if grep -Ei 'password authentication failed|does not require a password|duplicate key value violates unique constraint "pg_type_typname_nsp_index"|Postgres init failed|Redis.*NOAUTH|ECONNREFUSED.*(postgres|redis)' /tmp/sarathi-compose-smoke.log; then
+            echo "Known production wiring failure found in logs."
+            exit 1
+          fi
+
+      - name: Print final service logs
+        if: always()
+        run: ./scripts/compose.sh -f docker-compose.yml -f /tmp/sarathi-compose-smoke.override.yml logs --tail=200
+
+      - name: Stop stack
+        if: always()
+        run: ./scripts/compose.sh -f docker-compose.yml -f /tmp/sarathi-compose-smoke.override.yml down -v --remove-orphans

@@ -9,7 +9,7 @@ ENV npm_config_fetch_retries=5 \
     npm_config_audit=false \
     npm_config_fund=false
 COPY frontend/package*.json ./
-RUN --mount=type=cache,target=/root/.npm npm ci
+RUN npm ci
 COPY frontend/ .
 RUN npm run build
 
@@ -24,7 +24,7 @@ ENV npm_config_fetch_retries=5 \
     npm_config_fund=false
 COPY package*.json ./
 COPY packages ./packages
-RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
+RUN npm ci --omit=dev
 
 ### Stage 3: Runtime image
 FROM node:20-bookworm-slim AS runtime
