@@ -212,7 +212,7 @@ router.post('/users', async (req, res) => {
       if (verif) {
         verificationCode = verif.code;
         const targetJid = toWhatsAppUserJid(phone);
-        const messageText = `Welcome to Sarathi Bot! 🚀\n\nYour account activation code is: *${verificationCode}*\n\nPlease reply directly to this chat with this 8-digit code to activate and link your WhatsApp account.`;
+        const messageText = `Welcome to Sarathi Bot!\n\nYour account activation code is: *${verificationCode}*\n\nPlease reply directly to this chat with this 8-character code to activate and link your WhatsApp account.`;
         
         try {
           await chatNotifier.sendWhatsAppText(targetJid, messageText);
@@ -264,7 +264,7 @@ router.post('/users/:phone/resend-activation', async (req, res) => {
     }
     
     const targetJid = toWhatsAppUserJid(phone);
-    const messageText = `Sarathi Bot Activation Code 🚀\n\nYour new account activation code is: *${verif.code}*\n\nPlease reply directly to this chat with this 8-digit code to activate and link your WhatsApp account.`;
+    const messageText = `Sarathi Bot Activation Code\n\nYour new account activation code is: *${verif.code}*\n\nPlease reply directly to this chat with this 8-character code to activate and link your WhatsApp account.`;
     
     try {
       await chatNotifier.sendWhatsAppText(targetJid, messageText);

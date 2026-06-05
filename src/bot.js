@@ -593,7 +593,7 @@ async function createBot() {
       const idContext = extractIdentityFromMessage(message);
       const ok = await consumeVerificationMessage(normalizedBody, idContext);
       if (ok) {
-        await message.reply('✅ Verification successful! Your WhatsApp account has been fully activated and linked.');
+        await message.reply('✅ Verification successful! Your WhatsApp account has been activated and linked.\n\nSend *help* to see how to use Sarathi Bot.');
         return;
       }
     }
@@ -895,4 +895,3 @@ async function createBot() {
 module.exports = {
   createBot,
 };
-

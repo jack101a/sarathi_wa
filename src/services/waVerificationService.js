@@ -63,7 +63,7 @@ async function consumeVerificationMessage(messageText, identityContext) {
       verif = await repo.getPendingVerification(phone, code);
     }
   } else if (compactText.length === 8 && /^[A-Z0-9]{8}$/.test(compactText)) {
-    // Convenient format: just the 8-digit OTP code itself!
+    // Convenient format: just the 8-character activation code itself.
     code = compactText;
     const nowStr = new Date().toISOString();
     const rows = await repo.query(

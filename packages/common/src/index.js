@@ -30,5 +30,6 @@ module.exports = {
   interactiveFlowService: require('./interactiveFlowService'),
   chatNotifier: require('./chatNotifier'),
   cloudBackupSettings: require('./cloudBackupSettings'),
-  cloudBackup: require('./cloudBackup')
+  cloudBackup: require('./cloudBackup'),
+  postgresBackup: require('./postgresBackup')
 };

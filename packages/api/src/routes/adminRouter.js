@@ -17,12 +17,13 @@ const {
   trackingRepository,
   queue,
   cloudBackupSettings,
-  cloudBackup
+  cloudBackup,
+  postgresBackup
 } = require('@sarathi/common');
 
 const { apiQueue, browserQueue } = queue;
 const { handleLogin, handleLogout, handleVerify, requireAdminAuth } = require('../middleware/adminAuth');
-const BACKUP_DIR = path.resolve(__dirname, '../../../../data/backups');
+const BACKUP_DIR = postgresBackup.BACKUP_DIR;
 
 // Heavy refresh still uses the command services, but tracking storage is Postgres-backed.
 const { refreshAllTrackedApplications } = require('../../../../src/services/trackingControlService');
@@ -58,30 +59,6 @@ async function cancelQueueJob(q, jobId) {
     }
   } catch (_) {}
   return false;
-}
-
-function listPostgresBackups() {
-  if (!fs.existsSync(BACKUP_DIR)) return [];
-
-  return fs.readdirSync(BACKUP_DIR)
-    .filter(f => f.startsWith('pg_backup_') && f.endsWith('.dump'))
-    .map(f => {
-      const p = path.join(BACKUP_DIR, f);
-      const stat = fs.statSync(p);
-      return {
-        fileName: f,
-        path: p,
-        sizeBytes: stat.size,
-        createdAt: stat.mtime.toISOString(),
-        type: 'postgres',
-        verified: true
-      };
-    })
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-}
-
-function isValidPostgresBackupName(fileName) {
-  return /^pg_backup_[A-Za-z0-9_.-]+\.dump$/.test(fileName || '');
 }
 
 function toWhatsAppUserJid(phone) {
@@ -388,7 +365,7 @@ router.post('/users', async (req, res) => {
       if (verif) {
         verificationCode = verif.code;
         const targetJid = toWhatsAppUserJid(phone);
-        const messageText = `Welcome to Sarathi Bot! 🚀\n\nYour account activation code is: *${verificationCode}*\n\nPlease reply directly to this chat with this 8-digit code to activate and link your WhatsApp account.`;
+        const messageText = `Welcome to Sarathi Bot!\n\nYour account activation code is: *${verificationCode}*\n\nPlease reply directly to this chat with this 8-character code to activate and link your WhatsApp account.`;
         
         try {
           await chatNotifier.sendWhatsAppText(targetJid, messageText);
@@ -439,7 +416,7 @@ router.post('/users/:phone/resend-activation', async (req, res) => {
     }
     
     const targetJid = toWhatsAppUserJid(phone);
-    const messageText = `Sarathi Bot Activation Code 🚀\n\nYour new account activation code is: *${verif.code}*\n\nPlease reply directly to this chat with this 8-digit code to activate and link your WhatsApp account.`;
+    const messageText = `Sarathi Bot Activation Code\n\nYour new account activation code is: *${verif.code}*\n\nPlease reply directly to this chat with this 8-character code to activate and link your WhatsApp account.`;
     
     try {
       await chatNotifier.sendWhatsAppText(targetJid, messageText);
@@ -811,23 +788,21 @@ router.post('/wa/active', async (req, res) => {
   }
 });
 
-// ── Database Backup (Placeholder for pg_dump trigger via BullMQ/Scheduler) ───
+// ── Database Backup ────────────────────────────────────────────────────────
 router.post('/backup', async (req, res) => {
   try {
-    // In multi-service, manual database backup can be enqueued to apiQueue to be run by the worker
-    const job = await apiQueue.add('db_backup_manual', {
-      timestamp: Date.now()
-    });
-    logger.info('adminRouter', 'Manual backup enqueued', { jobId: job.id });
-    res.json({ ok: true, message: 'Database backup triggered in background', jobId: job.id });
+    const backup = await postgresBackup.createBackup('manual');
+    logger.info('adminRouter', 'Manual backup created', { fileName: backup && backup.fileName });
+    res.json({ ok: true, message: 'Database backup created', backup });
   } catch (err) {
+    logger.error('adminRouter', 'Manual backup failed', { error: err.message });
     res.status(500).json({ ok: false, message: err.message });
   }
 });
 
 router.get('/backups', (req, res) => {
   try {
-    res.json({ ok: true, backups: listPostgresBackups() });
+    res.json({ ok: true, backups: postgresBackup.listBackups() });
   } catch (err) {
     logger.error('adminRouter', 'Failed to list backups', { error: err.message });
     res.status(500).json({ ok: false, message: 'Failed to list backups' });
@@ -835,12 +810,13 @@ router.get('/backups', (req, res) => {
 });
 
 router.get('/backups/health', (req, res) => {
-  res.json({ ok: true, health: 'healthy', history: [] });
+  const health = postgresBackup.getBackupHealth();
+  res.json(health);
 });
 
 router.get('/backups/:fileName/download', (req, res) => {
   const fileName = path.basename(req.params.fileName);
-  if (!isValidPostgresBackupName(fileName)) {
+  if (!postgresBackup.isValidBackupName(fileName)) {
     return res.status(400).json({ ok: false, message: 'Invalid backup file name' });
   }
   const filePath = path.join(BACKUP_DIR, fileName);
@@ -851,20 +827,44 @@ router.get('/backups/:fileName/download', (req, res) => {
 });
 
 router.post('/backups/:fileName/restore', (req, res) => {
+  res.status(405).json({ ok: false, message: 'Use JSON restore endpoint' });
+});
+
+router.post('/backups/:fileName/restore-safe', async (req, res) => {
   const fileName = path.basename(req.params.fileName);
-  if (!isValidPostgresBackupName(fileName)) {
+  const expectedConfirmation = `RESTORE ${fileName}`;
+  const confirmation = String((req.body && req.body.confirmation) || '').trim();
+
+  if (!postgresBackup.isValidBackupName(fileName)) {
     return res.status(400).json({ ok: false, message: 'Invalid backup file name' });
   }
-
-  const filePath = path.join(BACKUP_DIR, fileName);
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ ok: false, message: 'Backup not found' });
+  if (confirmation !== expectedConfirmation) {
+    return res.status(400).json({ ok: false, message: `Type exactly: ${expectedConfirmation}` });
   }
 
-  return res.status(501).json({
-    ok: false,
-    message: 'PostgreSQL restore is intentionally disabled from the admin web API. Run a controlled restore from the server/scheduler container after taking the stack offline.'
-  });
+  const lockKey = 'lock:admin:postgres_restore';
+  const locked = await redis.set(lockKey, fileName, 'EX', 1800, 'NX').catch(() => null);
+  if (locked !== 'OK') {
+    return res.status(409).json({ ok: false, message: 'Another database restore is already running' });
+  }
+
+  try {
+    await redis.set('maintenance:database_restore', JSON.stringify({
+      fileName,
+      startedAt: new Date().toISOString(),
+      by: 'admin-dashboard',
+    }), 'EX', 1800).catch(() => {});
+
+    const result = await postgresBackup.restoreBackup(fileName);
+    await redis.del('maintenance:database_restore').catch(() => {});
+    res.json({ ok: true, message: 'Database restore completed', ...result });
+  } catch (err) {
+    logger.error('adminRouter', 'Database restore failed', { fileName, error: err.message });
+    await redis.del('maintenance:database_restore').catch(() => {});
+    res.status(500).json({ ok: false, message: err.message });
+  } finally {
+    await redis.del(lockKey).catch(() => {});
+  }
 });
 
 router.get('/cloud-backup/providers', async (req, res) => {
@@ -908,7 +908,7 @@ router.post('/cloud-backup/test/:provider', async (req, res) => {
 
 router.post('/cloud-backup/upload-now', async (req, res) => {
   try {
-    const latest = listPostgresBackups()[0];
+    const latest = postgresBackup.listBackups()[0];
     if (!latest) {
       return res.status(404).json({ ok: false, message: 'No PostgreSQL backup file exists yet' });
     }

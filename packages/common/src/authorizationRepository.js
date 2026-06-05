@@ -349,7 +349,7 @@ async function listAllUsers() {
            v.code AS pending_otp
     FROM auth_users u
     LEFT JOIN auth_user_identities i ON u.id = i.auth_user_id AND i.is_active = 1
-    LEFT JOIN auth_verifications v ON u.canonical_phone = v.canonical_phone AND v.status = 'pending'
+    LEFT JOIN auth_verifications v ON u.canonical_phone = v.canonical_phone AND v.status = 'pending' AND v.expires_at > CURRENT_TIMESTAMP
     WHERE u.is_active = 1
     GROUP BY u.id, v.code
     ORDER BY u.created_at DESC
@@ -597,7 +597,7 @@ async function getUsersWithSpentCredits() {
            v.code AS pending_otp
     FROM auth_users u
     LEFT JOIN auth_user_identities i ON u.id = i.auth_user_id AND i.is_active = 1
-    LEFT JOIN auth_verifications v ON u.canonical_phone = v.canonical_phone AND v.status = 'pending'
+    LEFT JOIN auth_verifications v ON u.canonical_phone = v.canonical_phone AND v.status = 'pending' AND v.expires_at > CURRENT_TIMESTAMP
     WHERE u.is_active = 1
     GROUP BY u.id, v.code
     ORDER BY u.created_at DESC

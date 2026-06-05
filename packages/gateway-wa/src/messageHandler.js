@@ -9,7 +9,7 @@ const {
   commandInputService,
   authorizationNormalizer
 } = require('@sarathi/common');
-const { consumeVerificationMessage } = require('../../../src/services/waVerificationService');
+const { consumeVerificationMessage, resendVerification } = require('../../../src/services/waVerificationService');
 const { handleAuthCommand } = require('../../../src/commands/authAdmin');
 const {
   handleIncomingText: handleVahanIncomingText,
@@ -155,6 +155,84 @@ async function replyPendingActivationIfAny(message) {
   return false;
 }
 
+function getPrivatePhoneCandidates(message) {
+  const idContext = authorizationNormalizer.extractIdentityFromMessage(message);
+  const identities = (idContext && idContext.identities) || [];
+  const candidates = [];
+
+  for (const identity of identities) {
+    const text = String(identity || '').toLowerCase();
+    if (!text.endsWith('@c.us') && !text.endsWith('@s.whatsapp.net')) {
+      continue;
+    }
+    const digits = text.split('@')[0].split(':')[0].replace(/\D/g, '');
+    if (!digits) continue;
+    candidates.push(digits);
+    if (digits.length > 10) candidates.push(digits.slice(-10));
+  }
+
+  return [...new Set(candidates)];
+}
+
+function isPrivateLidOnlyMessage(message) {
+  const from = String((message && message.from) || '').toLowerCase();
+  const author = String((message && message.author) || '').toLowerCase();
+  return !from.endsWith('@g.us') && (from.endsWith('@lid') || author.endsWith('@lid'));
+}
+
+async function hasLinkedCurrentIdentity(message) {
+  const idContext = authorizationNormalizer.extractIdentityFromMessage(message);
+  const identities = (idContext && idContext.identities) || [];
+  for (const identity of identities) {
+    const row = await authRepo.getIdentity(identity);
+    if (row && row.auth_user_id) return true;
+  }
+  return false;
+}
+
+async function findActiveUserFromPhoneCandidates(candidates) {
+  for (const phone of candidates) {
+    const user = await authRepo.getUserByPhone(phone);
+    if (user && Number(user.is_active) === 1) return user;
+  }
+  return null;
+}
+
+async function maybeSendPairingCodeForKnownPhone(message) {
+  if (!message || String(message.from || '').endsWith('@g.us')) return false;
+  if (await hasLinkedCurrentIdentity(message)) return false;
+
+  const candidates = getPrivatePhoneCandidates(message);
+  if (!candidates.length) return false;
+
+  const user = await findActiveUserFromPhoneCandidates(candidates);
+  if (!user) return false;
+
+  const throttleKey = `wa:repair:${user.id}:${message.from}`;
+  const allowed = await redis.set(throttleKey, '1', 'EX', 300, 'NX').catch(() => null);
+  if (allowed !== 'OK') {
+    await message.reply('Your WhatsApp account needs to be linked again. Please use the latest activation code already sent, or ask admin to resend it.');
+    return true;
+  }
+
+  const verif = await resendVerification(user.canonical_phone);
+  if (!verif) return false;
+
+  await message.reply(`Your WhatsApp identity changed or is not linked yet.\n\nReply with this 8-character code to link this WhatsApp account: *${verif.code}*`);
+  return true;
+}
+
+async function replyUnknownLidPairingHelp(message) {
+  if (!isPrivateLidOnlyMessage(message)) return false;
+
+  const throttleKey = `wa:unknown-lid:${message.from}`;
+  const allowed = await redis.set(throttleKey, '1', 'EX', 300, 'NX').catch(() => null);
+  if (allowed !== 'OK') return true;
+
+  await message.reply('This WhatsApp identity is not linked to any registered mobile number yet. Ask admin to resend activation to your registered mobile number, then reply here with the 8-character code.');
+  return true;
+}
+
 async function handleIncomingMessage(client, message) {
   let normalizedBody = normalizeText(message.body || '');
 
@@ -187,15 +265,22 @@ async function handleIncomingMessage(client, message) {
       const ok = await consumeVerificationMessage(normalizedBody, idContext);
       console.log(`[MessageHandler] Verification code attempt from=${maskChatId(message.from)} matched=${ok}`);
       if (ok) {
-        await message.reply('✅ Verification successful! Your WhatsApp account has been fully activated and linked.');
+        await message.reply('✅ Verification successful! Your WhatsApp account has been activated and linked.\n\nSend *help* to see how to use Sarathi Bot.');
         return;
       }
+    }
+
+    if (!authorizationService.isAdminWhatsApp(message, CONFIG) && await maybeSendPairingCodeForKnownPhone(message)) {
+      return;
     }
 
     // 2. Authorization check
     const isAuth = await authorizationService.isAuthorizedWhatsApp(message, CONFIG);
     if (!isAuth) {
       if (await replyPendingActivationIfAny(message)) {
+        return;
+      }
+      if (await replyUnknownLidPairingHelp(message)) {
         return;
       }
       console.log(`[MessageHandler] Unauthorized message from ${message.from} blocked.`);

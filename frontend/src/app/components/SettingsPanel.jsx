@@ -59,6 +59,9 @@ function BackupTypeBadge({ type, isDark }) {
 }
 
 function RestoreModal({ backup, isDark, onConfirm, onCancel, isRestoring }) {
+  const expectedConfirmation = `RESTORE ${backup?.fileName || ''}`;
+  const [confirmation, setConfirmation] = React.useState('');
+  const canRestore = confirmation.trim() === expectedConfirmation && !isRestoring;
   const overlay = { position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' };
   const modal   = { background: isDark ? '#1e2434' : '#fff', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`, borderRadius: '1rem', padding: '2rem', maxWidth: '480px', width: '90%', boxShadow: '0 25px 60px rgba(0,0,0,0.4)' };
   return (
@@ -75,13 +78,24 @@ function RestoreModal({ backup, isDark, onConfirm, onCancel, isRestoring }) {
           <code style={{ background: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)', padding: '0.4rem 0.6rem', borderRadius: '0.4rem', fontSize: '0.75rem', display: 'block', wordBreak: 'break-all', color: isDark ? '#e6edf3' : '#334155' }}>{backup?.fileName}</code>
           <ul style={{ margin: '0.75rem 0 0', paddingLeft: '1.25rem' }}>
             <li>A <strong>safety backup</strong> of the current database will be created first.</li>
-            <li>The database connection will briefly restart (~2–3 seconds).</li>
+            <li>The API database connection will briefly restart.</li>
             <li>All data written after this backup point will be <strong>lost</strong>.</li>
           </ul>
+          <div style={{ marginTop: '1rem' }}>
+            <label style={{ display: 'block', marginBottom: '0.4rem', fontWeight: 700, color: isDark ? '#e6edf3' : '#111827' }}>Type this to confirm:</label>
+            <code style={{ background: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)', padding: '0.35rem 0.5rem', borderRadius: '0.35rem', fontSize: '0.72rem', display: 'block', wordBreak: 'break-all', color: isDark ? '#e6edf3' : '#334155', marginBottom: '0.5rem' }}>{expectedConfirmation}</code>
+            <input
+              value={confirmation}
+              onChange={(e) => setConfirmation(e.target.value)}
+              disabled={isRestoring}
+              placeholder={expectedConfirmation}
+              style={{ width: '100%', boxSizing: 'border-box', padding: '0.65rem 0.75rem', borderRadius: '0.5rem', border: `1px solid ${isDark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.12)'}`, background: isDark ? 'rgba(0,0,0,0.18)' : '#fff', color: isDark ? '#e6edf3' : '#111827', fontFamily: 'monospace', fontSize: '0.78rem' }}
+            />
+          </div>
         </div>
         <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
           <button onClick={onCancel} disabled={isRestoring} style={{ padding: '0.55rem 1.2rem', borderRadius: '0.5rem', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`, background: 'transparent', color: isDark ? '#9ca3af' : '#6b7280', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}>Cancel</button>
-          <button onClick={onConfirm} disabled={isRestoring} style={{ padding: '0.55rem 1.2rem', borderRadius: '0.5rem', border: 'none', background: 'linear-gradient(135deg,#f43f5e,#e11d48)', color: '#fff', cursor: isRestoring ? 'not-allowed' : 'pointer', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem', opacity: isRestoring ? 0.7 : 1 }}>
+          <button onClick={() => onConfirm(confirmation.trim())} disabled={!canRestore} style={{ padding: '0.55rem 1.2rem', borderRadius: '0.5rem', border: 'none', background: 'linear-gradient(135deg,#f43f5e,#e11d48)', color: '#fff', cursor: canRestore ? 'pointer' : 'not-allowed', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem', opacity: canRestore ? 1 : 0.55 }}>
             {isRestoring ? <><RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} /> Restoring…</> : <><RotateCcw size={14} /> Confirm Restore</>}
           </button>
         </div>
@@ -355,11 +369,11 @@ export function SettingsPanel({ health, isDark, showToast }) {
     finally { setBackingUp(false); }
   }
 
-  async function handleRestore() {
+  async function handleRestore(confirmation) {
     if (!restoreTarget) return;
     setIsRestoring(true);
     try {
-      await apiPostJson(`/admin/api/backups/${encodeURIComponent(restoreTarget.fileName)}/restore`);
+      await apiPostJson(`/admin/api/backups/${encodeURIComponent(restoreTarget.fileName)}/restore-safe`, { confirmation });
       showToast && showToast(`Database restored from ${restoreTarget.fileName}.`, 'success');
       setRestoreTarget(null); refetchBackups(); refetchHealth();
     } catch (err) { showToast && showToast(`Restore failed: ${err.message}`, 'error'); }
@@ -480,11 +494,11 @@ export function SettingsPanel({ health, isDark, showToast }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
                 {healthData.history.slice(0, 8).map((h, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '0.75rem', padding: '0.35rem 0.5rem', borderRadius: '0.4rem', background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)' }}>
-                    {h.success ? <span style={{ color: '#10b981', fontWeight: 700 }}>✓</span> : <span style={{ color: '#f43f5e', fontWeight: 700 }}>✗</span>}
+                    {(h.success || h.verified) ? <span style={{ color: '#10b981', fontWeight: 700 }}>✓</span> : <span style={{ color: '#f43f5e', fontWeight: 700 }}>✗</span>}
                     <BackupTypeBadge type={h.type} isDark={isDark} />
-                    <span style={{ color: isDark ? '#9ca3af' : '#6b7280', flex: 1 }}>{new Date(h.timestamp).toLocaleString()}</span>
+                    <span style={{ color: isDark ? '#9ca3af' : '#6b7280', flex: 1 }}>{new Date(h.timestamp || h.createdAt).toLocaleString()}</span>
                     {h.sizeBytes && <span style={{ color: isDark ? '#9ca3af' : '#6b7280' }}>{formatSize(h.sizeBytes)}</span>}
-                    {!h.success && h.error && <span style={{ color: '#f43f5e', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.error}</span>}
+                    {!(h.success || h.verified) && h.error && <span style={{ color: '#f43f5e', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.error}</span>}
                   </div>
                 ))}
               </div>

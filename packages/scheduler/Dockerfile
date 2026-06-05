@@ -22,7 +22,7 @@ ENV APP_ENV=production
 RUN echo 'APT::Sandbox::User "root";' > /etc/apt/apt.conf.d/99rootless-sandbox \
     && touch /etc/inputrc \
     && apt-get update \
-    && apt-get install -y --no-install-recommends postgresql-client && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends postgresql-client rclone && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules

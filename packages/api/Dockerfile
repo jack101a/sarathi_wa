@@ -34,6 +34,13 @@ ENV NODE_ENV=production
 ENV APP_ENV=production
 ENV PORT=3000
 
+# Admin manual backups use pg_dump. Restore remains disabled from the web API.
+RUN echo 'APT::Sandbox::User "root";' > /etc/apt/apt.conf.d/99rootless-sandbox \
+    && touch /etc/inputrc \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client curl rclone \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=frontend-builder /frontend/dist ./frontend/dist
