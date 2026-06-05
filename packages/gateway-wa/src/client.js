@@ -12,6 +12,7 @@ function normalizePhoneNumber(phoneNumber) {
 }
 
 async function createWhatsAppClient(onMessageReceived) {
+  const botStartupTime = Math.floor(Date.now() / 1000);
   const puppeteerArgs = [
     '--no-sandbox',
     '--disable-setuid-sandbox',
@@ -94,6 +95,12 @@ async function createWhatsAppClient(onMessageReceived) {
 
   client.on('message_create', async (message) => {
     if (!message) return;
+
+    // whatsapp-web.js can replay old messages on startup. Ignore messages older
+    // than this process so restart/pairing does not re-run old business actions.
+    if (message.timestamp && message.timestamp < botStartupTime) {
+      return;
+    }
 
     // Allow self-issued command messages, but ignore self echo chatter/status texts.
     if (message.fromMe) {

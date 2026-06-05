@@ -10,6 +10,12 @@ const {
   authorizationNormalizer
 } = require('@sarathi/common');
 const { consumeVerificationMessage } = require('../../../src/services/waVerificationService');
+const { handleAuthCommand } = require('../../../src/commands/authAdmin');
+const {
+  handleIncomingText: handleVahanIncomingText,
+  hasActiveSession: hasActiveVahanSession,
+  stopSession: stopVahanSession,
+} = require('../../../src/services/vahanService');
 
 function normalizeText(value) {
   return String(value || '')
@@ -31,6 +37,87 @@ async function clearPendingSessions(chatId) {
     cleared += Number(existed || 0);
   }
   return cleared;
+}
+
+function isChatIdCommand(text) {
+  return /^\/?send(?:_|\s+)chatid\b/i.test(String(text || '').trim());
+}
+
+function getChatIdReplyText(message) {
+  const sender = message.from || '';
+  const author = message.author || '';
+  const isGroup = /@g\.us$/i.test(sender);
+  const lines = [
+    'Chat ID details:',
+    `chat_id: ${sender || '-'}`,
+  ];
+  if (isGroup) {
+    lines.push('type: group');
+    if (author) lines.push(`sender_id: ${author}`);
+  } else {
+    lines.push('type: private');
+  }
+  return lines.join('\n');
+}
+
+function makeVahanWhatsAppClient(client) {
+  return {
+    sendText: async (chatId, text) => client.sendMessage(chatId, text),
+    sendImage: async (chatId, imagePath, caption) => {
+      const { MessageMedia } = require('whatsapp-web.js');
+      const media = MessageMedia.fromFilePath(imagePath);
+      await client.sendMessage(chatId, media, { caption });
+    },
+  };
+}
+
+async function forwardToVahanIfActive(client, message, text) {
+  if (!hasActiveVahanSession(message.from, 'whatsapp')) {
+    return false;
+  }
+  if (!text && message.hasMedia) {
+    return true;
+  }
+  await handleVahanIncomingText(makeVahanWhatsAppClient(client), message.from, text, 'whatsapp');
+  return true;
+}
+
+function startsBrowserCommand(text) {
+  return /^\/?(?:llprint|lledit|payfee|feeprint|fees|dlrenewal|renewal|duplicate|replacement|dlextract|dlapp|bookslot|mobupdate)\b/i.test(String(text || '').trim());
+}
+
+async function forwardInteractiveInputIfAny(message, text) {
+  const sessionKey = `session:otp:${message.from}`;
+  const sessionRaw = await redis.get(sessionKey);
+  if (!sessionRaw || startsBrowserCommand(text)) {
+    return false;
+  }
+
+  const session = JSON.parse(sessionRaw);
+  const input = String(text || '').trim();
+  if (!input) {
+    return false;
+  }
+
+  if (/^(?:stop|cancel)$/i.test(input)) {
+    await redis.publish(`otp:input:${session.jobId}`, input);
+    await redis.del(sessionKey).catch(() => {});
+    await message.reply('✅ Pending session stopped.');
+    return true;
+  }
+
+  await redis.publish(`otp:input:${session.jobId}`, input);
+  const status = String(session.status || '');
+  if (status.includes('payment')) {
+    await message.reply('⏳ Payment confirmation received. Forwarding for processing...');
+  } else if (status.includes('slot')) {
+    await message.reply('⏳ Slot input received. Forwarding for processing...');
+  } else if (status.includes('aadhaar') || status.includes('mobile')) {
+    await message.reply('⏳ Input received. Forwarding for processing...');
+  } else {
+    await message.reply('⏳ OTP received. Forwarding for processing...');
+  }
+  return true;
 }
 
 async function replyPendingActivationIfAny(message) {
@@ -88,6 +175,11 @@ async function handleIncomingMessage(client, message) {
 
 
   try {
+    if (isChatIdCommand(normalizedBody)) {
+      await message.reply(getChatIdReplyText(message));
+      return;
+    }
+
     const compactCode = normalizedBody.replace(/[^a-z0-9]/gi, '').toUpperCase();
     const isVerificationFormat = /^(?:auth\s+\d+\s+[a-z0-9]{6,8})$/i.test(normalizedBody) || /^[A-Z0-9]{8}$/.test(compactCode);
     if (isVerificationFormat) {
@@ -113,18 +205,22 @@ async function handleIncomingMessage(client, message) {
     const dbUser = await authorizationService.getUserForRequest(message, 'whatsapp');
     const isAdmin = authorizationService.isAdminWhatsApp(message, CONFIG);
 
-    // 3. Check Redis for active OTP session (llprint / lledit)
-    const otpSessionKey = `session:otp:${message.from}`;
-    const otpSessionRaw = await redis.get(otpSessionKey);
-    if (otpSessionRaw && !normalizedBody.startsWith('/llprint') && !normalizedBody.startsWith('/lledit')) {
-      const otpSession = JSON.parse(otpSessionRaw);
-      const otpCode = normalizedBody.trim();
-      if (otpCode.length > 0 && otpCode.length <= 8) {
-        // Forward OTP code via Redis Pub/Sub to the listening worker
-        await redis.publish(`otp:input:${otpSession.jobId}`, otpCode);
-        await message.reply('⏳ OTP received. Forwarding for processing...');
+    if (/^\/?auth\b/i.test(normalizedBody)) {
+      if (!isAdmin) {
         return;
       }
+      const reply = await handleAuthCommand(normalizedBody, message.from, client);
+      if (reply) {
+        await message.reply(reply);
+        return;
+      }
+    }
+
+    // 3. Check Redis for active browser-worker interactive session.
+    // The key name is historical: it is also used for payment, slot, Aadhaar,
+    // and mobile-update inputs, not only OTP codes.
+    if (await forwardInteractiveInputIfAny(message, normalizedBody)) {
+      return;
     }
 
     // 4. Check Redis for pending DOB flow
@@ -199,6 +295,7 @@ async function handleIncomingMessage(client, message) {
     const normResult = commandNormalizer.parseCommand(normalizedBody, message.hasMedia, dbUser, isAdmin);
 
     if (normResult.ignore) {
+      await forwardToVahanIfActive(client, message, normalizedBody);
       return;
     }
 
@@ -209,7 +306,9 @@ async function handleIncomingMessage(client, message) {
     if (normResult.success === false) {
       if (normResult.error) {
         await message.reply(normResult.error);
+        return;
       }
+      await forwardToVahanIfActive(client, message, normalizedBody);
       return;
     }
 
@@ -232,6 +331,11 @@ async function handleIncomingMessage(client, message) {
 
     if (type === 'stop') {
       const cleared = await clearPendingSessions(message.from);
+      if (hasActiveVahanSession(message.from, 'whatsapp')) {
+        await stopVahanSession(message.from, 'whatsapp');
+        await message.reply('Vahan session stopped.');
+        return;
+      }
       if (cleared > 0) {
         await message.reply('✅ Pending session stopped.');
       }

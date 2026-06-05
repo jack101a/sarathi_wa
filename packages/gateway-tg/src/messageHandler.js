@@ -22,6 +22,12 @@ const {
   interactiveFlowService,
   commandInputService,
 } = require('@sarathi/common');
+const { handleAuthCommand } = require('../../../src/commands/authAdmin');
+const {
+  handleIncomingText: handleVahanIncomingText,
+  hasActiveSession: hasActiveVahanSession,
+  stopSession: stopVahanSession,
+} = require('../../../src/services/vahanService');
 
 function normalizeTgText(value) {
   return String(value || '')
@@ -47,20 +53,40 @@ function downloadImage(url) {
 }
 
 /**
- * Forward OTP text to listening browser worker via Redis pub/sub.
+ * Forward active browser-worker interactive input via Redis pub/sub.
+ * The key name is historical: it is also used for payment, slot, Aadhaar,
+ * and mobile-update inputs, not only OTP codes.
  * Returns true if forwarded, false otherwise.
  */
-async function tryForwardOtp(chatId, text) {
+async function tryForwardInteractiveInput(bot, chatId, text) {
   const otpSessionRaw = await redis.get(`session:otp:${chatId}`);
   if (!otpSessionRaw) return false;
 
   const otpSession = JSON.parse(otpSessionRaw);
-  const otpCode = text.trim();
-  if (otpCode.length > 0 && otpCode.length <= 8) {
-    await redis.publish(`otp:input:${otpSession.jobId}`, otpCode);
+  const input = String(text || '').trim();
+  if (!input || startsBrowserCommand(input)) {
+    return false;
+  }
+
+  if (/^(?:stop|cancel)$/i.test(input)) {
+    await redis.publish(`otp:input:${otpSession.jobId}`, input);
+    await redis.del(`session:otp:${chatId}`).catch(() => {});
+    await bot.sendMessage(chatId, '✅ Pending session stopped.');
     return true;
   }
-  return false;
+
+  await redis.publish(`otp:input:${otpSession.jobId}`, input);
+  const status = String(otpSession.status || '');
+  if (status.includes('payment')) {
+    await bot.sendMessage(chatId, '⏳ Payment confirmation received. Forwarding for processing...');
+  } else if (status.includes('slot')) {
+    await bot.sendMessage(chatId, '⏳ Slot input received. Forwarding for processing...');
+  } else if (status.includes('aadhaar') || status.includes('mobile')) {
+    await bot.sendMessage(chatId, '⏳ Input received. Forwarding for processing...');
+  } else {
+    await bot.sendMessage(chatId, '⏳ OTP received. Forwarding for processing...');
+  }
+  return true;
 }
 
 async function clearPendingSessions(chatId) {
@@ -71,6 +97,65 @@ async function clearPendingSessions(chatId) {
     cleared += Number(existed || 0);
   }
   return cleared;
+}
+
+function makeVahanTelegramClient(bot) {
+  return {
+    sendText: async (chatId, text) => bot.sendMessage(chatId, text),
+    sendImage: async (chatId, imagePath, caption) => bot.sendPhoto(chatId, imagePath, { caption }),
+  };
+}
+
+async function forwardToVahanIfActive(bot, chatId, text, hasMedia) {
+  if (!hasActiveVahanSession(chatId, 'telegram')) {
+    return false;
+  }
+  if (!text && hasMedia) {
+    return true;
+  }
+  await handleVahanIncomingText(makeVahanTelegramClient(bot), chatId, text, 'telegram');
+  return true;
+}
+
+function startsBrowserCommand(text) {
+  return /^\/?(?:llprint|lledit|payfee|feeprint|fees|dlrenewal|renewal|duplicate|replacement|dlextract|dlapp|bookslot|mobupdate)\b/i.test(String(text || '').trim());
+}
+
+function requiresTelegramProfileMobile(commandType) {
+  return ['llprint_start', 'lledit_start', 'dl_renewal_start', 'apply_dl_start'].includes(commandType);
+}
+
+function getTelegramMobileHelp(commandType) {
+  const cmdName = commandType === 'llprint_start'
+    ? 'llprint'
+    : commandType === 'lledit_start'
+      ? 'lledit'
+      : commandType === 'dl_renewal_start'
+        ? 'dlrenewal'
+        : 'dlapp';
+  const placeholder = commandType === 'dl_renewal_start'
+    ? '<DL_number> <dob> [RTO_code] <10_digit_mobile>'
+    : commandType === 'apply_dl_start'
+      ? '<LL_number> <dob> <10_digit_mobile>'
+      : '<appl_no> <dob> <10_digit_mobile>';
+  return `❌ Mobile number not found in your profile. Please ask admin to link it or use: \`/${cmdName} ${placeholder}\``;
+}
+
+async function resolveTelegramMobileOrReply(bot, chatId, payload, dbUser, commandType) {
+  let mobile = payload.mobile || '';
+  if (!mobile && dbUser && dbUser.canonical_phone) {
+    const cp = String(dbUser.canonical_phone).replace(/\D/g, '');
+    if (cp.length >= 10) {
+      mobile = cp.length > 10 ? cp.slice(-10) : cp;
+    }
+  }
+
+  if (requiresTelegramProfileMobile(commandType) && (!mobile || mobile.length < 10)) {
+    await bot.sendMessage(chatId, getTelegramMobileHelp(commandType));
+    return null;
+  }
+
+  return { ...payload, mobile: mobile && mobile.length > 10 ? mobile.slice(-10) : mobile };
 }
 
 async function handleIncomingMessage(bot, msg) {
@@ -91,10 +176,20 @@ async function handleIncomingMessage(bot, msg) {
     const dbUser = await authorizationService.getUserForRequest(msg, 'telegram');
     const isAdmin = authorizationService.isAdminTelegram(msg, CONFIG);
 
-    // 2. Check for active OTP session (browser worker waiting for OTP input)
-    const forwarded = await tryForwardOtp(chatId, normalizedText);
+    if (/^\/?auth\b/i.test(normalizedText)) {
+      if (!isAdmin) {
+        return;
+      }
+      const reply = await handleAuthCommand(normalizedText, chatId);
+      if (reply) {
+        await bot.sendMessage(chatId, reply);
+        return;
+      }
+    }
+
+    // 2. Check for active browser-worker interactive session.
+    const forwarded = await tryForwardInteractiveInput(bot, chatId, normalizedText);
     if (forwarded) {
-      await bot.sendMessage(chatId, '⏳ OTP received. Forwarding for processing...');
       return;
     }
 
@@ -131,7 +226,10 @@ async function handleIncomingMessage(bot, msg) {
           if (norm && norm.success) {
             let payload = norm.payload || {};
             if (['llprint_start', 'lledit_start', 'dl_renewal_start', 'apply_dl_start', 'mobupdate_start'].includes(norm.type)) {
-              payload = _resolveMobile(payload, dbUser, chatId);
+              payload = await resolveTelegramMobileOrReply(bot, chatId, payload, dbUser, norm.type);
+              if (!payload) {
+                continue;
+              }
             }
             const result = await requestPipeline.processRequest(msg, 'telegram', {
               command: norm.type, payload, chatId,
@@ -150,10 +248,19 @@ async function handleIncomingMessage(bot, msg) {
     // 5. Parse and route command
     const normResult = commandNormalizer.parseCommand(normalizedText, hasMedia, dbUser, isAdmin);
 
-    if (normResult.ignore || normResult.silent) return;
+    if (normResult.ignore) {
+      await forwardToVahanIfActive(bot, chatId, normalizedText, hasMedia);
+      return;
+    }
+
+    if (normResult.silent) return;
 
     if (normResult.success === false) {
-      if (normResult.error) await bot.sendMessage(chatId, normResult.error);
+      if (normResult.error) {
+        await bot.sendMessage(chatId, normResult.error);
+        return;
+      }
+      await forwardToVahanIfActive(bot, chatId, normalizedText, hasMedia);
       return;
     }
 
@@ -177,6 +284,11 @@ async function handleIncomingMessage(bot, msg) {
 
     if (type === 'stop') {
       const cleared = await clearPendingSessions(chatId);
+      if (hasActiveVahanSession(chatId, 'telegram')) {
+        await stopVahanSession(chatId, 'telegram');
+        await bot.sendMessage(chatId, 'Vahan session stopped.');
+        return;
+      }
       if (cleared > 0) {
         await bot.sendMessage(chatId, '✅ Pending session stopped.');
       }
@@ -288,7 +400,10 @@ async function handleIncomingMessage(bot, msg) {
     // ── Resolve mobile number for browser commands ────────────────────────────
     let finalPayload = payload;
     if (['llprint_start', 'lledit_start', 'dl_renewal_start', 'apply_dl_start', 'mobupdate_start'].includes(type)) {
-      finalPayload = _resolveMobile(payload, dbUser, chatId);
+      finalPayload = await resolveTelegramMobileOrReply(bot, chatId, payload, dbUser, type);
+      if (!finalPayload) {
+        return;
+      }
     }
 
     // ── Enqueue all other commands ────────────────────────────────────────────
@@ -308,22 +423,6 @@ async function handleIncomingMessage(bot, msg) {
     console.error(`[gateway-tg] Error handling message from ${chatId}: ${error.stack}`);
     try { await bot.sendMessage(chatId, '❌ Something went wrong. Please try again later.'); } catch (_) {}
   }
-}
-
-/**
- * Resolves mobile number from payload, dbUser profile, or chatId (Telegram numeric ID).
- */
-function _resolveMobile(payload, dbUser, chatId) {
-  let mobile = payload.mobile || '';
-  if (!mobile && dbUser && dbUser.canonical_phone) {
-    const cp = String(dbUser.canonical_phone).replace(/\D/g, '');
-    mobile = cp.length > 10 ? cp.slice(-10) : cp;
-  }
-  if (!mobile) {
-    // Telegram chatIds are numeric but not phone numbers — just pass empty string
-    mobile = '';
-  }
-  return { ...payload, mobile };
 }
 
 module.exports = { handleIncomingMessage };
