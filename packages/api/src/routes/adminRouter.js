@@ -14,6 +14,7 @@ const {
   jobRepository,
   planRepository,
   serviceRepository,
+  pricingRepository,
   trackingRepository,
   queue,
   cloudBackupSettings,
@@ -211,12 +212,13 @@ router.get('/config', async (req, res) => {
 // ── Bootstrap (loads everything the dashboard needs) ──────────────────────
 router.get('/bootstrap', async (req, res) => {
   try {
-    const [users, waGroups, tgGroups, totalCreditsSpent, services, apiStats, browserStats] = await Promise.all([
+    const [users, waGroups, tgGroups, totalCreditsSpent, services, priceOverrides, apiStats, browserStats] = await Promise.all([
       authRepo.getUsersWithSpentCredits(),
       authRepo.getAuthorizedGroups('wa'),
       authRepo.getAuthorizedGroups('tg'),
       authRepo.getTotalCreditsSpent(),
       serviceRepository.getAllServices(),
+      pricingRepository.listOverrides(),
       getQueueStats(apiQueue),
       getQueueStats(browserQueue),
     ]);
@@ -244,6 +246,7 @@ router.get('/bootstrap', async (req, res) => {
       },
       users,
       services,
+      priceOverrides,
       waGroups,
       tgGroups,
       sarathiTracked: sarathi,
@@ -336,6 +339,54 @@ router.delete('/services/:id', async (req, res) => {
     logger.info('adminRouter', 'Service deleted', { id: req.params.id });
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ ok: false, message: err.message }); }
+});
+
+// ── Service Pricing Overrides ───────────────────────────────────────────────
+router.get('/pricing-overrides', async (req, res) => {
+  try {
+    const overrides = await pricingRepository.listOverrides();
+    res.json({ ok: true, overrides });
+  } catch (err) {
+    logger.error('adminRouter', 'Failed to list pricing overrides', { error: err.message });
+    res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+router.post('/pricing-overrides', async (req, res) => {
+  try {
+    const override = await pricingRepository.upsertOverride(req.body || {});
+    logger.info('adminRouter', 'Pricing override saved', {
+      scopeType: override.scope_type,
+      scopeId: override.scope_id,
+      serviceId: override.service_id,
+      creditCost: override.credit_cost,
+    });
+    res.json({ ok: true, override });
+  } catch (err) {
+    const status = /required|must be|not found/i.test(err.message) ? 400 : 500;
+    res.status(status).json({ ok: false, message: err.message });
+  }
+});
+
+router.put('/pricing-overrides/:id', async (req, res) => {
+  try {
+    const override = await pricingRepository.updateOverride(req.params.id, req.body || {});
+    logger.info('adminRouter', 'Pricing override updated', { id: req.params.id });
+    res.json({ ok: true, override });
+  } catch (err) {
+    const status = /not found/i.test(err.message) ? 404 : 400;
+    res.status(status).json({ ok: false, message: err.message });
+  }
+});
+
+router.delete('/pricing-overrides/:id', async (req, res) => {
+  try {
+    await pricingRepository.deleteOverride(req.params.id);
+    logger.info('adminRouter', 'Pricing override deleted', { id: req.params.id });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
 });
 
 // ── Users ──────────────────────────────────────────────────────────────────
@@ -869,10 +920,12 @@ router.post('/backups/:fileName/restore-safe', async (req, res) => {
 
 router.get('/cloud-backup/providers', async (req, res) => {
   try {
-    const providers = await cloudBackupSettings.getAllProviders(false);
+    const providersByKey = await cloudBackupSettings.getAllProviders(false);
+    const providers = Object.values(providersByKey);
     res.json({
       ok: true,
       providers,
+      providersByKey,
       rcloneInstalled: cloudBackup.checkRcloneInstalled()
     });
   } catch (err) {
@@ -897,7 +950,7 @@ router.put('/cloud-backup/providers/:provider', async (req, res) => {
 
 router.post('/cloud-backup/test/:provider', async (req, res) => {
   try {
-    const result = await cloudBackup.testProvider(req.params.provider);
+    const result = await cloudBackup.testProvider(req.params.provider, req.body?.config || null);
     res.json(result);
   } catch (err) {
     const status = /Unsupported cloud backup provider/.test(err.message) ? 400 : 500;

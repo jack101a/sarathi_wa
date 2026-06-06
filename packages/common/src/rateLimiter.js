@@ -1,6 +1,7 @@
 const CONFIG = require('./config');
 const { query, run } = require('./db');
 const serviceRepo = require('./serviceRepository');
+const pricingRepo = require('./pricingRepository');
 const { redis } = require('./redis');
 
 // ─── Command category classification ────────────────────────────────────────
@@ -32,6 +33,11 @@ function getCreditCost(command) {
   const entry = registry.get(command);
   if (entry && entry.credit_cost > 0) return entry.credit_cost;
   return CONFIG.CREDIT_COST.heavy || 50;
+}
+
+async function getCreditCostForUser(userId, planId, command) {
+  const resolved = await pricingRepo.resolveServicePrice({ userId, planId, serviceId: command });
+  return resolved.creditCost;
 }
 
 function isHeavyCommand(command) {
@@ -99,7 +105,7 @@ async function checkRateLimit(userId, planId, command) {
   if (!plan) {
     // Fallback to config if DB plan doesn't exist yet
     const fallbackLimits = CONFIG.RATE_LIMITS[planKey] || CONFIG.RATE_LIMITS.standard;
-    return applyLimits(userId, category, fallbackLimits, command);
+    return applyLimits(userId, planKey, category, fallbackLimits, command);
   }
   
   if (!plan.is_active) {
@@ -119,10 +125,10 @@ async function checkRateLimit(userId, planId, command) {
   let limits = CONFIG.RATE_LIMITS.standard;
   try { limits = typeof plan.limits_json === 'string' ? JSON.parse(plan.limits_json || '{}') : (plan.limits_json || {}); } catch(e) {}
   
-  return applyLimits(userId, category, limits, command);
+  return applyLimits(userId, planKey, category, limits, command);
 }
 
-async function applyLimits(userId, category, limits, command) {
+async function applyLimits(userId, planKey, category, limits, command) {
   let effectiveLimits = { ...limits };
   try {
     const [userRow] = await query('SELECT rate_limit_overrides FROM auth_users WHERE id = ?', [userId]);
@@ -147,7 +153,7 @@ async function applyLimits(userId, category, limits, command) {
     const credits = Number((user && user.credits) || 0);
     const reservedCredits = Number((user && user.reserved_credits) || 0);
     const availableCredits = Math.max(0, credits - reservedCredits);
-    const cost    = getCreditCost(command);
+    const cost = await getCreditCostForUser(userId, planKey, command);
     if (availableCredits < cost) {
       return {
         allowed: false,
@@ -235,6 +241,7 @@ module.exports = {
   cleanupRateLimitLog,
   getCommandCategory,
   getCreditCost,
+  getCreditCostForUser,
   isHeavyCommand,
   LIGHT_COMMANDS,
   MEDIUM_COMMANDS,

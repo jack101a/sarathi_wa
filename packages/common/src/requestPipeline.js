@@ -65,7 +65,7 @@ async function processRequest(message, transport, commandInfo) {
   let billing = null;
 
   if (rateLimiter.isHeavyCommand(commandInfo.command)) {
-    const creditCost = rateLimiter.getCreditCost(commandInfo.command);
+    const creditCost = await rateLimiter.getCreditCostForUser(user.id, plan, commandInfo.command);
     try {
       await authRepo.reserveCreditsForJob(user.id, creditCost, commandInfo.command, jobId);
       billing = { creditReserved: true, creditCost };

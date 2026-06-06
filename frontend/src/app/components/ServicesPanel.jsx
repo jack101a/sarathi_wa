@@ -3,10 +3,18 @@ import { useThemeContext } from '../context/ThemeContext.jsx';
 import { Layers, Plus, Edit2, Trash2, X, Check, Cpu, CheckSquare, Square, Shield } from 'lucide-react';
 import { apiPostJson, apiPut, apiDelete } from '../../api/client';
 
-export function ServicesPanel({ services = [], refresh, showToast }) {
+export function ServicesPanel({ services = [], users = [], plans = [], priceOverrides = [], refresh, showToast }) {
   const { isDark } = useThemeContext();
   const [showModal, setShowModal] = useState(false);
   const [editingService, setEditingService] = useState(null);
+  const [pricingForm, setPricingForm] = useState({
+    scope_type: 'plan',
+    scope_id: '',
+    service_id: '',
+    credit_cost: '',
+    note: '',
+    is_active: true,
+  });
 
   // Form State
   const [id, setId] = useState('');
@@ -63,6 +71,7 @@ export function ServicesPanel({ services = [], refresh, showToast }) {
   const mediumCount = services.filter(s => s.category === 'medium').length;
   const heavyCount = services.filter(s => s.category === 'heavy').length;
   const inactiveCount = services.filter(s => !s.is_active).length;
+  const heavyServices = services.filter(s => s.category === 'heavy');
 
   function openCreate() {
     setEditingService(null);
@@ -142,6 +151,42 @@ export function ServicesPanel({ services = [], refresh, showToast }) {
     }
   }
 
+  async function handleSavePricingOverride() {
+    if (!pricingForm.scope_id || !pricingForm.service_id) {
+      return showToast('Select a target and service for custom pricing', 'error');
+    }
+    const cost = Number(pricingForm.credit_cost);
+    if (!Number.isFinite(cost) || cost < 0) return showToast('Custom price must be 0 or higher', 'error');
+
+    try {
+      await apiPostJson('/admin/api/pricing-overrides', {
+        ...pricingForm,
+        credit_cost: cost,
+      });
+      showToast('Custom price saved', 'success');
+      setPricingForm((prev) => ({ ...prev, credit_cost: '', note: '' }));
+      refresh();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  }
+
+  async function handleDeletePricingOverride(id) {
+    if (!confirm('Delete this custom price?')) return;
+    try {
+      await apiDelete(`/admin/api/pricing-overrides/${id}`);
+      showToast('Custom price deleted', 'success');
+      refresh();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  }
+
+  function describePricingTarget(row) {
+    if (row.scope_type === 'plan') return row.plan_name ? `${row.plan_name} (${row.scope_id})` : row.scope_id;
+    return row.user_name || row.user_phone || row.scope_id;
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', paddingBottom: '2rem' }}>
       
@@ -202,6 +247,116 @@ export function ServicesPanel({ services = [], refresh, showToast }) {
           <span style={{ fontSize: '0.7rem', color: thText }}>Commands blocked globally</span>
         </div>
 
+      </div>
+
+      {/* Custom Pricing Overrides */}
+      <div style={{
+        background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.85)',
+        border: `1px solid ${isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}`,
+        borderRadius: '1rem', overflow: 'hidden',
+        boxShadow: isDark ? 'none' : '0 1px 8px rgba(0,0,0,0.06)'
+      }}>
+        <div style={{ padding: '1rem', borderBottom: `1px solid ${trBorder}`, display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div>
+            <h3 style={{ margin: 0, color: tdText, fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <Shield size={17} color="#f59e0b" /> Custom Pricing
+            </h3>
+            <p style={{ margin: '0.25rem 0 0', color: thText, fontSize: '0.75rem' }}>
+              Priority: user price → plan price → global service price.
+            </p>
+          </div>
+        </div>
+
+        <div style={{ padding: '1rem', display: 'grid', gridTemplateColumns: '0.8fr 1.4fr 1.4fr 0.8fr 1.2fr auto', gap: '0.65rem', alignItems: 'end' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.7rem', color: thText, marginBottom: '0.25rem' }}>Scope</label>
+            <select
+              style={selectStyle}
+              value={pricingForm.scope_type}
+              onChange={e => setPricingForm(f => ({ ...f, scope_type: e.target.value, scope_id: '' }))}
+            >
+              <option value="plan">Plan</option>
+              <option value="user">User</option>
+            </select>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.7rem', color: thText, marginBottom: '0.25rem' }}>Target</label>
+            <select
+              style={selectStyle}
+              value={pricingForm.scope_id}
+              onChange={e => setPricingForm(f => ({ ...f, scope_id: e.target.value }))}
+            >
+              <option value="">Select...</option>
+              {pricingForm.scope_type === 'plan'
+                ? plans.map(p => <option key={p.id} value={p.id}>{p.name} ({p.id})</option>)
+                : users.map(u => <option key={u.id} value={u.id}>{u.name || u.canonical_phone} ({u.canonical_phone})</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.7rem', color: thText, marginBottom: '0.25rem' }}>Heavy Service</label>
+            <select
+              style={selectStyle}
+              value={pricingForm.service_id}
+              onChange={e => setPricingForm(f => ({ ...f, service_id: e.target.value }))}
+            >
+              <option value="">Select service...</option>
+              {heavyServices.map(s => <option key={s.id} value={s.id}>{s.display_name || s.name} ({s.id})</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.7rem', color: thText, marginBottom: '0.25rem' }}>Price</label>
+            <input
+              type="number"
+              min="0"
+              style={inputStyle}
+              value={pricingForm.credit_cost}
+              onChange={e => setPricingForm(f => ({ ...f, credit_cost: e.target.value }))}
+              placeholder="50"
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.7rem', color: thText, marginBottom: '0.25rem' }}>Note</label>
+            <input
+              style={inputStyle}
+              value={pricingForm.note}
+              onChange={e => setPricingForm(f => ({ ...f, note: e.target.value }))}
+              placeholder="Optional"
+            />
+          </div>
+          <button style={btnPrimary} onClick={handleSavePricingOverride}>
+            <Plus size={15} /> Save
+          </button>
+        </div>
+
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+            <thead>
+              <tr style={{ borderTop: `1px solid ${trBorder}`, borderBottom: `1px solid ${trBorder}`, background: isDark ? 'rgba(0,0,0,0.18)' : '#f9fafb' }}>
+                {['Scope', 'Target', 'Service', 'Custom Price', 'Status', 'Note', 'Actions'].map(h => (
+                  <th key={h} style={{ padding: '0.75rem 1rem', color: thText, fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {priceOverrides.length === 0 && (
+                <tr><td colSpan="7" style={{ padding: '1rem', textAlign: 'center', color: thText }}>No custom pricing yet. Global service price is used.</td></tr>
+              )}
+              {priceOverrides.map(row => (
+                <tr key={row.id} style={{ borderBottom: `1px solid ${trBorder}` }}>
+                  <td style={{ padding: '0.75rem 1rem', color: tdText, textTransform: 'capitalize', fontSize: '0.8rem' }}>{row.scope_type}</td>
+                  <td style={{ padding: '0.75rem 1rem', color: tdText, fontSize: '0.8rem' }}>{describePricingTarget(row)}</td>
+                  <td style={{ padding: '0.75rem 1rem', color: tdText, fontSize: '0.8rem' }}>{row.service_name || row.service_id}</td>
+                  <td style={{ padding: '0.75rem 1rem', color: '#f59e0b', fontWeight: 700, fontSize: '0.85rem' }}>{row.credit_cost} credits</td>
+                  <td style={{ padding: '0.75rem 1rem', color: row.is_active ? '#10b981' : '#6b7280', fontSize: '0.8rem' }}>{row.is_active ? 'Active' : 'Inactive'}</td>
+                  <td style={{ padding: '0.75rem 1rem', color: thText, fontSize: '0.8rem' }}>{row.note || '—'}</td>
+                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
+                    <button style={btnDanger} onClick={() => handleDeletePricingOverride(row.id)}><Trash2 size={14} /></button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Services Table */}

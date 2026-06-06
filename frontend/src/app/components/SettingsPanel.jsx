@@ -136,7 +136,12 @@ function ProviderConfigModal({ provider, isDark, savedConfig, onSave, onClose })
   const meta = PROVIDER_META[provider];
   const [form, setForm] = React.useState(() => {
     const d = {};
-    (meta?.fields || []).forEach(f => { d[f.key] = savedConfig?.[f.key] || ''; });
+    (meta?.fields || []).forEach(f => {
+      if (provider === 'telegram' && f.key === 'chatId') d[f.key] = Array.isArray(savedConfig?.chatIds) ? savedConfig.chatIds.join(',') : (savedConfig?.chatId || '');
+      else if (provider === 'rclone' && f.key === 'remotePath') d[f.key] = savedConfig?.remotePath || savedConfig?.path || '';
+      else if (provider === 'r2' && f.key === 'bucketName') d[f.key] = savedConfig?.bucketName || savedConfig?.bucket || '';
+      else d[f.key] = savedConfig?.[f.key] || '';
+    });
     return d;
   });
   const [testing,    setTesting]    = React.useState(false);
@@ -147,11 +152,39 @@ function ProviderConfigModal({ provider, isDark, savedConfig, onSave, onClose })
   const modal      = { background: isDark ? '#1e2434' : '#fff', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`, borderRadius: '1rem', padding: '2rem', maxWidth: '480px', width: '90%', boxShadow: '0 25px 60px rgba(0,0,0,0.4)', maxHeight: '90vh', overflowY: 'auto' };
   const inputStyle = { width: '100%', padding: '0.55rem 0.75rem', borderRadius: '0.5rem', border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'}`, background: isDark ? 'rgba(255,255,255,0.05)' : '#f8fafc', color: isDark ? '#e6edf3' : '#111827', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' };
 
+  function normalizeProviderConfig(config) {
+    if (provider === 'telegram') {
+      return {
+        chatIds: String(config.chatId || config.chatIds || '')
+          .split(',')
+          .map(v => v.trim())
+          .filter(Boolean),
+      };
+    }
+    if (provider === 'rclone') {
+      return {
+        remote: config.remote || '',
+        path: config.remotePath || config.path || 'sarathiwa-backups',
+      };
+    }
+    if (provider === 'r2') {
+      return {
+        accountId: config.accountId || '',
+        endpoint: config.endpoint || (config.accountId ? `https://${config.accountId}.r2.cloudflarestorage.com` : ''),
+        bucket: config.bucketName || config.bucket || '',
+        accessKeyId: config.accessKeyId || '',
+        secretAccessKey: config.secretAccessKey || '',
+        region: config.region || 'auto',
+      };
+    }
+    return config;
+  }
+
   async function handleTest() {
     setTesting(true); setTestResult(null);
     try {
-      const res = await apiPostJson(`/admin/api/cloud-backup/test/${provider}`, { config: form });
-      setTestResult({ ok: true, message: res.result });
+      const res = await apiPostJson(`/admin/api/cloud-backup/test/${provider}`, { config: normalizeProviderConfig(form) });
+      setTestResult({ ok: true, message: res.message || res.result?.message || 'Connection test passed' });
     } catch (err) {
       setTestResult({ ok: false, message: err.message });
     } finally { setTesting(false); }
@@ -159,7 +192,7 @@ function ProviderConfigModal({ provider, isDark, savedConfig, onSave, onClose })
 
   async function handleSave() {
     setSaving(true);
-    try { await onSave(form); onClose(); } finally { setSaving(false); }
+    try { await onSave(normalizeProviderConfig(form)); onClose(); } finally { setSaving(false); }
   }
 
   return (
@@ -173,7 +206,7 @@ function ProviderConfigModal({ provider, isDark, savedConfig, onSave, onClose })
           </div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
-          {meta.fields.map(f => (
+          {(meta?.fields || []).map(f => (
             <div key={f.key}>
               <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: isDark ? '#9ca3af' : '#6b7280', marginBottom: '0.35rem' }}>{f.label}</label>
               <input type={f.type || 'text'} value={form[f.key] || ''} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))} placeholder={f.placeholder} style={inputStyle} />
@@ -212,8 +245,13 @@ function CloudBackupSection({ isDark, showToast }) {
   const [uploadingNow,  setUploadingNow]  = React.useState(false);
   const [uploadResults, setUploadResults] = React.useState(null);
 
-  const providers = data?.providers || [];
-  const rclone    = data?.rclone    || {};
+  const providers = Array.isArray(data?.providers)
+    ? data.providers
+    : Object.values(data?.providers || data?.providersByKey || {});
+  const rclone = {
+    installed: Boolean(data?.rcloneInstalled || data?.rclone?.installed),
+    version: data?.rclone?.version || '',
+  };
 
   async function handleToggle(provider, currentEnabled) {
     try {

@@ -3,8 +3,8 @@ import { Bot, Eye, EyeOff } from 'lucide-react';
 import { apiPostJson } from '../../api/client.js';
 
 export function LoginPage({ isDark }) {
-  const [form, setForm]       = useState({ username: '', token: '' });
-  const [showToken, setShowToken] = useState(false);
+  const [form, setForm]       = useState({ username: '', password: '' });
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
 
@@ -78,21 +78,21 @@ export function LoginPage({ isDark }) {
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: isDark ? '#9ca3af' : '#6b7280', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Admin Token</label>
+            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: isDark ? '#9ca3af' : '#6b7280', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Password</label>
             <div style={{ position: 'relative' }}>
               <input
-                id="admin-token"
-                type={showToken ? 'text' : 'password'}
+                id="admin-password"
+                type={showPassword ? 'text' : 'password'}
                 autoComplete="current-password"
                 required
                 style={{ ...inputStyle, paddingRight: '2.5rem' }}
-                value={form.token}
-                onChange={e => setForm(f => ({ ...f, token: e.target.value }))}
+                value={form.password}
+                onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
                 placeholder="••••••••"
               />
-              <button type="button" onClick={() => setShowToken(v => !v)}
+              <button type="button" onClick={() => setShowPassword(v => !v)}
                 style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: isDark ? '#9ca3af' : '#6b7280', display: 'flex' }}>
-                {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
           </div>

@@ -99,8 +99,11 @@ async function uploadToCloud(filePath, fileName) {
   return { ok: results.some((result) => result.ok), results };
 }
 
-async function testProvider(providerName) {
+async function testProvider(providerName, configOverride = null) {
   const provider = await cloudBackupSettings.getProvider(providerName);
+  if (configOverride && typeof configOverride === 'object') {
+    provider.config = { ...(provider.config || {}), ...configOverride };
+  }
   if (providerName === 'telegram') {
     const chatIds = Array.isArray(provider.config.chatIds) ? provider.config.chatIds.filter(Boolean) : [];
     if (chatIds.length === 0) throw new Error('Telegram provider has no chat ids configured');

@@ -202,6 +202,21 @@ async function initDb() {
       )
     `);
 
+    await run(`
+      CREATE TABLE IF NOT EXISTS service_price_overrides (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        scope_type VARCHAR(50) NOT NULL,
+        scope_id VARCHAR(255) NOT NULL,
+        service_id VARCHAR(255) NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+        credit_cost INTEGER NOT NULL DEFAULT 0,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        note TEXT DEFAULT '',
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(scope_type, scope_id, service_id)
+      )
+    `);
+
     await run('CREATE INDEX IF NOT EXISTS idx_identities_user_fk ON auth_user_identities(auth_user_id)');
     await run('CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)');
     await run('CREATE INDEX IF NOT EXISTS idx_jobs_user_status ON jobs(user_id, status)');
@@ -210,6 +225,7 @@ async function initDb() {
     await run('CREATE INDEX IF NOT EXISTS idx_rate_log_cat ON rate_limit_log(user_id, category, timestamp)');
     await run('CREATE INDEX IF NOT EXISTS idx_credit_tx_user ON credit_transactions(user_id, created_at)');
     await run('CREATE INDEX IF NOT EXISTS idx_payment_req_status ON payment_requests(status)');
+    await run('CREATE INDEX IF NOT EXISTS idx_service_price_overrides_lookup ON service_price_overrides(scope_type, scope_id, service_id, is_active)');
 
     const freeLimits = JSON.stringify({ light: { perDay: 20, perMonth: 300 }, medium: { perDay: 5, perMonth: 60 }, maxConcurrent: 2 });
     const premiumLimits = JSON.stringify({ light: { perDay: 100, perMonth: 3000 }, medium: { perDay: 20, perMonth: 600 }, maxConcurrent: 5 });

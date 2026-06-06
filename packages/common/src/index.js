@@ -23,6 +23,7 @@ module.exports = {
   planRepository: require('./planRepository'),
   razorpayService: require('./razorpayService'),
   serviceRepository: require('./serviceRepository'),
+  pricingRepository: require('./pricingRepository'),
   trackingRepository: require('./trackingRepository'),
   jobRepository: require('./jobRepository'),
   queue: require('./queue'),

@@ -359,6 +359,8 @@ const CONFIG = {
   ADMIN: {
     TOKEN:    String(process.env.ADMIN_TOKEN    || '').trim(),
     USERNAME: String(process.env.ADMIN_USERNAME || 'admin').trim(),
+    PASSWORD: String(process.env.ADMIN_PASSWORD || '').trim(),
+    PASSWORD_HASH: String(process.env.ADMIN_PASSWORD_HASH || '').trim(),
   },
 
   AI_PARSING: {

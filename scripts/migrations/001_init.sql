@@ -153,6 +153,19 @@ CREATE TABLE IF NOT EXISTS payment_requests (
   verified_at TIMESTAMPTZ
 );
 
+CREATE TABLE IF NOT EXISTS service_price_overrides (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  scope_type VARCHAR(50) NOT NULL,
+  scope_id VARCHAR(255) NOT NULL,
+  service_id VARCHAR(255) NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+  credit_cost INTEGER NOT NULL DEFAULT 0,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  note TEXT DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(scope_type, scope_id, service_id)
+);
+
 CREATE TABLE IF NOT EXISTS ai_layout_mappings (
   layout_hash VARCHAR(255) PRIMARY KEY,
   portal_type VARCHAR(50) NOT NULL,
@@ -170,3 +183,4 @@ CREATE INDEX IF NOT EXISTS idx_credit_tx_user ON credit_transactions(user_id, cr
 CREATE INDEX IF NOT EXISTS idx_tracked_applications_chat ON tracked_applications(app_type, transport, chat_id);
 CREATE INDEX IF NOT EXISTS idx_tracked_applications_app ON tracked_applications(app_type, app_number);
 CREATE INDEX IF NOT EXISTS idx_payment_req_status ON payment_requests(status);
+CREATE INDEX IF NOT EXISTS idx_service_price_overrides_lookup ON service_price_overrides(scope_type, scope_id, service_id, is_active);

@@ -12,6 +12,7 @@ export const queryKeys = {
   plans:           ['plans'],
   backups:         ['backups'],
   services:        ['services'],
+  pricingOverrides:['pricingOverrides'],
 };
 
 export async function fetchBootstrap() { return apiGet('/admin/api/bootstrap'); }
@@ -55,4 +56,9 @@ export async function fetchBackups() { return apiGet('/admin/api/backups'); }
 export async function fetchServices() {
   const res = await apiGet('/admin/api/services');
   return res.services || [];
+}
+
+export async function fetchPricingOverrides() {
+  const res = await apiGet('/admin/api/pricing-overrides');
+  return res.overrides || [];
 }

@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchBootstrap, fetchJobs, fetchQueues, fetchPlans, fetchServices, queryKeys } from '../../api/queries.js';
+import { fetchBootstrap, fetchJobs, fetchQueues, fetchPlans, fetchServices, fetchPricingOverrides, queryKeys } from '../../api/queries.js';
 import { ApiError } from '../../api/client.js';
 
 export function useAdminData(showToast) {
@@ -74,6 +74,13 @@ export function useAdminData(showToast) {
     retry: 0,
   });
 
+  const pricingOverridesQuery = useQuery({
+    queryKey: queryKeys.pricingOverrides,
+    queryFn: fetchPricingOverrides,
+    staleTime: 30_000,
+    retry: 0,
+  });
+
   // Handle 401 — redirect to login (React Query v5 removed onError option)
   useEffect(() => {
     if (bootstrap.isError) {
@@ -100,6 +107,7 @@ export function useAdminData(showToast) {
     queues:         (queues.data) || data.queues || { api: {}, browser: {} },
     plans:          plansQuery.data     || [],
     services:       servicesQuery.data  || data.services     || [],
+    priceOverrides: pricingOverridesQuery.data || data.priceOverrides || [],
     rateLimitConfig: data.rateLimitConfig || { plans: {}, creditCost: {} },
     loading,
     refresh() {
@@ -108,6 +116,7 @@ export function useAdminData(showToast) {
       queues.refetch();
       plansQuery.refetch();
       servicesQuery.refetch();
+      pricingOverridesQuery.refetch();
     },
   };
 }
