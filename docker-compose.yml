@@ -1,14 +1,37 @@
 version: '3.8'
 
+x-app-env: &app-env
+  TZ: ${TZ}
+  NODE_ENV: ${NODE_ENV}
+  APP_ENV: ${APP_ENV}
+  PGHOST: ${PGHOST}
+  PGPORT: ${PGPORT}
+  PGDATABASE: ${PGDATABASE}
+  PGUSER: ${PGUSER}
+  PGPASSWORD: ${PGPASSWORD}
+  REDIS_HOST: ${REDIS_HOST}
+  REDIS_PORT: ${REDIS_PORT}
+  REDIS_PASSWORD: ${REDIS_PASSWORD}
+  LOG_LEVEL: ${LOG_LEVEL}
+
+x-browser-env: &browser-env
+  PUPPETEER_EXECUTABLE_PATH: ${PUPPETEER_EXECUTABLE_PATH}
+  PUPPETEER_HEADLESS: ${PUPPETEER_HEADLESS}
+  PUPPETEER_DISABLE_SANDBOX: ${PUPPETEER_DISABLE_SANDBOX}
+  PUPPETEER_ARGS: ${PUPPETEER_ARGS}
+
+x-common-volumes: &common-volumes
+  - ${CONFIG_PATH}/sarathi_new_test1/data:/app/data
+
 services:
   postgres:
     image: postgres:16-alpine
     restart: always
     environment:
-      - TZ=${TZ}
-      - POSTGRES_DB=${PGDATABASE}
-      - POSTGRES_USER=${PGUSER}
-      - POSTGRES_PASSWORD=${PGPASSWORD}
+      TZ: ${TZ}
+      POSTGRES_DB: ${PGDATABASE}
+      POSTGRES_USER: ${PGUSER}
+      POSTGRES_PASSWORD: ${PGPASSWORD}
     volumes:
       - pg_data:/var/lib/postgresql/data
       - ./scripts/migrations:/docker-entrypoint-initdb.d:ro
@@ -25,7 +48,7 @@ services:
     restart: always
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
     environment:
-      - TZ=${TZ}
+      TZ: ${TZ}
     volumes:
       - redis_data:/data
     ports:
@@ -44,32 +67,21 @@ services:
     init: true
     shm_size: "1024m"
     environment:
-      - TZ=${TZ}
-      - NODE_ENV=${NODE_ENV}
-      - APP_ENV=${APP_ENV}
-      - PGHOST=${PGHOST}
-      - PGPORT=${PGPORT}
-      - PGDATABASE=${PGDATABASE}
-      - PGUSER=${PGUSER}
-      - PGPASSWORD=${PGPASSWORD}
-      - REDIS_HOST=${REDIS_HOST}
-      - REDIS_PORT=${REDIS_PORT}
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
-      - INSTANCE_ID=${INSTANCE_ID}
-      - INSTANCE_ROLE=${INSTANCE_ROLE}
-      - REQUIRE_CHAT_FRONTEND=${REQUIRE_CHAT_FRONTEND}
-      - SESSION_NAME=${SESSION_NAME}
-      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER}
-      - ADMIN_USERS=${ADMIN_USERS}
-      - AUTHORIZED_USERS=${AUTHORIZED_USERS}
-      - AUTHORIZED_GROUPS=${AUTHORIZED_GROUPS}
-      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
-      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
-      - RAZORPAY_QR_NAME=${RAZORPAY_QR_NAME}
-      - LOG_LEVEL=${LOG_LEVEL}
+      <<: [*app-env, *browser-env]
+      INSTANCE_ID: ${INSTANCE_ID}
+      INSTANCE_ROLE: ${INSTANCE_ROLE}
+      REQUIRE_CHAT_FRONTEND: ${REQUIRE_CHAT_FRONTEND}
+      SESSION_NAME: ${SESSION_NAME}
+      WHATSAPP_PHONE_NUMBER: ${WHATSAPP_PHONE_NUMBER}
+      ADMIN_USERS: ${ADMIN_USERS}
+      AUTHORIZED_USERS: ${AUTHORIZED_USERS}
+      AUTHORIZED_GROUPS: ${AUTHORIZED_GROUPS}
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET}
+      RAZORPAY_QR_NAME: ${RAZORPAY_QR_NAME}
     volumes:
-      - ${CONFIG_PATH}/sarathi_new/auth_data:/app/.wwebjs_auth
-      - ${CONFIG_PATH}/sarathi_new/data:/app/data
+      - ${CONFIG_PATH}/sarathi_new_test1/auth_data:/app/.wwebjs_auth
+      - ${CONFIG_PATH}/sarathi_new_test1/data:/app/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -84,34 +96,22 @@ services:
     ports:
       - "${PORT}:3000"
     environment:
-      - TZ=${TZ}
-      - NODE_ENV=${NODE_ENV}
-      - APP_ENV=${APP_ENV}
-      - PORT=3000
-      - PGHOST=${PGHOST}
-      - PGPORT=${PGPORT}
-      - PGDATABASE=${PGDATABASE}
-      - PGUSER=${PGUSER}
-      - PGPASSWORD=${PGPASSWORD}
-      - REDIS_HOST=${REDIS_HOST}
-      - REDIS_PORT=${REDIS_PORT}
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
-      - ADMIN_TOKEN=${ADMIN_TOKEN}
-      - ADMIN_USERNAME=${ADMIN_USERNAME}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
-      - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH}
-      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
-      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
-      - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET}
-      - RAZORPAY_QR_NAME=${RAZORPAY_QR_NAME}
-      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
-      - BACKUP_HEALTH_MAX_AGE_HOURS=${BACKUP_HEALTH_MAX_AGE_HOURS}
-      - AUTO_CLOUD_BACKUP_ENABLED=${AUTO_CLOUD_BACKUP_ENABLED}
-      - LOG_LEVEL=${LOG_LEVEL}
-    volumes:
-      - ${CONFIG_PATH}/sarathi_new/data:/app/data
+      <<: *app-env
+      PORT: 3000
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+      ADMIN_USERNAME: ${ADMIN_USERNAME}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH}
+      WHATSAPP_PHONE_NUMBER: ${WHATSAPP_PHONE_NUMBER}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET}
+      RAZORPAY_QR_NAME: ${RAZORPAY_QR_NAME}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL}
+      BACKUP_HEALTH_MAX_AGE_HOURS: ${BACKUP_HEALTH_MAX_AGE_HOURS}
+      AUTO_CLOUD_BACKUP_ENABLED: ${AUTO_CLOUD_BACKUP_ENABLED}
+    volumes: *common-volumes
     depends_on:
       postgres:
         condition: service_healthy
@@ -125,29 +125,17 @@ services:
     restart: always
     init: true
     environment:
-      - TZ=${TZ}
-      - NODE_ENV=${NODE_ENV}
-      - APP_ENV=${APP_ENV}
-      - PGHOST=${PGHOST}
-      - PGPORT=${PGPORT}
-      - PGDATABASE=${PGDATABASE}
-      - PGUSER=${PGUSER}
-      - PGPASSWORD=${PGPASSWORD}
-      - REDIS_HOST=${REDIS_HOST}
-      - REDIS_PORT=${REDIS_PORT}
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
-      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - API_CONCURRENCY=${API_CONCURRENCY}
-      - SESSION_POOL_SIZE=${SESSION_POOL_SIZE}
-      - AI_PARSING_ENABLED=${AI_PARSING_ENABLED}
-      - LITELLM_API_BASE=${LITELLM_API_BASE}
-      - LITELLM_API_KEY=${LITELLM_API_KEY}
-      - LITELLM_MODEL=${LITELLM_MODEL}
-      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
-      - LOG_LEVEL=${LOG_LEVEL}
-    volumes:
-      - ${CONFIG_PATH}/sarathi_new/data:/app/data
+      <<: *app-env
+      WHATSAPP_PHONE_NUMBER: ${WHATSAPP_PHONE_NUMBER}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      API_CONCURRENCY: ${API_CONCURRENCY}
+      SESSION_POOL_SIZE: ${SESSION_POOL_SIZE}
+      AI_PARSING_ENABLED: ${AI_PARSING_ENABLED}
+      LITELLM_API_BASE: ${LITELLM_API_BASE}
+      LITELLM_API_KEY: ${LITELLM_API_KEY}
+      LITELLM_MODEL: ${LITELLM_MODEL}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL}
+    volumes: *common-volumes
     depends_on:
       postgres:
         condition: service_healthy
@@ -162,34 +150,18 @@ services:
     init: true
     shm_size: "2048m"
     environment:
-      - TZ=${TZ}
-      - NODE_ENV=${NODE_ENV}
-      - APP_ENV=${APP_ENV}
-      - PGHOST=${PGHOST}
-      - PGPORT=${PGPORT}
-      - PGDATABASE=${PGDATABASE}
-      - PGUSER=${PGUSER}
-      - PGPASSWORD=${PGPASSWORD}
-      - REDIS_HOST=${REDIS_HOST}
-      - REDIS_PORT=${REDIS_PORT}
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
-      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - BROWSER_ENGINE=${BROWSER_ENGINE}
-      - BROWSER_CONCURRENCY=${BROWSER_CONCURRENCY}
-      - MAX_BROWSER_PAGES=${MAX_BROWSER_PAGES}
-      - PUPPETEER_EXECUTABLE_PATH=${PUPPETEER_EXECUTABLE_PATH}
-      - PUPPETEER_HEADLESS=${PUPPETEER_HEADLESS}
-      - PUPPETEER_DISABLE_SANDBOX=${PUPPETEER_DISABLE_SANDBOX}
-      - PUPPETEER_ARGS=${PUPPETEER_ARGS}
-      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
-      - LOG_LEVEL=${LOG_LEVEL}
+      <<: [*app-env, *browser-env]
+      WHATSAPP_PHONE_NUMBER: ${WHATSAPP_PHONE_NUMBER}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      BROWSER_ENGINE: ${BROWSER_ENGINE}
+      BROWSER_CONCURRENCY: ${BROWSER_CONCURRENCY}
+      MAX_BROWSER_PAGES: ${MAX_BROWSER_PAGES}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL}
     deploy:
       resources:
         limits:
           memory: 2g
-    volumes:
-      - ${CONFIG_PATH}/sarathi_new/data:/app/data
+    volumes: *common-volumes
     depends_on:
       postgres:
         condition: service_healthy
@@ -202,29 +174,17 @@ services:
       dockerfile: packages/scheduler/Dockerfile
     restart: always
     environment:
-      - TZ=${TZ}
-      - NODE_ENV=${NODE_ENV}
-      - APP_ENV=${APP_ENV}
-      - PGHOST=${PGHOST}
-      - PGPORT=${PGPORT}
-      - PGDATABASE=${PGDATABASE}
-      - PGUSER=${PGUSER}
-      - PGPASSWORD=${PGPASSWORD}
-      - REDIS_HOST=${REDIS_HOST}
-      - REDIS_PORT=${REDIS_PORT}
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
-      - AUTO_TRACK_CRON=${AUTO_TRACK_CRON}
-      - VAHAN_TRACK_CRON=${VAHAN_TRACK_CRON}
-      - AUTO_TRACK_UPDATE_CHAT_ID=${AUTO_TRACK_UPDATE_CHAT_ID}
-      - VAHAN_TRACK_UPDATE_CHAT_ID=${VAHAN_TRACK_UPDATE_CHAT_ID}
-      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
-      - TELEGRAM_NOTIFY_CHAT_IDS=${TELEGRAM_NOTIFY_CHAT_IDS}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - AUTO_CLOUD_BACKUP_ENABLED=${AUTO_CLOUD_BACKUP_ENABLED}
-      - BACKUP_HEALTH_MAX_AGE_HOURS=${BACKUP_HEALTH_MAX_AGE_HOURS}
-      - LOG_LEVEL=${LOG_LEVEL}
-    volumes:
-      - ${CONFIG_PATH}/sarathi_new/data:/app/data
+      <<: *app-env
+      AUTO_TRACK_CRON: ${AUTO_TRACK_CRON}
+      VAHAN_TRACK_CRON: ${VAHAN_TRACK_CRON}
+      AUTO_TRACK_UPDATE_CHAT_ID: ${AUTO_TRACK_UPDATE_CHAT_ID}
+      VAHAN_TRACK_UPDATE_CHAT_ID: ${VAHAN_TRACK_UPDATE_CHAT_ID}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL}
+      TELEGRAM_NOTIFY_CHAT_IDS: ${TELEGRAM_NOTIFY_CHAT_IDS}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      AUTO_CLOUD_BACKUP_ENABLED: ${AUTO_CLOUD_BACKUP_ENABLED}
+      BACKUP_HEALTH_MAX_AGE_HOURS: ${BACKUP_HEALTH_MAX_AGE_HOURS}
+    volumes: *common-volumes
     depends_on:
       postgres:
         condition: service_healthy
@@ -237,29 +197,17 @@ services:
       dockerfile: packages/gateway-tg/Dockerfile
     restart: always
     environment:
-      - TZ=${TZ}
-      - NODE_ENV=${NODE_ENV}
-      - APP_ENV=${APP_ENV}
-      - PGHOST=${PGHOST}
-      - PGPORT=${PGPORT}
-      - PGDATABASE=${PGDATABASE}
-      - PGUSER=${PGUSER}
-      - PGPASSWORD=${PGPASSWORD}
-      - REDIS_HOST=${REDIS_HOST}
-      - REDIS_PORT=${REDIS_PORT}
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
-      - TG_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - ADMIN_USERS=${ADMIN_USERS}
-      - AUTHORIZED_TG_USERS=${AUTHORIZED_TG_USERS}
-      - AUTHORIZED_TG_GROUPS=${AUTHORIZED_TG_GROUPS}
-      - TELEGRAM_NOTIFY_CHAT_IDS=${TELEGRAM_NOTIFY_CHAT_IDS}
-      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
-      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
-      - RAZORPAY_QR_NAME=${RAZORPAY_QR_NAME}
-      - LOG_LEVEL=${LOG_LEVEL}
-    volumes:
-      - ${CONFIG_PATH}/sarathi_new/data:/app/data
+      <<: *app-env
+      TG_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      ADMIN_USERS: ${ADMIN_USERS}
+      AUTHORIZED_TG_USERS: ${AUTHORIZED_TG_USERS}
+      AUTHORIZED_TG_GROUPS: ${AUTHORIZED_TG_GROUPS}
+      TELEGRAM_NOTIFY_CHAT_IDS: ${TELEGRAM_NOTIFY_CHAT_IDS}
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET}
+      RAZORPAY_QR_NAME: ${RAZORPAY_QR_NAME}
+    volumes: *common-volumes
     depends_on:
       postgres:
         condition: service_healthy
