@@ -339,9 +339,10 @@ const CONFIG = {
     },
   },
 
-  // Cost in credits deducted per successful heavy job.
+  // Safety fallback only. Real service pricing is stored in PostgreSQL
+  // services.credit_cost and edited from the admin dashboard.
   CREDIT_COST: {
-    heavy: asNumber(process.env.CREDIT_COST_HEAVY, 50),
+    heavy: 50,
   },
 
   QUEUE: {
