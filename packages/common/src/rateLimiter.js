@@ -35,8 +35,8 @@ function getCreditCost(command) {
   return CONFIG.CREDIT_COST.heavy || 50;
 }
 
-async function getCreditCostForUser(userId, planId, command) {
-  const resolved = await pricingRepo.resolveServicePrice({ userId, planId, serviceId: command });
+async function getCreditCostForUser(userId, planId, command, groupId = '') {
+  const resolved = await pricingRepo.resolveServicePrice({ userId, groupId, planId, serviceId: command });
   return resolved.creditCost;
 }
 
@@ -84,7 +84,7 @@ async function _loadCounts(userId) {
  * Check all applicable limits for a user + command.
  * Returns { allowed: bool, reason: string }.
  */
-async function checkRateLimit(userId, planId, command) {
+async function checkRateLimit(userId, planId, command, groupId = '') {
   // Check if service is globally active
   const registry = serviceRepo.getServiceRegistrySync();
   const entry = registry.get(command);
@@ -105,7 +105,7 @@ async function checkRateLimit(userId, planId, command) {
   if (!plan) {
     // Fallback to config if DB plan doesn't exist yet
     const fallbackLimits = CONFIG.RATE_LIMITS[planKey] || CONFIG.RATE_LIMITS.standard;
-    return applyLimits(userId, planKey, category, fallbackLimits, command);
+    return applyLimits(userId, planKey, category, fallbackLimits, command, groupId);
   }
   
   if (!plan.is_active) {
@@ -125,10 +125,10 @@ async function checkRateLimit(userId, planId, command) {
   let limits = CONFIG.RATE_LIMITS.standard;
   try { limits = typeof plan.limits_json === 'string' ? JSON.parse(plan.limits_json || '{}') : (plan.limits_json || {}); } catch(e) {}
   
-  return applyLimits(userId, planKey, category, limits, command);
+  return applyLimits(userId, planKey, category, limits, command, groupId);
 }
 
-async function applyLimits(userId, planKey, category, limits, command) {
+async function applyLimits(userId, planKey, category, limits, command, groupId = '') {
   let effectiveLimits = { ...limits };
   try {
     const [userRow] = await query('SELECT rate_limit_overrides FROM auth_users WHERE id = ?', [userId]);
@@ -153,7 +153,7 @@ async function applyLimits(userId, planKey, category, limits, command) {
     const credits = Number((user && user.credits) || 0);
     const reservedCredits = Number((user && user.reserved_credits) || 0);
     const availableCredits = Math.max(0, credits - reservedCredits);
-    const cost = await getCreditCostForUser(userId, planKey, command);
+    const cost = await getCreditCostForUser(userId, planKey, command, groupId);
     if (availableCredits < cost) {
       return {
         allowed: false,

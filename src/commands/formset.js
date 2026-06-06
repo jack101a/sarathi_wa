@@ -14,11 +14,11 @@ async function formsetCommand(client, message) {
   await message.reply('Building formset PDF...');
 
   try {
-    const { buffer, filename } = await getFormset(appNo, dob);
+    const { buffer, filename, caption } = await getFormset(appNo, dob);
     const media = new MessageMedia('application/pdf', buffer.toString('base64'), filename);
 
     await client.sendMessage(message.from, media, {
-      caption: 'Formset PDF',
+      caption,
       sendMediaAsDocument: true,
     });
   } catch (error) {

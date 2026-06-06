@@ -1,5 +1,5 @@
 const { Worker } = require('bullmq');
-const { config: CONFIG, redis, subscriber, logger, rateLimiter, authorizationRepository: authRepo, jobRepository, queue, redisConfig } = require('@sarathi/common');
+const { config: CONFIG, redis, subscriber, logger, rateLimiter, authorizationRepository: authRepo, jobRepository, queue, redisConfig, userFacingErrors } = require('@sarathi/common');
 const fs = require('fs');
 const path = require('path');
 
@@ -12,9 +12,11 @@ const paymentService = require('../../../src/services/paymentService');
 const slotBookingService = require('../../../src/services/slotBookingService');
 const dlInfoService = require('../../../src/services/dlInfoService');
 const mobileUpdateService = require('../../../src/services/mobileUpdateService');
+const { buildDlApplicationSummary } = require('../../../src/utils/serviceMessages');
 const chatNotifier = require('@sarathi/common').chatNotifier;
 
 const interactiveSessions = new Map(); // jobId -> { resolve, reject }
+const INTERACTIVE_TIMEOUT_MS = 5 * 60 * 1000;
 
 // Subscribe to OTP/interactive inputs via Redis Pub/Sub
 subscriber.on('message', (channel, message) => {
@@ -27,16 +29,20 @@ subscriber.on('message', (channel, message) => {
   }
 });
 
-async function waitInteractiveInput(chatId, jobId, timeoutMs = 300000) {
+async function waitInteractiveInput(chatId, jobId, timeoutMs = INTERACTIVE_TIMEOUT_MS, onReady = null) {
+  const startedAt = Date.now();
   await subscriber.subscribe(`otp:input:${jobId}`);
+  const remainingMs = Math.max(1, timeoutMs - (Date.now() - startedAt));
 
-  return new Promise((resolve, reject) => {
+  const inputPromise = new Promise((resolve, reject) => {
     const timeoutId = setTimeout(async () => {
       await subscriber.unsubscribe(`otp:input:${jobId}`);
       interactiveSessions.delete(jobId);
       await redis.del(`session:otp:${chatId}`).catch(() => {});
-      reject(new Error('Session timed out waiting for user input (5 minutes).'));
-    }, timeoutMs);
+      const error = new Error('Interactive session timed out.');
+      error.code = 'INTERACTIVE_TIMEOUT';
+      reject(error);
+    }, remainingMs);
 
     interactiveSessions.set(jobId, {
       resolve: async (input) => {
@@ -44,6 +50,12 @@ async function waitInteractiveInput(chatId, jobId, timeoutMs = 300000) {
         await subscriber.unsubscribe(`otp:input:${jobId}`);
         interactiveSessions.delete(jobId);
         await redis.del(`session:otp:${chatId}`).catch(() => {});
+        if (/^(?:stop|cancel)$/i.test(String(input || '').trim())) {
+          const error = new Error('Interactive session cancelled by user.');
+          error.code = 'INTERACTIVE_CANCELLED';
+          reject(error);
+          return;
+        }
         resolve(input);
       },
       reject: async (err) => {
@@ -55,12 +67,30 @@ async function waitInteractiveInput(chatId, jobId, timeoutMs = 300000) {
       }
     });
   });
+
+  if (onReady) {
+    try {
+      await onReady();
+    } catch (error) {
+      const session = interactiveSessions.get(jobId);
+      if (session) await session.reject(error);
+    }
+  }
+
+  return inputPromise;
 }
 
 function cleanup(p) { if (p && fs.existsSync(p)) fs.unlinkSync(p); }
 async function sendText(t, c, x) { return t === 'telegram' ? chatNotifier.sendTelegramMessage(c, x) : chatNotifier.sendWhatsAppText(c, x); }
 async function sendImageFile(t, c, p, cap = '') { const b = fs.readFileSync(p); const n = path.basename(p); return t === 'telegram' ? chatNotifier.sendTelegramPhoto(c, b, n, cap, 'image/png') : chatNotifier.sendWhatsAppMedia(c, b, 'image/png', n, cap); }
 async function sendPdfFile(t, c, p, cap = '') { const b = fs.readFileSync(p); const n = path.basename(p); return t === 'telegram' ? chatNotifier.sendTelegramDocument(c, b, n, cap, 'application/pdf') : chatNotifier.sendWhatsAppMedia(c, b, 'application/pdf', n, cap); }
+
+async function promptAndWaitForInput(transport, chatId, jobId, status, prompt) {
+  return waitInteractiveInput(chatId, jobId, INTERACTIVE_TIMEOUT_MS, async () => {
+    await redis.setex(`session:otp:${chatId}`, 300, JSON.stringify({ jobId, status }));
+    await sendText(transport, chatId, prompt);
+  });
+}
 
 function getBillingInfo(job) {
   const payload = JSON.parse(job.payload_json || '{}');
@@ -78,34 +108,44 @@ async function handleJob(job) {
 
   if (job.command === 'llprint_start') {
     const { context, page } = await llPrintService.startLLPrintFlow(payload.appNo, payload.dob, payload.mobile);
-    await redis.setex(`session:otp:${chatId}`, 300, JSON.stringify({ jobId: job.id, status: 'awaiting_otp' }));
-    await sendText(transport, chatId, '🔐 OTP has been sent. Please reply with the 6-digit OTP code to continue.');
 
     try {
-      const otpCode = await waitInteractiveInput(chatId, job.id);
+      const otpCode = await promptAndWaitForInput(
+        transport,
+        chatId,
+        job.id,
+        'awaiting_otp',
+        'OTP has been sent. Please reply with the 6-digit OTP within 5 minutes.'
+      );
       const pdfPath = await llPrintService.submitLLPrintOTP(context, page, otpCode, payload.appNo, payload.dob);
-      await sendPdfFile(transport, chatId, pdfPath, `✅ Learner Licence downloaded successfully for Application No: ${payload.appNo}`);
+      await sendPdfFile(transport, chatId, pdfPath, `Learner Licence downloaded successfully for Application No: ${payload.appNo}`);
       cleanup(pdfPath);
       return { ok: true };
     } catch (error) {
-      if (context) await context.close().catch(() => {});
+      await llPrintService.closeLLPrintFlow(context);
       throw error;
     }
   }
 
   if (job.command === 'lledit_start') {
-    const { context, page, dynamicData } = await llEditService.startLLEditFlow(payload.appNo, payload.dob, payload.mobile);
-    await redis.setex(`session:otp:${chatId}`, 300, JSON.stringify({ jobId: job.id, status: 'awaiting_otp' }));
-    await sendText(transport, chatId, '🔐 OTP has been sent. Please reply with the 6-digit OTP code to continue.');
+    const { browser, context, page, dynamicData } = await llEditService.startLLEditFlow(payload.appNo, payload.dob, payload.mobile);
 
     try {
-      const otpCode = await waitInteractiveInput(chatId, job.id);
-      await sendText(transport, chatId, '⏳ OTP received. Processing dynamic form filling and priming...');
+      const otpCode = await promptAndWaitForInput(
+        transport,
+        chatId,
+        job.id,
+        'awaiting_otp',
+        'OTP has been sent. Please reply with the 6-digit OTP within 5 minutes.'
+      );
+      await sendText(transport, chatId, 'OTP received. Completing your request...');
       await llEditService.submitLLEditOTP(context, page, otpCode, payload.appNo, payload.dob, dynamicData);
-      await sendText(transport, chatId, '✅ Bait-and-Switch successfully completed! Application updated and session primed.');
+      await sendText(transport, chatId, 'Application updated successfully.');
+      await browser.close().catch(() => {});
       return { ok: true };
     } catch (error) {
       if (context) await context.close().catch(() => {});
+      if (browser) await browser.close().catch(() => {});
       throw error;
     }
   }
@@ -119,13 +159,10 @@ async function handleJob(job) {
       
       const serviceName = serviceType.replace('OF DL', '').replace('ISSUE OF', '').trim().toLowerCase();
       const formattedServiceName = serviceName.charAt(0).toUpperCase() + serviceName.slice(1);
-      const msg = `🔐 OTP has been sent successfully to your mobile number ${maskedMobile || '******'} for DL ${formattedServiceName}.\n\nPlease reply with the 6-digit OTP code to continue.`;
+      const msg = `OTP has been sent to mobile number ${maskedMobile || '******'} for DL ${formattedServiceName}.\n\nPlease reply with the 6-digit OTP within 5 minutes.`;
 
-      await sendText(transport, chatId, msg);
-      await redis.setex(`session:otp:${chatId}`, 300, JSON.stringify({ jobId: job.id, status: 'awaiting_otp' }));
-      
-      const otpCode = await waitInteractiveInput(chatId, job.id);
-      await sendText(transport, chatId, `⏳ OTP received. Filling Self-Declaration Form 1 popup and submitting DL ${formattedServiceName}...`);
+      const otpCode = await promptAndWaitForInput(transport, chatId, job.id, 'awaiting_otp', msg);
+      await sendText(transport, chatId, '⏳ OTP received...');
       
       const result = await dlRenewalService.submitDLRenewalOTP(browser, context, page, otpCode, serviceType);
       let slipPath, appNo;
@@ -137,17 +174,16 @@ async function handleJob(job) {
       }
 
       if (slipPath) {
-        await sendImageFile(transport, chatId, slipPath, `✅ DL ${formattedServiceName} Successful! Here is your acknowledgement reference slip.`);
+        await sendImageFile(transport, chatId, slipPath, `DL ${formattedServiceName} completed successfully. Here is your acknowledgement slip.`);
         cleanup(slipPath);
       }
 
       if (appNo && appNo !== 'Unknown' && payload.dob) {
         try {
-          await sendText(transport, chatId, '⏳ Automatically generating and downloading your formset...');
           const { getFormset } = require('../../../src/services/formsetService');
-          const { buffer, filename } = await getFormset(appNo, payload.dob);
-          if (transport === 'telegram') await chatNotifier.sendTelegramDocument(chatId, buffer, filename, '', 'application/pdf');
-          else await chatNotifier.sendWhatsAppMedia(chatId, buffer, 'application/pdf', filename, '');
+          const { buffer, filename, caption } = await getFormset(appNo, payload.dob);
+          if (transport === 'telegram') await chatNotifier.sendTelegramDocument(chatId, buffer, filename, caption, 'application/pdf');
+          else await chatNotifier.sendWhatsAppMedia(chatId, buffer, 'application/pdf', filename, caption);
         } catch (e) {
           logger.error('worker-browser', `Formset generation failed: ${e.message}`);
         }
@@ -168,30 +204,34 @@ async function handleJob(job) {
     try {
       flowData = await applyDlService.startApplyDLFlow(payload.llNo, payload.dob, payload.mobile);
       const { browser, context, page, maskedMobile } = flowData;
-      const msg = `🔐 OTP has been sent successfully to your mobile number ${maskedMobile || '******'} for DL Application.\n\nPlease reply with the 6-digit OTP code to continue.`;
+      const msg = `OTP has been sent to mobile number ${maskedMobile || '******'} for the DL application.\n\nPlease reply with the 6-digit OTP within 5 minutes.`;
       
-      await sendText(transport, chatId, msg);
-      await redis.setex(`session:otp:${chatId}`, 300, JSON.stringify({ jobId: job.id, status: 'awaiting_otp' }));
-      
-      const otpCode = await waitInteractiveInput(chatId, job.id);
-      await sendText(transport, chatId, '⏳ OTP received. Booking class of vehicles, completing Self-Declaration Form 1, and finalising DL application...');
+      const otpCode = await promptAndWaitForInput(transport, chatId, job.id, 'awaiting_otp', msg);
+      await sendText(transport, chatId, '⏳ OTP received...');
       
       const details = await applyDlService.submitApplyDLOTP(browser, context, page, otpCode);
-      await sendText(transport, chatId, `✅ DL Application Submitted Successfully!\n📝 Application Details: ${details.extractedText}`);
-      
+      const applicationSummary = buildDlApplicationSummary(details);
+
       if (details.screenshotPath) {
-        await sendImageFile(transport, chatId, details.screenshotPath, '📄 Here is your DL Application Acknowledgment Slip.');
-        cleanup(details.screenshotPath);
+        try {
+          await sendImageFile(transport, chatId, details.screenshotPath, applicationSummary);
+        } catch (error) {
+          logger.error('worker-browser', `Failed to send DL application acknowledgement image: ${error.message}`);
+          await sendText(transport, chatId, applicationSummary);
+        } finally {
+          cleanup(details.screenshotPath);
+        }
+      } else {
+        await sendText(transport, chatId, applicationSummary);
       }
 
       const appNo = details.appNo || (details.extractedText && details.extractedText.match(/Application No\s*:\s*(\d+)/i)?.[1]);
       if (appNo && appNo !== 'Unknown' && payload.dob) {
         try {
-          await sendText(transport, chatId, '⏳ Automatically generating and downloading your formset...');
           const { getFormset } = require('../../../src/services/formsetService');
-          const { buffer, filename } = await getFormset(appNo, payload.dob);
-          if (transport === 'telegram') await chatNotifier.sendTelegramDocument(chatId, buffer, filename, '', 'application/pdf');
-          else await chatNotifier.sendWhatsAppMedia(chatId, buffer, 'application/pdf', filename, '');
+          const { buffer, filename, caption } = await getFormset(appNo, payload.dob);
+          if (transport === 'telegram') await chatNotifier.sendTelegramDocument(chatId, buffer, filename, caption, 'application/pdf');
+          else await chatNotifier.sendWhatsAppMedia(chatId, buffer, 'application/pdf', filename, caption);
         } catch (e) {
           logger.error('worker-browser', `Formset generation failed: ${e.message}`);
         }
@@ -214,22 +254,31 @@ async function handleJob(job) {
       const { browser, context, page, qrImagePath } = flowData;
       
       const qrBuffer = fs.readFileSync(qrImagePath);
-      const caption = `💸 Scan this QR Code to pay the application fee for Application No: ${payload.appNo}.\n\nOnce paid, please reply with "paid" to download your print receipt.`;
-      
-      if (transport === 'telegram') await chatNotifier.sendTelegramPhoto(chatId, qrBuffer, 'qr.png', caption);
-      else await chatNotifier.sendWhatsAppImage(chatId, qrBuffer, 'qr.png', caption);
-      cleanup(qrImagePath);
-
-      await redis.setex(`session:otp:${chatId}`, 300, JSON.stringify({ jobId: job.id, status: 'awaiting_payment_confirmation' }));
-      
-      const userConfirmation = await waitInteractiveInput(chatId, job.id);
+      const caption = `Scan this QR code to pay the application fee for Application No: ${payload.appNo}.\n\nAfter payment, reply with "paid" within 5 minutes to receive the receipt.`;
+      const userConfirmation = await waitInteractiveInput(
+        chatId,
+        job.id,
+        INTERACTIVE_TIMEOUT_MS,
+        async () => {
+          await redis.setex(`session:otp:${chatId}`, 300, JSON.stringify({
+            jobId: job.id,
+            status: 'awaiting_payment_confirmation',
+          }));
+          try {
+            if (transport === 'telegram') await chatNotifier.sendTelegramPhoto(chatId, qrBuffer, 'qr.png', caption);
+            else await chatNotifier.sendWhatsAppImage(chatId, qrBuffer, 'qr.png', caption);
+          } finally {
+            cleanup(qrImagePath);
+          }
+        }
+      );
       if (!/^paid$/i.test(userConfirmation)) {
         throw new Error('Payment confirmation cancelled by user or invalid response.');
       }
 
-      await sendText(transport, chatId, '⏳ Payment marked as paid. Waiting for portal redirect and downloading receipt...');
+      await sendText(transport, chatId, 'Payment confirmed. Preparing your receipt...');
       const receiptPath = await paymentService.confirmPayment(browser, context, page, payload.appNo);
-      await sendPdfFile(transport, chatId, receiptPath, `✅ Payment receipt downloaded successfully for Application No: ${payload.appNo}.`);
+      await sendPdfFile(transport, chatId, receiptPath, `Payment receipt for Application No: ${payload.appNo}.`);
       cleanup(receiptPath);
       return { ok: true };
     } catch (error) {
@@ -248,30 +297,43 @@ async function handleJob(job) {
       const { browser, context, page, calendarScreenshotPath } = flowData;
       
       const calendarBuffer = fs.readFileSync(calendarScreenshotPath);
-      const caption = `📅 Here are the available slots for Application No: ${payload.appNo}.\n\nReply with "auto" to book the first available green slot, or specify a date like "29" or "YYYY-MM-DD 13:00".`;
-      
-      if (transport === 'telegram') await chatNotifier.sendTelegramPhoto(chatId, calendarBuffer, 'calendar.png', caption);
-      else await chatNotifier.sendWhatsAppImage(chatId, calendarBuffer, 'calendar.png', caption);
-      cleanup(calendarScreenshotPath);
+      const caption = `Available slots for Application No: ${payload.appNo}.\n\nReply with "auto" for the first available green slot, or send a date such as "29" or "YYYY-MM-DD 13:00" within 5 minutes.`;
+      const choice = await waitInteractiveInput(
+        chatId,
+        job.id,
+        INTERACTIVE_TIMEOUT_MS,
+        async () => {
+          await redis.setex(`session:otp:${chatId}`, 300, JSON.stringify({
+            jobId: job.id,
+            status: 'awaiting_slot_selection',
+          }));
+          try {
+            if (transport === 'telegram') await chatNotifier.sendTelegramPhoto(chatId, calendarBuffer, 'calendar.png', caption);
+            else await chatNotifier.sendWhatsAppImage(chatId, calendarBuffer, 'calendar.png', caption);
+          } finally {
+            cleanup(calendarScreenshotPath);
+          }
+        }
+      );
 
-      await redis.setex(`session:otp:${chatId}`, 300, JSON.stringify({ jobId: job.id, status: 'awaiting_slot_selection' }));
-      const choice = await waitInteractiveInput(chatId, job.id);
-
-      await sendText(transport, chatId, '⏳ Caching slot date, triggering booking SMS OTP...');
+      await sendText(transport, chatId, 'Slot selected. Sending the booking OTP...');
       if (/^auto$/i.test(choice)) {
         await slotBookingService.bookPreferredSlot(context, page, null, null);
       } else {
         await slotBookingService.bookPreferredSlot(context, page, choice, null);
       }
 
-      await sendText(transport, chatId, '🔐 SMS OTP has been sent for booking confirmation. Please reply with the OTP code.');
-      await redis.setex(`session:otp:${chatId}`, 300, JSON.stringify({ jobId: job.id, status: 'awaiting_booking_otp' }));
-      
-      const otpCode = await waitInteractiveInput(chatId, job.id);
-      await sendText(transport, chatId, '⏳ Submitting slot booking OTP and generating confirmation...');
+      const otpCode = await promptAndWaitForInput(
+        transport,
+        chatId,
+        job.id,
+        'awaiting_booking_otp',
+        'Booking OTP has been sent. Please reply with the OTP within 5 minutes.'
+      );
+      await sendText(transport, chatId, 'OTP received. Completing slot booking...');
       
       const docPath = await slotBookingService.confirmSlotBookingOTP(browser, context, page, otpCode);
-      await sendPdfFile(transport, chatId, docPath, '🎉 Slot Booked Successfully! Here is your booking confirmation slip.');
+      await sendPdfFile(transport, chatId, docPath, 'Slot booked successfully. Here is your booking confirmation slip.');
       cleanup(docPath);
       return { ok: true };
     } catch (error) {
@@ -310,33 +372,39 @@ async function handleJob(job) {
       flowData = await mobileUpdateService.startMobileUpdateFlow(payload.dlNo, payload.dob);
       const { browser, context, page } = flowData;
       
-      await sendText(transport, chatId, 'Send Aadhaar number (12 digits):');
-      await redis.setex(`session:otp:${chatId}`, 300, JSON.stringify({ jobId: job.id, status: 'awaiting_aadhaar' }));
-      
-      const aadhaar = await waitInteractiveInput(chatId, job.id);
+      const aadhaar = await promptAndWaitForInput(
+        transport,
+        chatId,
+        job.id,
+        'awaiting_aadhaar',
+        'Send your 12-digit Aadhaar number.'
+      );
       if (aadhaar.length !== 12 || !/^\d+$/.test(aadhaar)) {
         throw new Error('Invalid Aadhaar number format.');
       }
 
-      await sendText(transport, chatId, '⏳ Generating Aadhaar OTP...');
       await mobileUpdateService.generateAadhaarOtp(page, aadhaar);
 
-      await sendText(transport, chatId, '🔑 Enter Aadhaar OTP:');
-      await redis.setex(`session:otp:${chatId}`, 300, JSON.stringify({ jobId: job.id, status: 'awaiting_aadhaar_otp' }));
-      
-      const aadhaarOtp = await waitInteractiveInput(chatId, job.id);
-      await sendText(transport, chatId, '⏳ Authenticating Aadhaar e-KYC...');
+      const aadhaarOtp = await promptAndWaitForInput(
+        transport,
+        chatId,
+        job.id,
+        'awaiting_aadhaar_otp',
+        'Enter the Aadhaar OTP within 5 minutes.'
+      );
       await mobileUpdateService.authenticateAadhaar(page, aadhaarOtp);
 
-      await sendText(transport, chatId, '✅ Aadhaar verified. Send new mobile number:');
-      await redis.setex(`session:otp:${chatId}`, 300, JSON.stringify({ jobId: job.id, status: 'awaiting_new_mobile' }));
-      
-      const newMobile = await waitInteractiveInput(chatId, job.id);
+      const newMobile = await promptAndWaitForInput(
+        transport,
+        chatId,
+        job.id,
+        'awaiting_new_mobile',
+        'Aadhaar verified. Please send the new 10-digit mobile number.'
+      );
       if (newMobile.length !== 10 || !/^\d+$/.test(newMobile)) {
         throw new Error('Invalid mobile number format.');
       }
 
-      await sendText(transport, chatId, '⏳ Sending OTP to new mobile...');
       await page.evaluate(async (newMob) => {
         const baseUrl = "https://sarathi.parivahan.gov.in/sarathiservice";
         await fetch(`${baseUrl}/checkMobCount.do`, {
@@ -356,22 +424,27 @@ async function handleJob(job) {
         });
       }, newMobile);
 
-      await sendText(transport, chatId, '🔑 Enter Mobile OTP:');
-      await redis.setex(`session:otp:${chatId}`, 300, JSON.stringify({ jobId: job.id, status: 'awaiting_mobile_otp' }));
-      
-      const mobileOtp = await waitInteractiveInput(chatId, job.id);
-      await sendText(transport, chatId, '⏳ Completing mobile update on portal...');
+      const mobileOtp = await promptAndWaitForInput(
+        transport,
+        chatId,
+        job.id,
+        'awaiting_mobile_otp',
+        'Enter the mobile OTP within 5 minutes.'
+      );
       
       const result = await mobileUpdateService.executeBypassScript(page, newMobile, mobileOtp);
-      if (result.screenshotPath) {
-        const caption = result.success 
-          ? `🎉 Updated to ${newMobile}!` 
-          : `❌ Update may have failed. Check preview.`;
-        await sendImageFile(transport, chatId, result.screenshotPath, caption);
-        cleanup(result.screenshotPath);
-        if (!result.success) {
-          throw new Error('Mobile update failed on portal.');
+      const successMessage = `Mobile number updated successfully to ${newMobile}.`;
+      if (result.screenshotPath && result.success) {
+        try {
+          await sendImageFile(transport, chatId, result.screenshotPath, successMessage);
+        } finally {
+          cleanup(result.screenshotPath);
         }
+      } else if (result.success) {
+        await sendText(transport, chatId, successMessage);
+      } else if (result.screenshotPath) {
+        cleanup(result.screenshotPath);
+        throw new Error('Mobile update failed on portal.');
       } else {
         throw new Error('Mobile update failed. No confirmation page screenshot.');
       }
@@ -442,7 +515,18 @@ function startBrowserWorker() {
       return result;
     } catch (error) {
       const errMsg = error.message || String(error);
+      const maxAttempts = Number(bullJob.opts.attempts || 1);
+      const isFinalAttempt = bullJob.attemptsMade + 1 >= maxAttempts;
       logger.error('worker-browser', `Job ${job.id} failed: ${errMsg}`);
+
+      if (!isFinalAttempt) {
+        logger.warn('worker-browser', `Job ${job.id} will retry`, {
+          attempt: bullJob.attemptsMade + 1,
+          maxAttempts,
+        });
+        throw error;
+      }
+
       if (rateLimiter.isHeavyCommand(job.command) && job.user_id) {
         const billing = getBillingInfo(job);
         if (billing.creditReserved && billing.creditCost > 0) {
@@ -452,6 +536,15 @@ function startBrowserWorker() {
         }
       }
       await jobRepository.updateJobStatus(job.id, 'failed', '{}', errMsg);
+
+      const transport = job.transport || 'whatsapp';
+      const payload = JSON.parse(job.payload_json || '{}');
+      const chatId = job.chat_id || payload.chatId;
+      if (chatId) {
+        await sendText(transport, chatId, userFacingErrors.getSafeJobFailureMessage(error)).catch((notifyErr) => {
+          logger.error('worker-browser', `Failed to notify user about stopped job ${job.id}`, { error: notifyErr.message });
+        });
+      }
 
       const webhookUrl = process.env.DISCORD_WEBHOOK_URL || process.env.DISCORD_WEBHOOK;
       if (webhookUrl) {

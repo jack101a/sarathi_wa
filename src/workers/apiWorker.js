@@ -61,7 +61,7 @@ apiQueue.process(async (job) => {
     return { ok: true };
   }
  if (['form1','form1a','form2'].includes(job.command)) { const p = await formService.downloadForm(payload.appNo, payload.dob, job.command); await sendPdfFile(transport, chatId, p); cleanup(p); return { ok: true }; }
- if (job.command === 'formset') { const r = await formsetService.getFormset(payload.appNo, payload.dob); if (transport === 'telegram') await chatNotifier.sendTelegramDocument(chatId, r.buffer, r.filename, '', 'application/pdf'); else await chatNotifier.sendWhatsAppMedia(chatId, r.buffer, 'application/pdf', r.filename, ''); return { ok: true }; }
+ if (job.command === 'formset') { const r = await formsetService.getFormset(payload.appNo, payload.dob); if (transport === 'telegram') await chatNotifier.sendTelegramDocument(chatId, r.buffer, r.filename, r.caption, 'application/pdf'); else await chatNotifier.sendWhatsAppMedia(chatId, r.buffer, 'application/pdf', r.filename, r.caption); return { ok: true }; }
  if (job.command === 'appl_image') { const p = await ackService.getAckImage(payload.appNo, payload.dob); await sendImageFile(transport, chatId, p); cleanup(p); return { ok: true }; }
  if (job.command === 'appl_pdf') { const p = await ackService.getAckPDF(payload.appNo, payload.dob); await sendPdfFile(transport, chatId, p); cleanup(p); return { ok: true }; }
  if (job.command === 'slot_pdf') { const p = await ackService.getSlotAckPDF(payload.appNo, payload.dob); await sendPdfFile(transport, chatId, p); cleanup(p); return { ok: true }; }
@@ -198,4 +198,3 @@ apiQueue.process(async (job) => {
   }
  await sendText(transport, chatId, 'Unsupported command for API worker.'); return { ok: false };
 });
-

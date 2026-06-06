@@ -21,87 +21,30 @@ const ERRORS = {
   MISSING_APP_NO: (cmd, requiresDob = false) => `❌ *आवेदन संख्या (Application Number) नहीं मिली!*\n\n*सही तरीका (Format):*\n👉 \`${cmd} <appl_no>${requiresDob ? ' <DOB>' : ''}\``
 };
 
-const USER_HELP_TEXT = `📋 *Sarathi Bot Help (मदद)*
+const USER_HELP_TEXT = `*Bot Help / बॉट मदद*
 
-*खाता और बैलेंस (Account & Balance):*
-• \`balance\` / \`bal\` - बैलेंस और प्लान की जानकारी देखने के लिए
-• \`history\` / \`txn\` - पिछले 10 क्रेडिट लेन-देन देखने के लिए
-• \`plan\` - आपके सक्रिय प्लान और लिमिट की जानकारी
-• \`topup [amount]\` - Razorpay QR से बैलेंस रिचार्ज करने के लिए
+*Application related services / आवेदन संबंधित सेवाएं*
+\`2982778275 01-02-2003\`
 
-*DL/RC की जानकारी (Tracking):*
-• \`track DL <appl_no> <DOB>\` - DL का स्टेटस देखने के लिए
-• \`track RC <appl_no>\` - गाड़ी का RC स्टेटस देखने के लिए
-• \`track status\` - आपकी सक्रिय ट्रैकिंग लिस्ट देखने के लिए
-• \`track add <appl_no> <DOB>\` - DL ऑटो-ट्रैकिंग चालू करने के लिए
-• \`track add <appl_no>\` - RC ऑटो-ट्रैकिंग चालू करने के लिए
-• \`track remove <appl_no>\` - ऑटो-ट्रैकिंग बंद करने के लिए
+*DL related services / DL संबंधित सेवाएं*
+\`dl MH4720150008844 01-02-2003\`
 
-*फॉर्म डाउनलोड करें (Download Forms):*
-• \`app <appl_no> <DOB>\` - रसीद (Acknowledgement) डाउनलोड करने के लिए
-• \`slot <appl_no> <DOB>\` - स्लॉट बुकिंग रसीद (Slot Acknowledgement) डाउनलोड करने के लिए
-• \`form1 <appl_no> <DOB>\` - स्व-घोषणा फॉर्म (Self Declaration) डाउनलोड करने के लिए
-• \`form1a <appl_no> <DOB>\` - मेडिकल सर्टिफिकेट फॉर्म डाउनलोड करने के लिए
-• \`form2 <appl_no> <DOB>\` - फॉर्म 2 एप्लीकेशन डाउनलोड करने के लिए
-• \`formset <appl_no> <DOB>\` - सारे फॉर्म एक साथ (Combined Set) डाउनलोड करने के लिए
-• \`fees <appl_no> <DOB>\` - फीस की रसीद प्रिंट करने के लिए
-• \`llprint <appl_no> <DOB>\` - लर्निंग लाइसेंस डाउनलोड करने के लिए
+*Learning Licence related services / लर्निंग लाइसेंस संबंधित सेवाएं*
+\`ll MH47/0050138/2026 01-02-2003\`
 
-*अन्य कमांड्स (Others):*
-• \`resend <appl_no> <DOB>\` - लर्निंग लाइसेंस (LL) का पासवर्ड दोबारा भेजने के लिए
-• \`renewal <dl_no> <DOB> [RTO]\` - DL रिन्यूअल (Renewal of DL) के लिए
-• \`duplicate <dl_no> <DOB> [RTO]\` - डुप्लीकेट DL (Duplicate DL) के लिए
-• \`replacement <dl_no> <DOB> [RTO]\` - DL रिप्लेसमेंट (Replacement of DL) के लिए
-• \`dl extract <dl_no> <DOB> [RTO]\` - DL एक्सट्रैक्ट (DL Extract) के लिए
-• \`dlinfo <dl_no> <DOB>\` - DL की जानकारी देखने के लिए
-• \`dlapp <ll_no> <DOB>\` - नया DL अप्लाई करने के लिए
-• \`mobupdate <dl_no> <DOB>\` - मोबाइल नंबर अपडेट (Mobile Number Update) के लिए
-• \`alive\` - बॉट का स्टेटस चेक करने के लिए
-• \`stop\` - चल रहे काम को रोकने के लिए
+*More / अन्य*
+\`plan\` - your plan / आपका प्लान
+\`balance\` - credits / क्रेडिट बैलेंस
+\`track status\` - saved tracking / सेव की गई ट्रैकिंग
 
-💡 _नोट: जन्मतिथि (DOB) हमेशा DD-MM-YYYY फॉर्मेट में लिखें (जैसे: 01-02-2003)_`;
+*DOB format / जन्मतिथि फॉर्मेट:* DD-MM-YYYY`;
 
-const ADMIN_HELP_TEXT = `📋 *Sarathi Bot Help (मदद) - Admin Mode*
+const ADMIN_HELP_TEXT = `${USER_HELP_TEXT}
 
-*खाता और बैलेंस (Account & Balance):*
-• \`balance\` / \`bal\` - बैलेंस और प्लान की जानकारी देखने के लिए
-• \`history\` / \`txn\` - पिछले 10 क्रेडिट लेन-देन देखने के लिए
-• \`plan\` - आपके सक्रिय प्लान और लिमिट की जानकारी
-• \`topup [amount]\` - Razorpay QR से बैलेंस रिचार्ज करने के लिए
-
-*DL/RC की जानकारी (Tracking):*
-• \`track DL <appl_no> <DOB>\` - DL का स्टेटस देखने के लिए
-• \`track RC <appl_no>\` - गाड़ी का RC स्टेटस देखने के लिए
-• \`track status\` - आपकी सक्रिय ट्रैकिंग लिस्ट देखने के लिए
-• \`track add <appl_no> <DOB>\` - DL ऑटो-ट्रैकिंग चालू करने के लिए
-• \`track add <appl_no>\` - RC ऑटो-ट्रैकिंग चालू करने के लिए
-• \`track remove <appl_no>\` - ऑटो-ट्रैकिंग बंद करने के लिए
-
-*फॉर्म डाउनलोड करें (Download Forms):*
-• \`app <appl_no> <DOB>\` - रसीद (Acknowledgement) डाउनलोड करने के लिए
-• \`slot <appl_no> <DOB>\` - स्लॉट बुकिंग रसीद (Slot Acknowledgement) डाउनलोड करने के लिए
-• \`form1 <appl_no> <DOB>\` - स्व-घोषणा फॉर्म (Self Declaration) डाउनलोड करने के लिए
-• \`form1a <appl_no> <DOB>\` - मेडिकल सर्टिफिकेट फॉर्म डाउनलोड करने के लिए
-• \`form2 <appl_no> <DOB>\` - फॉर्म 2 एप्लीकेशन डाउनलोड करने के लिए
-• \`formset <appl_no> <DOB>\` - सारे फॉर्म एक साथ (Combined Set) डाउनलोड करने के लिए
-• \`fees <appl_no> <DOB>\` - फीस की रसीद प्रिंट करने के लिए
-• \`llprint <appl_no> <DOB>\` - लर्निंग लाइसेंस डाउनलोड करने के लिए
-
-*अन्य कमांड्स (Others):*
-• \`resend <appl_no> <DOB>\` - लर्निंग लाइसेंस (LL) का पासवर्ड दोबारा भेजने के लिए
-• \`renewal <dl_no> <DOB> [RTO]\` - DL रिन्यूअल (Renewal of DL) के लिए
-• \`duplicate <dl_no> <DOB> [RTO]\` - डुप्लीकेट DL (Duplicate DL) के लिए
-• \`replacement <dl_no> <DOB> [RTO]\` - DL रिप्लेसमेंट (Replacement of DL) के लिए
-• \`dl extract <dl_no> <DOB> [RTO]\` - DL एक्सट्रैक्ट (DL Extract) के लिए
-• \`dlinfo <dl_no> <DOB>\` - DL की जानकारी देखने के लिए
-• \`dlapp <ll_no> <DOB>\` - नया DL अप्लाई करने के लिए
-• \`mobupdate <dl_no> <DOB>\` - मोबाइल नंबर अपडेट (Mobile Number Update) के लिए
-• \`payfee <appl_no> <DOB>\` - फीस पेमेंट करने के लिए
-• \`bookslot <appl_no> <DOB>\` - स्लॉट बुकिंग के लिए
-• \`alive\` - बॉट का स्टेटस चेक करने के लिए
-• \`stop\` - चल रहे काम को रोकने के लिए
-
-💡 _नोट: जन्मतिथि (DOB) हमेशा DD-MM-YYYY फॉर्मेट में लिखें (जैसे: 01-02-2003)_`;
+Admin extras:
+\`payfee <appl_no> <dob>\`
+\`bookslot <appl_no> <dob>\`
+\`alive\``;
 
 function parseCommand(rawText, hasMedia, user, isAdmin) {
   if (hasMedia) {
@@ -182,7 +125,26 @@ function parseCommand(rawText, hasMedia, user, isAdmin) {
     .replace(/^mobupdate\b/i, 'mobupdate');
 
   const parts = textToParse.split(' ');
-  const cmd = parts[0].toLowerCase();
+  let cmd = parts[0].toLowerCase();
+
+  // Friendly short aliases advertised in help.
+  if (cmd === 'dl') {
+    textToParse = `dlinfo ${parts.slice(1).join(' ')}`.trim();
+  } else if (cmd === 'll') {
+    textToParse = `dlapp ${parts.slice(1).join(' ')}`.trim();
+  }
+  if (cmd === 'dl' || cmd === 'll') {
+    parts.splice(0, parts.length, ...textToParse.split(' '));
+    cmd = parts[0].toLowerCase();
+  }
+
+  // Shortest DL application status form: "<appl_no> <dob>".
+  if (/^\d{8,15}$/.test(cmd) && parts[1]) {
+    const normalizedDob = normalizeDob(parts[1]);
+    if (normalizedDob) {
+      return { success: true, type: 'track', payload: { appNo: cmd, dob: normalizedDob } };
+    }
+  }
 
   // Pre-process and merge split DL number parts (e.g. "MH47 20150008844")
   if (['dlrenewal', 'renewal', 'duplicate', 'replacement', 'dlextract', 'dlinfo', 'mobupdate'].includes(cmd)) {

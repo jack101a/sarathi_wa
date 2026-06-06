@@ -28,6 +28,7 @@ module.exports = {
   jobRepository: require('./jobRepository'),
   queue: require('./queue'),
   requestPipeline: require('./requestPipeline'),
+  userFacingErrors: require('./userFacingErrors'),
   interactiveFlowService: require('./interactiveFlowService'),
   chatNotifier: require('./chatNotifier'),
   cloudBackupSettings: require('./cloudBackupSettings'),

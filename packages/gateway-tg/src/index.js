@@ -50,8 +50,9 @@ async function main() {
   subscriber.on('pmessage', async (_pattern, channel, message) => {
     // channel = 'chat:response:telegram:123456789'
     const chatId = channel.replace('chat:response:telegram:', '');
+    let payload;
     try {
-      const payload = JSON.parse(message);
+      payload = JSON.parse(message);
 
       if (payload.type === 'text') {
         await bot.sendMessage(chatId, payload.text || '');
@@ -67,6 +68,11 @@ async function main() {
       }
     } catch (err) {
       logger.error('gateway-tg', `Response delivery failed for chatId=${chatId}: ${err.message}`);
+      if (payload && ['photo', 'document'].includes(payload.type) && payload.caption) {
+        await bot.sendMessage(chatId, payload.caption).catch((fallbackErr) => {
+          logger.error('gateway-tg', `Caption fallback failed for chatId=${chatId}: ${fallbackErr.message}`);
+        });
+      }
     }
   });
 

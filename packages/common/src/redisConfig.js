@@ -1,6 +1,17 @@
 const Redis = require('ioredis');
 
 function getRedisConnectionConfig() {
+  const appEnv = String(process.env.APP_ENV || process.env.NODE_ENV || 'development').toLowerCase();
+
+  if (appEnv === 'production' && !process.env.REDIS_URL) {
+    if (!process.env.REDIS_HOST) {
+      throw new Error('Redis is not configured. Set REDIS_HOST or REDIS_URL.');
+    }
+    if (!process.env.REDIS_PASSWORD) {
+      throw new Error('Redis password is not configured. Set REDIS_PASSWORD or use a secured REDIS_URL.');
+    }
+  }
+
   if (process.env.REDIS_HOST || process.env.REDIS_PASSWORD) {
     return {
       host: process.env.REDIS_HOST || 'localhost',

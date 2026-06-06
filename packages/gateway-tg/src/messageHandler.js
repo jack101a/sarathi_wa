@@ -82,7 +82,7 @@ async function tryForwardInteractiveInput(bot, chatId, text) {
   } else if (status.includes('slot')) {
     await bot.sendMessage(chatId, '⏳ Slot input received. Forwarding for processing...');
   } else if (status.includes('aadhaar') || status.includes('mobile')) {
-    await bot.sendMessage(chatId, '⏳ Input received. Forwarding for processing...');
+    // The mobile-update worker immediately sends the next prompt or final result.
   } else {
     await bot.sendMessage(chatId, '⏳ OTP received. Forwarding for processing...');
   }

@@ -8,8 +8,32 @@ const serviceRepo = require('./serviceRepository');
 
 // Commands that only read from stored data — skip concurrent job count check
 const INSTANT_COMMANDS = new Set(['track_status', 'list_track']);
+const INTERACTIVE_BROWSER_COMMANDS = new Set([
+  'llprint_start',
+  'lledit_start',
+  'dl_renewal_start',
+  'apply_dl_start',
+  'pay_fee_start',
+  'slot_booking_start',
+  'mobupdate_start',
+]);
 
 function makeJobId() { return `job_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`; }
+
+function getGroupContextId(message, transport, commandInfo = {}) {
+  if (commandInfo.groupId) return String(commandInfo.groupId);
+  const t = String(transport || '').toLowerCase();
+  if (t === 'whatsapp') {
+    const from = String(message && message.from || '');
+    return from.endsWith('@g.us') ? from : '';
+  }
+  if (t === 'telegram') {
+    const chat = message && message.chat;
+    const type = String(chat && chat.type || '').toLowerCase();
+    return type === 'group' || type === 'supergroup' ? String(chat.id) : '';
+  }
+  return '';
+}
 
 function getQueueType(command) {
   const registry = serviceRepo.getServiceRegistrySync();
@@ -32,7 +56,8 @@ async function processRequest(message, transport, commandInfo) {
 
   // 3. Rate / credit limit check (3-category: light / medium / heavy)
   const plan      = user.plan_id || user.subscription_plan || 'free';
-  const rateCheck = await rateLimiter.checkRateLimit(user.id, plan, commandInfo.command);
+  const groupId   = getGroupContextId(message, transport, commandInfo);
+  const rateCheck = await rateLimiter.checkRateLimit(user.id, plan, commandInfo.command, groupId);
   if (!rateCheck.allowed) {
     // Use the human-friendly message from rateLimiter if present
     const msg = rateCheck.message || `Rate limit reached: ${rateCheck.reason}. Please wait.`;
@@ -65,7 +90,7 @@ async function processRequest(message, transport, commandInfo) {
   let billing = null;
 
   if (rateLimiter.isHeavyCommand(commandInfo.command)) {
-    const creditCost = await rateLimiter.getCreditCostForUser(user.id, plan, commandInfo.command);
+    const creditCost = await rateLimiter.getCreditCostForUser(user.id, plan, commandInfo.command, groupId);
     try {
       await authRepo.reserveCreditsForJob(user.id, creditCost, commandInfo.command, jobId);
       billing = { creditReserved: true, creditCost };
@@ -110,7 +135,11 @@ async function processRequest(message, transport, commandInfo) {
     };
 
     if (queueType === 'browser') {
-      await browserQueue.add(job.command, job, { jobId: job.id });
+      const options = { jobId: job.id };
+      if (INTERACTIVE_BROWSER_COMMANDS.has(job.command)) {
+        options.attempts = 1;
+      }
+      await browserQueue.add(job.command, job, options);
     } else {
       await apiQueue.add(job.command, job, { jobId: job.id });
     }

@@ -11,6 +11,7 @@ const {
 } = require('@sarathi/common');
 const { consumeVerificationMessage, resendVerification } = require('../../../src/services/waVerificationService');
 const { handleAuthCommand } = require('../../../src/commands/authAdmin');
+const selfRegistrationService = require('./selfRegistrationService');
 const {
   handleIncomingText: handleVahanIncomingText,
   hasActiveSession: hasActiveVahanSession,
@@ -109,13 +110,13 @@ async function forwardInteractiveInputIfAny(message, text) {
   await redis.publish(`otp:input:${session.jobId}`, input);
   const status = String(session.status || '');
   if (status.includes('payment')) {
-    await message.reply('⏳ Payment confirmation received. Forwarding for processing...');
+    await message.reply('Payment confirmation received. Processing...');
   } else if (status.includes('slot')) {
-    await message.reply('⏳ Slot input received. Forwarding for processing...');
+    await message.reply('Slot choice received. Processing...');
   } else if (status.includes('aadhaar') || status.includes('mobile')) {
-    await message.reply('⏳ Input received. Forwarding for processing...');
+    // The mobile-update worker immediately sends the next prompt or final result.
   } else {
-    await message.reply('⏳ OTP received. Forwarding for processing...');
+    await message.reply('OTP received. Processing...');
   }
   return true;
 }
@@ -174,12 +175,6 @@ function getPrivatePhoneCandidates(message) {
   return [...new Set(candidates)];
 }
 
-function isPrivateLidOnlyMessage(message) {
-  const from = String((message && message.from) || '').toLowerCase();
-  const author = String((message && message.author) || '').toLowerCase();
-  return !from.endsWith('@g.us') && (from.endsWith('@lid') || author.endsWith('@lid'));
-}
-
 async function hasLinkedCurrentIdentity(message) {
   const idContext = authorizationNormalizer.extractIdentityFromMessage(message);
   const identities = (idContext && idContext.identities) || [];
@@ -222,17 +217,6 @@ async function maybeSendPairingCodeForKnownPhone(message) {
   return true;
 }
 
-async function replyUnknownLidPairingHelp(message) {
-  if (!isPrivateLidOnlyMessage(message)) return false;
-
-  const throttleKey = `wa:unknown-lid:${message.from}`;
-  const allowed = await redis.set(throttleKey, '1', 'EX', 300, 'NX').catch(() => null);
-  if (allowed !== 'OK') return true;
-
-  await message.reply('This WhatsApp identity is not linked to any registered mobile number yet. Ask admin to resend activation to your registered mobile number, then reply here with the 8-character code.');
-  return true;
-}
-
 async function handleIncomingMessage(client, message) {
   let normalizedBody = normalizeText(message.body || '');
 
@@ -253,9 +237,13 @@ async function handleIncomingMessage(client, message) {
 
 
   try {
-    if (isChatIdCommand(normalizedBody)) {
-      await message.reply(getChatIdReplyText(message));
-      return;
+    const isAdmin = authorizationService.isAdminWhatsApp(message, CONFIG);
+
+    if (!isAdmin) {
+      const registrationResult = await selfRegistrationService.handleIncoming(client, message, normalizedBody);
+      if (registrationResult && registrationResult.handled) {
+        return;
+      }
     }
 
     const compactCode = normalizedBody.replace(/[^a-z0-9]/gi, '').toUpperCase();
@@ -270,7 +258,7 @@ async function handleIncomingMessage(client, message) {
       }
     }
 
-    if (!authorizationService.isAdminWhatsApp(message, CONFIG) && await maybeSendPairingCodeForKnownPhone(message)) {
+    if (!isAdmin && await maybeSendPairingCodeForKnownPhone(message)) {
       return;
     }
 
@@ -280,15 +268,16 @@ async function handleIncomingMessage(client, message) {
       if (await replyPendingActivationIfAny(message)) {
         return;
       }
-      if (await replyUnknownLidPairingHelp(message)) {
-        return;
-      }
       console.log(`[MessageHandler] Unauthorized message from ${message.from} blocked.`);
       return;
     }
 
+    if (isChatIdCommand(normalizedBody)) {
+      await message.reply(getChatIdReplyText(message));
+      return;
+    }
+
     const dbUser = await authorizationService.getUserForRequest(message, 'whatsapp');
-    const isAdmin = authorizationService.isAdminWhatsApp(message, CONFIG);
 
     if (/^\/?auth\b/i.test(normalizedBody)) {
       if (!isAdmin) {
@@ -365,7 +354,7 @@ async function handleIncomingMessage(client, message) {
             if (result.blocked) {
               await message.reply(`🚫 ${result.message}`);
             } else {
-              await message.reply('⏳ Request queued for processing...');
+              await message.reply('Your request has started. The result will be sent here.');
             }
           }
         }
@@ -585,7 +574,7 @@ async function handleIncomingMessage(client, message) {
     if (result.blocked) {
       await message.reply(`🚫 ${result.message}`);
     } else {
-      await message.reply('⏳ Request queued for processing...');
+      await message.reply('Your request has started. The result will be sent here.');
     }
 
   } catch (error) {

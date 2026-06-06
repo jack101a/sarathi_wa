@@ -88,7 +88,7 @@ function ProtectedApp({ isDark }) {
           <Route path="/dashboard" element={<DashboardPanel stats={stats} recentJobs={recentJobs} loading={loading} isDark={isDark} />} />
           <Route path="/users"     element={<UsersPanel users={users} plans={plans} sarathiTracked={sarathiTracked} vahanTracked={vahanTracked} isDark={isDark} onRefresh={refresh} showToast={showToast} />} />
           <Route path="/plans"     element={<PlansPanel plans={plans} services={services} isDark={isDark} refresh={refresh} showToast={showToast} />} />
-          <Route path="/services"  element={<ServicesPanel services={services} users={users} plans={plans} priceOverrides={priceOverrides} isDark={isDark} refresh={refresh} showToast={showToast} />} />
+          <Route path="/services"  element={<ServicesPanel services={services} users={users} plans={plans} waGroups={waGroups} tgGroups={tgGroups} priceOverrides={priceOverrides} isDark={isDark} refresh={refresh} showToast={showToast} />} />
           <Route path="/jobs"      element={<JobsPanel queues={queues} isDark={isDark} showToast={showToast} />} />
           <Route path="/groups"    element={<GroupsPanel isDark={isDark} showToast={showToast} />} />
           <Route path="/activity"  element={<ActivityPanel users={users} isDark={isDark} showToast={showToast} />} />

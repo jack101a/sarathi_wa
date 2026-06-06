@@ -54,6 +54,21 @@ services:
     networks:
       - sarathi_home
 
+  worker-api:
+    image: ghcr.io/jack101a/sarathiwa_bot:worker-api-${IMAGE_TAG}
+    container_name: sarathi_worker_api_b
+    restart: always
+    environment:
+      <<: *app-env
+      WHATSAPP_PHONE_NUMBER: ${WHATSAPP_PHONE_NUMBER}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      API_CONCURRENCY: ${API_CONCURRENCY}
+      SESSION_POOL_SIZE: ${SESSION_POOL_SIZE}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL}
+    volumes: *common-volumes
+    networks:
+      - sarathi_home
+
   worker-browser:
     image: ghcr.io/jack101a/sarathiwa_bot:worker-browser-${IMAGE_TAG}
     container_name: sarathi_worker_browser_b

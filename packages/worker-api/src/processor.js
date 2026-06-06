@@ -1,5 +1,5 @@
 const { Worker } = require('bullmq');
-const { config: CONFIG, redis, logger, rateLimiter, authorizationRepository: authRepo, jobRepository, queue, redisConfig } = require('@sarathi/common');
+const { config: CONFIG, redis, logger, rateLimiter, authorizationRepository: authRepo, jobRepository, queue, redisConfig, userFacingErrors } = require('@sarathi/common');
 const fs = require('fs');
 const path = require('path');
 
@@ -87,8 +87,8 @@ async function handleJob(job) {
 
   if (job.command === 'formset') { 
     const r = await formsetService.getFormset(payload.appNo, payload.dob); 
-    if (transport === 'telegram') await chatNotifier.sendTelegramDocument(chatId, r.buffer, r.filename, '', 'application/pdf'); 
-    else await chatNotifier.sendWhatsAppMedia(chatId, r.buffer, 'application/pdf', r.filename, ''); 
+    if (transport === 'telegram') await chatNotifier.sendTelegramDocument(chatId, r.buffer, r.filename, r.caption, 'application/pdf');
+    else await chatNotifier.sendWhatsAppMedia(chatId, r.buffer, 'application/pdf', r.filename, r.caption);
     return { ok: true }; 
   }
 
@@ -179,7 +179,7 @@ async function handleJob(job) {
 
         responseText += `${text}\n========================================\n\n`;
       } catch (error) {
-        responseText += `*Application:* ${appNo}\n❌ Error: ${error.message}\n========================================\n\n`;
+        responseText += `*Application:* ${appNo}\nCould not retrieve this application. Please check the details and try again.\n========================================\n\n`;
       }
     }
 
@@ -234,12 +234,12 @@ async function handleJob(job) {
       }, url);
 
       if (resStatus === 200) {
-        await sendText(transport, chatId, `Password has been Resend on ${payload.appNo} ✅`);
+        await sendText(transport, chatId, `OTP has been sent again for ${payload.appNo}.`);
       } else {
-        await sendText(transport, chatId, `OTP resend request made for ${payload.appNo} (Status: ${resStatus}).`);
+        await sendText(transport, chatId, `Could not resend the OTP for ${payload.appNo}. Please try again.`);
       }
     } catch (e) {
-      await sendText(transport, chatId, `Failed to resend OTP for ${payload.appNo} (Error: ${e.message}).`);
+      await sendText(transport, chatId, `Could not resend the OTP for ${payload.appNo}. Please try again.`);
     } finally {
       if (page) await page.close().catch(()=>({}));
     }
@@ -264,7 +264,7 @@ async function handleJob(job) {
     return { ok: true };
   }
 
-  await sendText(transport, chatId, 'Unsupported command for API worker.');
+  await sendText(transport, chatId, 'This service is not available right now. Please try again later.');
   return { ok: false };
 }
 
@@ -329,6 +329,15 @@ function startApiWorker() {
         }
       }
       await jobRepository.updateJobStatus(job.id, 'failed', '{}', errMsg);
+
+      const transport = job.transport || 'whatsapp';
+      const payload = JSON.parse(job.payload_json || '{}');
+      const chatId = job.chat_id || payload.chatId;
+      if (chatId) {
+        await sendText(transport, chatId, userFacingErrors.getSafeJobFailureMessage(error)).catch((notifyErr) => {
+          logger.error('worker-api', `Failed to notify user about stopped job ${job.id}`, { error: notifyErr.message });
+        });
+      }
 
       const webhookUrl = process.env.DISCORD_WEBHOOK_URL || process.env.DISCORD_WEBHOOK;
       if (webhookUrl) {

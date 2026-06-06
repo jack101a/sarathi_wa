@@ -3,7 +3,7 @@
 const { query, run, runTransaction } = require('./db');
 const serviceRepository = require('./serviceRepository');
 
-const VALID_SCOPES = new Set(['user', 'plan']);
+const VALID_SCOPES = new Set(['user', 'group', 'plan']);
 const DEFAULT_HEAVY_COST = 50;
 let initialized = false;
 
@@ -20,7 +20,7 @@ function normalizeOverride(row) {
 
 function validateScope(scopeType) {
   if (!VALID_SCOPES.has(scopeType)) {
-    throw new Error("scope_type must be 'user' or 'plan'");
+    throw new Error("scope_type must be 'user', 'group', or 'plan'");
   }
 }
 
@@ -58,11 +58,14 @@ async function listOverrides() {
            s.category AS service_category,
            p.name AS plan_name,
            u.canonical_phone AS user_phone,
-           u.name AS user_name
+           u.name AS user_name,
+           g.group_id AS group_id,
+           g.channel AS group_channel
     FROM service_price_overrides spo
     LEFT JOIN services s ON s.id = spo.service_id
     LEFT JOIN subscription_plans p ON spo.scope_type = 'plan' AND p.id = spo.scope_id
     LEFT JOIN auth_users u ON spo.scope_type = 'user' AND u.id::text = spo.scope_id
+    LEFT JOIN authorized_groups g ON spo.scope_type = 'group' AND g.group_id = spo.scope_id
     ORDER BY spo.updated_at DESC, spo.created_at DESC
   `);
   return rows.map(normalizeOverride);
@@ -86,6 +89,7 @@ async function upsertOverride(input = {}) {
   validateScope(scopeType);
   if (!scopeId) throw new Error('scope_id is required');
   if (!serviceId) throw new Error('service_id is required');
+  await validateScopeTarget(scopeType, scopeId);
 
   await run(`
     INSERT INTO service_price_overrides (scope_type, scope_id, service_id, credit_cost, is_active, note, created_at, updated_at)
@@ -143,7 +147,20 @@ async function getUserPlan(userId) {
   return rows[0]?.plan_id || null;
 }
 
-async function resolveServicePrice({ userId = '', planId = '', serviceId = '' } = {}) {
+async function validateScopeTarget(scopeType, scopeId) {
+  if (scopeType === 'user') {
+    const rows = await query('SELECT 1 FROM auth_users WHERE id = ? LIMIT 1', [scopeId]);
+    if (!rows[0]) throw new Error('User pricing target not found');
+  } else if (scopeType === 'plan') {
+    const rows = await query('SELECT 1 FROM subscription_plans WHERE id = ? LIMIT 1', [scopeId]);
+    if (!rows[0]) throw new Error('Plan pricing target not found');
+  } else if (scopeType === 'group') {
+    const rows = await query('SELECT 1 FROM authorized_groups WHERE group_id = ? AND is_active = 1 LIMIT 1', [scopeId]);
+    if (!rows[0]) throw new Error('Group pricing target not found');
+  }
+}
+
+async function resolveServicePrice({ userId = '', groupId = '', planId = '', serviceId = '' } = {}) {
   await ensureTable();
   const service = serviceRepository.getServiceRegistrySync().get(serviceId);
   const globalCost = Number(service?.credit_cost || 0);
@@ -157,6 +174,16 @@ async function resolveServicePrice({ userId = '', planId = '', serviceId = '' } 
       [userId, serviceId]
     );
     if (rows[0]) return { creditCost: Number(rows[0].credit_cost || 0), source: 'user', override: normalizeOverride(rows[0]) };
+  }
+
+  if (groupId) {
+    const rows = await query(
+      `SELECT * FROM service_price_overrides
+       WHERE scope_type = 'group' AND scope_id = ? AND service_id = ? AND is_active = 1
+       LIMIT 1`,
+      [groupId, serviceId]
+    );
+    if (rows[0]) return { creditCost: Number(rows[0].credit_cost || 0), source: 'group', override: normalizeOverride(rows[0]) };
   }
 
   if (effectivePlanId) {

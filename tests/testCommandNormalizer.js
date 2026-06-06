@@ -23,6 +23,24 @@ assert.deepStrictEqual(parse('app 2982778275 01-02-2003'), {
   payload: { appNo: '2982778275', dob: '01-02-2003', mobile: '' },
 });
 
+assert.deepStrictEqual(parse('2982778275 01-02-2003'), {
+  success: true,
+  type: 'track',
+  payload: { appNo: '2982778275', dob: '01-02-2003' },
+});
+
+assert.deepStrictEqual(parse('dl MH4720150008844 01-02-2003'), {
+  success: true,
+  type: 'dl_info_start',
+  payload: { dlNo: 'MH47 20150008844', dob: '01-02-2003' },
+});
+
+assert.deepStrictEqual(parse('ll MH47/0050138/2026 01-02-2003'), {
+  success: true,
+  type: 'apply_dl_start',
+  payload: { llNo: 'MH47 /0050138/2026', dob: '01-02-2003', mobile: '' },
+});
+
 assert.deepStrictEqual(parse('stop'), {
   success: true,
   type: 'stop',

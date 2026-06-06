@@ -9,6 +9,11 @@ const paymentService = require('./paymentService');
 const slotBookingService = require('./slotBookingService');
 const mobileUpdateService = require('./mobileUpdateService');
 const { normalizeDob } = require('./commandInputService');
+const {
+  buildDlApplicationSummary,
+  buildFormsetCaption,
+} = require('../utils/serviceMessages');
+const { getMobileUpdateFailureMessage } = require('../utils/mobileUpdateMessages');
 
 const {
   getDlRenewalSessions,
@@ -56,14 +61,13 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
     
     if (flow.step === 'aadhaar') {
       if (input.length === 12 && /^\d+$/.test(input)) {
-        await message.reply('⏳ Generating Aadhaar OTP...');
         flow.step = 'aadhaar_otp';
         try {
           await mobileUpdateService.generateAadhaarOtp(flow.page, input);
-          await message.reply('🔑 Enter Aadhaar OTP:');
+          await message.reply('Enter the Aadhaar OTP.');
         } catch (error) {
           mobileUpdateSessions.delete(message.from);
-          await message.reply(`❌ Failed to enter Aadhaar or generate OTP: ${error.message || error}`);
+          await message.reply(getMobileUpdateFailureMessage(error));
           if (flow.context) await flow.context.close().catch(() => {});
           if (flow.browser) await flow.browser.close().catch(() => {});
         }
@@ -81,7 +85,7 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
           await message.reply('✅ Aadhaar verified. Send new mobile number:');
         } catch (error) {
           mobileUpdateSessions.delete(message.from);
-          await message.reply(`❌ e-KYC Verification failed: ${error.message || error}`);
+          await message.reply(getMobileUpdateFailureMessage(error));
           if (flow.context) await flow.context.close().catch(() => {});
           if (flow.browser) await flow.browser.close().catch(() => {});
         }
@@ -93,7 +97,6 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
 
     if (flow.step === 'target_mobile') {
       if (input.length === 10 && /^\d+$/.test(input)) {
-        await message.reply('⏳ Sending Mobile OTP...');
         flow.step = 'mobile_otp';
         flow.targetMobile = input;
         try {
@@ -116,10 +119,10 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
             });
           }, input);
 
-          await message.reply('🔑 Enter Mobile OTP:');
+          await message.reply('Enter the mobile OTP.');
         } catch (error) {
           mobileUpdateSessions.delete(message.from);
-          await message.reply(`❌ Failed to trigger Mobile OTP: ${error.message || error}`);
+          await message.reply(getMobileUpdateFailureMessage(error));
           if (flow.context) await flow.context.close().catch(() => {});
           if (flow.browser) await flow.browser.close().catch(() => {});
         }
@@ -132,27 +135,30 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
     if (flow.step === 'mobile_otp') {
       if (input.length === 6 && /^\d+$/.test(input)) {
         mobileUpdateSessions.delete(message.from);
-        await message.reply('⏳ Updating...');
         try {
           const result = await mobileUpdateService.executeBypassScript(flow.page, flow.targetMobile, input);
-          if (result.screenshotPath) {
-            const media = MessageMedia.fromFilePath(result.screenshotPath);
-            const caption = result.success 
-              ? `🎉 Updated to ${flow.targetMobile}!` 
-              : `❌ Update may have failed. Check preview.`;
-            await client.sendMessage(message.from, media, { caption });
-            cleanupFile(result.screenshotPath);
-            if (result.success) {
-              if (flow.resolveJob) flow.resolveJob({ ok: true });
+          const successMessage = `Mobile number updated successfully to ${flow.targetMobile}.`;
+          if (result.success) {
+            if (result.screenshotPath) {
+              try {
+                const media = MessageMedia.fromFilePath(result.screenshotPath);
+                await client.sendMessage(message.from, media, { caption: successMessage });
+              } catch (error) {
+                await message.reply(successMessage);
+              } finally {
+                cleanupFile(result.screenshotPath);
+              }
             } else {
-              if (flow.rejectJob) flow.rejectJob(new Error('Update failed on portal.'));
+              await message.reply(successMessage);
             }
+            if (flow.resolveJob) flow.resolveJob({ ok: true });
           } else {
-            await message.reply('❌ Mobile update failed.');
+            cleanupFile(result.screenshotPath);
+            await message.reply(getMobileUpdateFailureMessage());
             if (flow.rejectJob) flow.rejectJob(new Error('Mobile update failed. No confirmation page screenshot.'));
           }
         } catch (error) {
-          await message.reply(`❌ Mobile Update failed: ${error.message || error}`);
+          await message.reply(getMobileUpdateFailureMessage(error));
           if (flow.rejectJob) flow.rejectJob(error);
         } finally {
           if (flow.context) await flow.context.close().catch(() => {});
@@ -176,7 +182,7 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
       const serviceName = serviceType.replace('OF DL', '').replace('ISSUE OF', '').trim().toLowerCase();
       const formattedServiceName = serviceName.charAt(0).toUpperCase() + serviceName.slice(1);
       
-      await message.reply(`⏳ OTP received. Filling Self-Declaration Form 1 popup and submitting DL ${formattedServiceName}...`);
+      await message.reply('⏳ OTP received...');
       try {
         const result = await dlRenewalService.submitDLRenewalOTP(flow.browser, flow.context, flow.page, otpCode, flow.serviceType);
         let slipPath, appNo;
@@ -200,9 +206,8 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
         // Automatically send formset after success
         if (appNo && appNo !== 'Unknown' && flow.dob) {
           try {
-            await message.reply('⏳ Automatically generating and downloading your formset (acknowledgement & medical forms)...');
             const { getFormset } = require('./formsetService');
-            const { buffer, filename } = await getFormset(appNo, flow.dob);
+            const { buffer, filename, includedDocuments, caption } = await getFormset(appNo, flow.dob);
             
             const tempDir = CONFIG.TEMP.DIR || './data/temp';
             if (!fs.existsSync(tempDir)) {
@@ -213,19 +218,19 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
             
             const mediaDoc = MessageMedia.fromFilePath(tempPath);
             await client.sendMessage(message.from, mediaDoc, { 
-              caption: `📄 Automatically generated Formset for Application No: ${appNo}. (Contains acknowledgement form and medical form)`,
+              caption: caption || buildFormsetCaption(appNo, includedDocuments),
               sendMediaAsDocument: true
             });
             cleanupFile(tempPath);
           } catch (formsetError) {
             console.error('Failed to automatically send formset:', formsetError);
-            await message.reply(`⚠️ Note: Application is successful, but formset PDF could not be generated automatically: ${formsetError.message}`);
+            await message.reply('Application completed, but the formset could not be prepared.');
           }
         }
 
         if (flow.resolveJob) flow.resolveJob({ ok: true, slipPath });
       } catch (error) {
-        await message.reply(`❌ DL ${formattedServiceName} failed: ${error.message || error}`);
+        await message.reply(`We could not complete DL ${formattedServiceName}. Please check the details and try again.`);
         if (flow.rejectJob) flow.rejectJob(error);
         else {
           if (flow.context) await flow.context.close().catch(() => {});
@@ -242,27 +247,30 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
     const otpCode = normalizedBody.trim();
     if (otpCode.length > 0 && otpCode.length <= 8) {
       applyDlSessions.delete(message.from);
-      await message.reply('⏳ OTP received. Booking class of vehicles, completing Self-Declaration Form 1, and finalising DL application...');
+      await message.reply('⏳ OTP received...');
       try {
         const details = await applyDlService.submitApplyDLOTP(flow.browser, flow.context, flow.page, otpCode);
-        await message.reply(`✅ DL Application Submitted Successfully!\n📝 Application Details: ${details.extractedText}`);
+        const applicationSummary = buildDlApplicationSummary(details);
         if (details.screenshotPath) {
           try {
             const media = MessageMedia.fromFilePath(details.screenshotPath);
-            await client.sendMessage(message.from, media, { caption: '📄 Here is your DL Application Acknowledgment Slip.' });
+            await client.sendMessage(message.from, media, { caption: applicationSummary });
           } catch (e) {
             console.error('Failed to send acknowledgment screenshot to WhatsApp:', e);
+            await message.reply(applicationSummary);
+          } finally {
+            cleanupFile(details.screenshotPath);
           }
-          cleanupFile(details.screenshotPath);
+        } else {
+          await message.reply(applicationSummary);
         }
 
         // Automatically send formset after success
         const appNo = details.appNo || (details.extractedText && details.extractedText.match(/Application No\s*:\s*(\d+)/i)?.[1]);
         if (appNo && appNo !== 'Unknown' && flow.dob) {
           try {
-            await message.reply('⏳ Automatically generating and downloading your formset (acknowledgement & medical forms)...');
             const { getFormset } = require('./formsetService');
-            const { buffer, filename } = await getFormset(appNo, flow.dob);
+            const { buffer, filename, includedDocuments, caption } = await getFormset(appNo, flow.dob);
             
             const tempDir = CONFIG.TEMP.DIR || './data/temp';
             if (!fs.existsSync(tempDir)) {
@@ -273,19 +281,19 @@ async function handleDailyFillingWhatsAppMessage(message, client, enqueueOrReply
             
             const mediaDoc = MessageMedia.fromFilePath(tempPath);
             await client.sendMessage(message.from, mediaDoc, { 
-              caption: `📄 Automatically generated Formset for Application No: ${appNo}. (Contains acknowledgement form and medical form)`,
+              caption: caption || buildFormsetCaption(appNo, includedDocuments),
               sendMediaAsDocument: true
             });
             cleanupFile(tempPath);
           } catch (formsetError) {
             console.error('Failed to automatically send formset:', formsetError);
-            await message.reply(`⚠️ Note: Application is successful, but formset PDF could not be generated automatically: ${formsetError.message}`);
+            await message.reply('Application completed, but the formset could not be prepared.');
           }
         }
 
         if (flow.resolveJob) flow.resolveJob({ ok: true, details });
       } catch (error) {
-        await message.reply(`❌ DL Application failed: ${error.message || error}`);
+        await message.reply('We could not complete the DL application. Please check the details and try again.');
         if (flow.rejectJob) flow.rejectJob(error);
         else {
           if (flow.context) await flow.context.close().catch(() => {});
@@ -394,14 +402,13 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
     
     if (flow.step === 'aadhaar') {
       if (input.length === 12 && /^\d+$/.test(input)) {
-        await bot.sendMessage(chatId, '⏳ Generating Aadhaar OTP...');
         flow.step = 'aadhaar_otp';
         try {
           await mobileUpdateService.generateAadhaarOtp(flow.page, input);
-          await bot.sendMessage(chatId, '🔑 Enter Aadhaar OTP:');
+          await bot.sendMessage(chatId, 'Enter the Aadhaar OTP.');
         } catch (error) {
           mobileUpdateSessions.delete(chatId);
-          await bot.sendMessage(chatId, `❌ Failed to enter Aadhaar or generate OTP: ${error.message || error}`);
+          await bot.sendMessage(chatId, getMobileUpdateFailureMessage(error));
           if (flow.context) await flow.context.close().catch(() => {});
           if (flow.browser) await flow.browser.close().catch(() => {});
         }
@@ -419,7 +426,7 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
           await bot.sendMessage(chatId, '✅ Aadhaar verified. Send new mobile number:');
         } catch (error) {
           mobileUpdateSessions.delete(chatId);
-          await bot.sendMessage(chatId, `❌ e-KYC Verification failed: ${error.message || error}`);
+          await bot.sendMessage(chatId, getMobileUpdateFailureMessage(error));
           if (flow.context) await flow.context.close().catch(() => {});
           if (flow.browser) await flow.browser.close().catch(() => {});
         }
@@ -431,7 +438,6 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
 
     if (flow.step === 'target_mobile') {
       if (input.length === 10 && /^\d+$/.test(input)) {
-        await bot.sendMessage(chatId, '⏳ Sending Mobile OTP...');
         flow.step = 'mobile_otp';
         flow.targetMobile = input;
         try {
@@ -454,10 +460,10 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
             });
           }, input);
 
-          await bot.sendMessage(chatId, '🔑 Enter Mobile OTP:');
+          await bot.sendMessage(chatId, 'Enter the mobile OTP.');
         } catch (error) {
           mobileUpdateSessions.delete(chatId);
-          await bot.sendMessage(chatId, `❌ Failed to trigger Mobile OTP: ${error.message || error}`);
+          await bot.sendMessage(chatId, getMobileUpdateFailureMessage(error));
           if (flow.context) await flow.context.close().catch(() => {});
           if (flow.browser) await flow.browser.close().catch(() => {});
         }
@@ -470,27 +476,30 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
     if (flow.step === 'mobile_otp') {
       if (input.length === 6 && /^\d+$/.test(input)) {
         mobileUpdateSessions.delete(chatId);
-        await bot.sendMessage(chatId, '⏳ Updating...');
         try {
           const result = await mobileUpdateService.executeBypassScript(flow.page, flow.targetMobile, input);
-          if (result.screenshotPath) {
-            const docBuffer = fs.readFileSync(result.screenshotPath);
-            const caption = result.success 
-              ? `🎉 Updated to ${flow.targetMobile}!` 
-              : `❌ Update may have failed. Check preview.`;
-            await bot.sendPhoto(chatId, docBuffer, { caption });
-            cleanupFile(result.screenshotPath);
-            if (result.success) {
-              if (flow.resolveJob) flow.resolveJob({ ok: true });
+          const successMessage = `Mobile number updated successfully to ${flow.targetMobile}.`;
+          if (result.success) {
+            if (result.screenshotPath) {
+              try {
+                const docBuffer = fs.readFileSync(result.screenshotPath);
+                await bot.sendPhoto(chatId, docBuffer, { caption: successMessage });
+              } catch (error) {
+                await bot.sendMessage(chatId, successMessage);
+              } finally {
+                cleanupFile(result.screenshotPath);
+              }
             } else {
-              if (flow.rejectJob) flow.rejectJob(new Error('Update failed on portal.'));
+              await bot.sendMessage(chatId, successMessage);
             }
+            if (flow.resolveJob) flow.resolveJob({ ok: true });
           } else {
-            await bot.sendMessage(chatId, '❌ Mobile update failed.');
+            cleanupFile(result.screenshotPath);
+            await bot.sendMessage(chatId, getMobileUpdateFailureMessage());
             if (flow.rejectJob) flow.rejectJob(new Error('Mobile update failed. No confirmation page screenshot.'));
           }
         } catch (error) {
-          await bot.sendMessage(chatId, `❌ Mobile Update failed: ${error.message || error}`);
+          await bot.sendMessage(chatId, getMobileUpdateFailureMessage(error));
           if (flow.rejectJob) flow.rejectJob(error);
         } finally {
           if (flow.context) await flow.context.close().catch(() => {});
@@ -514,7 +523,7 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
       const serviceName = serviceType.replace('OF DL', '').replace('ISSUE OF', '').trim().toLowerCase();
       const formattedServiceName = serviceName.charAt(0).toUpperCase() + serviceName.slice(1);
       
-      await bot.sendMessage(chatId, `⏳ OTP received. Filling Self-Declaration Form 1 popup and submitting DL ${formattedServiceName}...`);
+      await bot.sendMessage(chatId, '⏳ OTP received...');
       try {
         const result = await dlRenewalService.submitDLRenewalOTP(flow.browser, flow.context, flow.page, otpCode, flow.serviceType);
         let slipPath, appNo;
@@ -537,9 +546,8 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
         // Automatically send formset after success
         if (appNo && appNo !== 'Unknown' && flow.dob) {
           try {
-            await bot.sendMessage(chatId, '⏳ Automatically generating and downloading your formset (acknowledgement & medical forms)...');
             const { getFormset } = require('./formsetService');
-            const { buffer, filename } = await getFormset(appNo, flow.dob);
+            const { buffer, filename, includedDocuments, caption } = await getFormset(appNo, flow.dob);
             
             const tempDir = CONFIG.TEMP.DIR || './data/temp';
             if (!fs.existsSync(tempDir)) {
@@ -549,18 +557,18 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
             fs.writeFileSync(tempPath, buffer);
             
             await bot.sendDocument(chatId, tempPath, { 
-              caption: `📄 Automatically generated Formset for Application No: ${appNo}. (Contains acknowledgement form and medical form)`
+              caption: caption || buildFormsetCaption(appNo, includedDocuments)
             });
             cleanupFile(tempPath);
           } catch (formsetError) {
             console.error('Failed to automatically send formset:', formsetError);
-            await bot.sendMessage(chatId, `⚠️ Note: Application is successful, but formset PDF could not be generated automatically: ${formsetError.message}`);
+            await bot.sendMessage(chatId, 'Application completed, but the formset could not be prepared.');
           }
         }
 
         if (flow.resolveJob) flow.resolveJob({ ok: true, slipPath });
       } catch (error) {
-        await bot.sendMessage(chatId, `❌ DL ${formattedServiceName} failed: ${error.message || error}`);
+        await bot.sendMessage(chatId, `We could not complete DL ${formattedServiceName}. Please check the details and try again.`);
         if (flow.rejectJob) flow.rejectJob(error);
         else {
           if (flow.context) await flow.context.close().catch(() => {});
@@ -577,26 +585,29 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
     const otpCode = text.trim();
     if (otpCode.length > 0 && otpCode.length <= 8) {
       applyDlSessions.delete(chatId);
-      await bot.sendMessage(chatId, '⏳ OTP received. Booking class of vehicles, completing Self-Declaration Form 1, and finalising DL application...');
+      await bot.sendMessage(chatId, '⏳ OTP received...');
       try {
         const details = await applyDlService.submitApplyDLOTP(flow.browser, flow.context, flow.page, otpCode);
-        await bot.sendMessage(chatId, `✅ DL Application Submitted Successfully!\n📝 Application Details: ${details.extractedText}`);
+        const applicationSummary = buildDlApplicationSummary(details);
         if (details.screenshotPath) {
           try {
-            await bot.sendPhoto(chatId, details.screenshotPath, { caption: '📄 Here is your DL Application Acknowledgment Slip.' });
+            await bot.sendPhoto(chatId, details.screenshotPath, { caption: applicationSummary });
           } catch (e) {
             console.error('Failed to send acknowledgment screenshot to Telegram:', e);
+            await bot.sendMessage(chatId, applicationSummary);
+          } finally {
+            cleanupFile(details.screenshotPath);
           }
-          cleanupFile(details.screenshotPath);
+        } else {
+          await bot.sendMessage(chatId, applicationSummary);
         }
 
         // Automatically send formset after success
         const appNo = details.appNo || (details.extractedText && details.extractedText.match(/Application No\s*:\s*(\d+)/i)?.[1]);
         if (appNo && appNo !== 'Unknown' && flow.dob) {
           try {
-            await bot.sendMessage(chatId, '⏳ Automatically generating and downloading your formset (acknowledgement & medical forms)...');
             const { getFormset } = require('./formsetService');
-            const { buffer, filename } = await getFormset(appNo, flow.dob);
+            const { buffer, filename, includedDocuments, caption } = await getFormset(appNo, flow.dob);
             
             const tempDir = CONFIG.TEMP.DIR || './data/temp';
             if (!fs.existsSync(tempDir)) {
@@ -606,18 +617,18 @@ async function handleDailyFillingTelegramMessage(msg, bot, enqueueOrReplyTg) {
             fs.writeFileSync(tempPath, buffer);
             
             await bot.sendDocument(chatId, tempPath, { 
-              caption: `📄 Automatically generated Formset for Application No: ${appNo}. (Contains acknowledgement form and medical form)`
+              caption: caption || buildFormsetCaption(appNo, includedDocuments)
             });
             cleanupFile(tempPath);
           } catch (formsetError) {
             console.error('Failed to automatically send formset:', formsetError);
-            await bot.sendMessage(chatId, `⚠️ Note: Application is successful, but formset PDF could not be generated automatically: ${formsetError.message}`);
+            await bot.sendMessage(chatId, 'Application completed, but the formset could not be prepared.');
           }
         }
 
         if (flow.resolveJob) flow.resolveJob({ ok: true, details });
       } catch (error) {
-        await bot.sendMessage(chatId, `❌ DL Application failed: ${error.message || error}`);
+        await bot.sendMessage(chatId, 'We could not complete the DL application. Please check the details and try again.');
         if (flow.rejectJob) flow.rejectJob(error);
         else {
           if (flow.context) await flow.context.close().catch(() => {});

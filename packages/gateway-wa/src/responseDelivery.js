@@ -8,6 +8,8 @@ async function startResponseListener(client) {
   await subscriber.psubscribe('chat:response:wa:*');
 
   subscriber.on('pmessage', async (pattern, channel, messageStr) => {
+    let chatId = '';
+    let response;
     try {
       // ── Response dedup ─────────────────────────────────────────────────────
       // All gateway-wa instances subscribe to the same channel.
@@ -22,13 +24,13 @@ async function startResponseListener(client) {
 
       // Channel is format: chat:response:whatsapp:1234567890@c.us
       const parts = channel.split(':');
-      const chatId = parts[3]; // The fourth element is the JID
+      chatId = parts[3]; // The fourth element is the JID
       if (!chatId) {
         console.error(`[ResponseDelivery] Invalid channel name: ${channel}`);
         return;
       }
 
-      const response = JSON.parse(messageStr);
+      response = JSON.parse(messageStr);
       console.log(`[ResponseDelivery][${process.env.INSTANCE_ID || 'wa'}] Delivering to ${chatId}: type=${response.type}`);
 
       if (response.type === 'text') {
@@ -45,6 +47,11 @@ async function startResponseListener(client) {
       }
     } catch (err) {
       console.error(`[ResponseDelivery] Error delivering response: ${err.message}`);
+      if (chatId && response && response.type === 'media' && response.caption) {
+        await client.sendMessage(chatId, response.caption).catch((fallbackErr) => {
+          console.error(`[ResponseDelivery] Caption fallback failed: ${fallbackErr.message}`);
+        });
+      }
     }
   });
 

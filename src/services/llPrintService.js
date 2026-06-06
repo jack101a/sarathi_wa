@@ -209,6 +209,17 @@ async function startLLPrintFlow(appNum, dob, mobile) {
     }
 }
 
+async function closeLLPrintFlow(context) {
+    if (!context) return;
+
+    await context.close().catch(() => {});
+    const slotIdx = context._llSlotIdx;
+    if (slotIdx !== undefined) {
+        releaseProfile(slotIdx);
+        context._llSlotIdx = undefined;
+    }
+}
+
 // Signature matches all callers in bot.js and telegramBot.js:
 //   submitLLPrintOTP(flow.context, flow.page, otpCode, flow.appNo, flow.dob)
 async function submitLLPrintOTP(context, page, otpCode, appNum, dob) {
@@ -412,17 +423,12 @@ async function submitLLPrintOTP(context, page, otpCode, appNum, dob) {
         throw e;
     } finally {
         await page.waitForTimeout(3000);
-        await context.close().catch(() => {});
-
-        // Release the profile slot back to the pool for the next user
-        const slotIdx = context._llSlotIdx;
-        if (slotIdx !== undefined) {
-            releaseProfile(slotIdx);
-        }
+        await closeLLPrintFlow(context);
     }
 }
 
 module.exports = {
     startLLPrintFlow,
+    closeLLPrintFlow,
     submitLLPrintOTP
 };

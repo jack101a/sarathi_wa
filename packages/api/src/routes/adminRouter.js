@@ -967,7 +967,7 @@ router.post('/cloud-backup/upload-now', async (req, res) => {
     }
 
     const result = await cloudBackup.uploadToCloud(latest.path, latest.fileName);
-    res.status(result.ok ? 200 : 400).json(result);
+    res.status(result.ok ? 200 : 400).json({ ...result, fileName: latest.fileName });
   } catch (err) {
     logger.error('adminRouter', 'Manual cloud backup upload failed', { error: err.message });
     res.status(500).json({ ok: false, message: err.message });

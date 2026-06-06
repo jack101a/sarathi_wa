@@ -2,6 +2,7 @@ const fs = require('fs');
 const { PDFDocument } = require('pdf-lib');
 const { getAckPDF } = require('./ackService');
 const { downloadForm } = require('./formService');
+const { buildFormsetCaption } = require('../utils/serviceMessages');
 
 function safeUnlink(filePath) {
   if (filePath && fs.existsSync(filePath)) {
@@ -75,8 +76,9 @@ async function getFormset(appNo, dob) {
 
     return {
       buffer,
-      filename: `formset_${appNo}.pdf`,
+      filename: `Formset_${appNo}.pdf`,
       includedDocuments,
+      caption: buildFormsetCaption(appNo, includedDocuments),
     };
   } catch (error) {
     throw new Error(`Failed to build formset PDF: ${error.message}`);

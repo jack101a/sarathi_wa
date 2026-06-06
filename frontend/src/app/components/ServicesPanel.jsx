@@ -3,7 +3,7 @@ import { useThemeContext } from '../context/ThemeContext.jsx';
 import { Layers, Plus, Edit2, Trash2, X, Check, Cpu, CheckSquare, Square, Shield } from 'lucide-react';
 import { apiPostJson, apiPut, apiDelete } from '../../api/client';
 
-export function ServicesPanel({ services = [], users = [], plans = [], priceOverrides = [], refresh, showToast }) {
+export function ServicesPanel({ services = [], users = [], plans = [], waGroups = [], tgGroups = [], priceOverrides = [], refresh, showToast }) {
   const { isDark } = useThemeContext();
   const [showModal, setShowModal] = useState(false);
   const [editingService, setEditingService] = useState(null);
@@ -72,6 +72,10 @@ export function ServicesPanel({ services = [], users = [], plans = [], priceOver
   const heavyCount = services.filter(s => s.category === 'heavy').length;
   const inactiveCount = services.filter(s => !s.is_active).length;
   const heavyServices = services.filter(s => s.category === 'heavy');
+  const groups = [
+    ...waGroups.map(g => ({ ...g, label: `WhatsApp: ${g.group_id}`, value: g.group_id })),
+    ...tgGroups.map(g => ({ ...g, label: `Telegram: ${g.group_id}`, value: g.group_id })),
+  ];
 
   function openCreate() {
     setEditingService(null);
@@ -184,6 +188,7 @@ export function ServicesPanel({ services = [], users = [], plans = [], priceOver
 
   function describePricingTarget(row) {
     if (row.scope_type === 'plan') return row.plan_name ? `${row.plan_name} (${row.scope_id})` : row.scope_id;
+    if (row.scope_type === 'group') return row.group_channel ? `${row.group_channel.toUpperCase()}: ${row.scope_id}` : row.scope_id;
     return row.user_name || row.user_phone || row.scope_id;
   }
 
@@ -262,7 +267,7 @@ export function ServicesPanel({ services = [], users = [], plans = [], priceOver
               <Shield size={17} color="#f59e0b" /> Custom Pricing
             </h3>
             <p style={{ margin: '0.25rem 0 0', color: thText, fontSize: '0.75rem' }}>
-              Priority: user price → plan price → global service price.
+              Priority: user price → group price → plan price → global service price.
             </p>
           </div>
         </div>
@@ -276,6 +281,7 @@ export function ServicesPanel({ services = [], users = [], plans = [], priceOver
               onChange={e => setPricingForm(f => ({ ...f, scope_type: e.target.value, scope_id: '' }))}
             >
               <option value="plan">Plan</option>
+              <option value="group">Group</option>
               <option value="user">User</option>
             </select>
           </div>
@@ -287,9 +293,9 @@ export function ServicesPanel({ services = [], users = [], plans = [], priceOver
               onChange={e => setPricingForm(f => ({ ...f, scope_id: e.target.value }))}
             >
               <option value="">Select...</option>
-              {pricingForm.scope_type === 'plan'
-                ? plans.map(p => <option key={p.id} value={p.id}>{p.name} ({p.id})</option>)
-                : users.map(u => <option key={u.id} value={u.id}>{u.name || u.canonical_phone} ({u.canonical_phone})</option>)}
+              {pricingForm.scope_type === 'plan' && plans.map(p => <option key={p.id} value={p.id}>{p.name} ({p.id})</option>)}
+              {pricingForm.scope_type === 'group' && groups.map(g => <option key={`${g.channel}:${g.value}`} value={g.value}>{g.label}</option>)}
+              {pricingForm.scope_type === 'user' && users.map(u => <option key={u.id} value={u.id}>{u.name || u.canonical_phone} ({u.canonical_phone})</option>)}
             </select>
           </div>
           <div>

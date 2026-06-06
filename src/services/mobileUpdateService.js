@@ -1,7 +1,13 @@
+const fs = require('fs');
 const { chromium } = require('playwright');
 const { solveSarathiCaptcha } = require('./sarathiCaptchaSolver');
 const { getTempFilePath } = require('../core/tempFiles');
+const {
+  sanitizePortalMessage,
+  isPortalFailureMessage,
+} = require('../utils/mobileUpdateMessages');
 const CONFIG = require('../config/config');
+const AADHAAR_OTP_MAX_ATTEMPTS = 3;
 
 async function solvePortalCaptcha(page) {
   const rules = [
@@ -43,7 +49,10 @@ async function startMobileUpdateFlow(licenseNo, dob) {
   console.log(`🚀 [MobileService] Starting stage 1 navigation for DL: ${licenseNo}`);
   const headless = CONFIG.PUPPETEER.HEADLESS === 'new' || CONFIG.PUPPETEER.HEADLESS === true;
   const browser = await chromium.launch({ headless });
-  const context = await browser.newContext({
+  let context;
+
+  try {
+  context = await browser.newContext({
     userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
   });
   
@@ -51,9 +60,13 @@ async function startMobileUpdateFlow(licenseNo, dob) {
   page.setDefaultTimeout(90000);
   page.setDefaultNavigationTimeout(90000);
 
-  // Register global dialogue handler immediately to prevent alert boxes blocking the thread
+  // Keep dialogs from blocking automation while preserving their text for
+  // stage-specific validation and user-safe error reporting.
+  page._mobilePortalDialogs = [];
   page.on('dialog', async dialog => {
-    console.log(`[MobileService] Global Intercepted Dialog: ${dialog.message()} (${dialog.type()})`);
+    const message = sanitizePortalMessage(dialog.message());
+    console.log(`[MobileService] Global Intercepted Dialog: ${message} (${dialog.type()})`);
+    if (message) page._mobilePortalDialogs.push(message);
     try {
       await dialog.accept();
     } catch (e) {
@@ -125,6 +138,11 @@ async function startMobileUpdateFlow(licenseNo, dob) {
   await page.locator('#authenticateWithTypeA').check();
   
   return { browser, context, page };
+  } catch (error) {
+    if (context) await context.close().catch(() => {});
+    await browser.close().catch(() => {});
+    throw error;
+  }
 }
 
 async function generateAadhaarOtp(page, aadhaarNo) {
@@ -156,15 +174,38 @@ async function generateAadhaarOtp(page, aadhaarNo) {
   await genBtn.evaluate(el => el.disabled = false);
   await page.waitForTimeout(500);
 
-  console.log('[MobileService] Clicking Generate OTP button natively via MouseEvent...');
-  await genBtn.evaluate(el => {
-    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-  });
-  await page.waitForTimeout(1000);
+  let latestFailureMessage = '';
+  for (let attempt = 1; attempt <= AADHAAR_OTP_MAX_ATTEMPTS; attempt++) {
+    page._mobilePortalDialogs = [];
+    console.log(`[MobileService] Aadhaar OTP generation attempt ${attempt}/${AADHAAR_OTP_MAX_ATTEMPTS}...`);
+    await genBtn.evaluate(el => {
+      el.removeAttribute('disabled');
+      el.disabled = false;
+    });
+    await genBtn.click({ force: true });
+    await page.waitForTimeout(2500);
 
-  // Fallback click just in case
-  await genBtn.click({ force: true }).catch(() => {});
-  console.log('[MobileService] Aadhaar OTP triggered successfully.');
+    const dialogMessages = Array.isArray(page._mobilePortalDialogs)
+      ? page._mobilePortalDialogs.splice(0)
+      : [];
+    const failureMessage = dialogMessages.find(isPortalFailureMessage);
+    latestFailureMessage = failureMessage || latestFailureMessage;
+    const otpInputVisible = await page.locator('#otpNumber').isVisible().catch(() => false);
+
+    if (otpInputVisible && !failureMessage) {
+      console.log('[MobileService] Aadhaar OTP triggered successfully.');
+      return { ok: true };
+    }
+
+    if (attempt < AADHAAR_OTP_MAX_ATTEMPTS) {
+      await page.waitForTimeout(1000);
+    }
+  }
+
+  const error = new Error('Aadhaar OTP could not be generated after three attempts.');
+  error.code = 'MOBILE_PORTAL_MESSAGE';
+  error.publicMessage = latestFailureMessage || 'Aadhaar OTP could not be sent because the service is currently unavailable.';
+  throw error;
 }
 
 /**
@@ -176,12 +217,6 @@ async function authenticateAadhaar(page, aadhaarOtp) {
   await page.locator('#checkMe').check();
   await page.getByRole('checkbox').nth(1).check();
   await page.getByRole('checkbox').nth(2).check();
-  
-  // Handle native alerts dynamically
-  page.once('dialog', dialog => {
-    console.log(`[MobileService] Intercepted Alert dialog: ${dialog.message()}`);
-    dialog.dismiss().catch(() => {});
-  });
   
   await page.getByRole('button', { name: 'Authenticate' }).click();
   await page.waitForTimeout(2000);
@@ -345,32 +380,39 @@ async function executeBypassScript(page, newMobileNumber, mobileOtp) {
     await page.setViewportSize({ width: 900, height: 1200 });
     
     let screenshotTaken = false;
-    try {
-      const panelLocator = page.locator('.panel-body').first();
-      if (await panelLocator.isVisible()) {
-        console.log("[MobileService] Found .panel-body element, taking targeted screenshot...");
-        await panelLocator.screenshot({ path: outputPath });
-        screenshotTaken = true;
-      } else {
-        const fallbackLocator = page.locator('.panel').first();
-        if (await fallbackLocator.isVisible()) {
-          console.log("[MobileService] Found .panel element, taking targeted screenshot...");
-          await fallbackLocator.screenshot({ path: outputPath });
-          screenshotTaken = true;
+    for (let attempt = 1; attempt <= 3 && !screenshotTaken; attempt++) {
+      try {
+        console.log(`[MobileService] Screenshot attempt ${attempt}/3...`);
+        if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+        const panelBody = page.locator('.panel-body').first();
+        const panel = page.locator('.panel').first();
+
+        if (await panelBody.isVisible().catch(() => false)) {
+          await panelBody.screenshot({ path: outputPath });
+        } else if (await panel.isVisible().catch(() => false)) {
+          await panel.screenshot({ path: outputPath });
+        } else {
+          await page.screenshot({ path: outputPath, fullPage: true });
         }
+
+        screenshotTaken = fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0;
+      } catch (error) {
+        console.error(`[MobileService] Screenshot attempt ${attempt}/3 failed:`, error.message);
       }
-    } catch (err) {
-      console.error("[MobileService] Element-specific screenshot failed:", err);
+
+      if (!screenshotTaken && attempt < 3) {
+        await page.waitForTimeout(750);
+      }
     }
 
-    if (!screenshotTaken) {
-      console.log("[MobileService] Falling back to full-page screenshot...");
-      await page.screenshot({ path: outputPath, fullPage: true }).catch(err => {
-        console.error("[MobileService] Failed to take fallback screenshot:", err);
-      });
+    if (!screenshotTaken && fs.existsSync(outputPath)) {
+      fs.unlinkSync(outputPath);
     }
     
-    return { success: isActualSuccess, screenshotPath: outputPath };
+    return {
+      success: isActualSuccess,
+      screenshotPath: screenshotTaken ? outputPath : null,
+    };
   }
 
   return { success: false };

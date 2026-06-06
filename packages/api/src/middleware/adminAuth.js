@@ -6,6 +6,29 @@ const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
 const LOGIN_WINDOW_SECONDS = 15 * 60;
 const LOGIN_MAX_FAILURES = 8;
 
+function safeEquals(left, right) {
+  const a = Buffer.from(String(left || ''), 'utf8');
+  const b = Buffer.from(String(right || ''), 'utf8');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function verifyPasswordHash(password, expectedHash) {
+  const hash = String(expectedHash || '').trim();
+  if (!hash) return false;
+
+  if (hash.startsWith('scrypt:')) {
+    const [, saltHex, keyHex] = hash.split(':');
+    if (!saltHex || !keyHex) return false;
+    const salt = Buffer.from(saltHex, 'hex');
+    const expected = Buffer.from(keyHex, 'hex');
+    const supplied = crypto.scryptSync(String(password || ''), salt, expected.length);
+    return supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
+  }
+
+  const suppliedHash = crypto.createHash('sha256').update(String(password || '')).digest('hex');
+  return safeEquals(suppliedHash, hash) || safeEquals(`sha256:${suppliedHash}`, hash);
+}
+
 async function handleLogin(req, res) {
   const { username, password, token } = req.body || {};
   const expectedUser = CONFIG.ADMIN.USERNAME;
@@ -24,10 +47,9 @@ async function handleLogin(req, res) {
 
   if (credentialsOk) {
     if (expectedHash) {
-      const suppliedHash = crypto.createHash('sha256').update(suppliedPassword).digest('hex');
-      credentialsOk = suppliedHash === expectedHash || `sha256:${suppliedHash}` === expectedHash;
+      credentialsOk = verifyPasswordHash(suppliedPassword, expectedHash);
     } else {
-      credentialsOk = Boolean(expectedPassword) && suppliedPassword === expectedPassword;
+      credentialsOk = Boolean(expectedPassword) && safeEquals(suppliedPassword, expectedPassword);
     }
   }
 
