@@ -18,16 +18,63 @@ jobs:
 
     env:
       CONFIG_PATH: /tmp/sarathi-runtime
+      TZ: Asia/Kolkata
+      NODE_ENV: test
+      APP_ENV: test
       ADMIN_TOKEN: ci-admin-token
       ADMIN_USERNAME: admin
-      PG_PASSWORD: ci-postgres-password
+      ADMIN_PASSWORD: ci-admin-password
+      ADMIN_PASSWORD_HASH: ''
+      PGHOST: postgres
+      PGPORT: '5432'
+      PGDATABASE: sarathi
+      PGUSER: sarathi
+      PGPASSWORD: ci-postgres-password
+      PG_BIND: 127.0.0.1
+      PG_HOST_PORT: '25432'
+      REDIS_HOST: redis
+      REDIS_PORT: '6379'
       REDIS_PASSWORD: ci-redis-password
+      REDIS_BIND: 127.0.0.1
+      REDIS_HOST_PORT: '26379'
       PORT: '13000'
-      PG_PORT: '25432'
-      REDIS_PORT: '26379'
+      INSTANCE_ID: wa-ci
+      INSTANCE_ROLE: primary
+      SESSION_NAME: ci-session
+      REQUIRE_CHAT_FRONTEND: 'false'
       WHATSAPP_PHONE_NUMBER: '911234567890'
+      ADMIN_USERS: ''
+      AUTHORIZED_USERS: ''
+      AUTHORIZED_GROUPS: ''
       TG_TOKEN: '123456789:CIContainerSmokeTokenDoNotUse'
       TELEGRAM_BOT_TOKEN: '123456789:CIContainerSmokeTokenDoNotUse'
+      AUTHORIZED_TG_USERS: ''
+      AUTHORIZED_TG_GROUPS: ''
+      TELEGRAM_NOTIFY_CHAT_IDS: ''
+      RAZORPAY_KEY_ID: ''
+      RAZORPAY_KEY_SECRET: ''
+      RAZORPAY_WEBHOOK_SECRET: ''
+      RAZORPAY_QR_NAME: Sarathi Bot CI
+      DISCORD_WEBHOOK_URL: ''
+      API_CONCURRENCY: '1'
+      SESSION_POOL_SIZE: '1'
+      AI_PARSING_ENABLED: 'false'
+      LITELLM_API_BASE: ''
+      LITELLM_API_KEY: ''
+      LITELLM_MODEL: ''
+      BROWSER_ENGINE: puppeteer
+      BROWSER_CONCURRENCY: '1'
+      MAX_BROWSER_PAGES: '1'
+      PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
+      PUPPETEER_HEADLESS: 'true'
+      PUPPETEER_DISABLE_SANDBOX: 'true'
+      PUPPETEER_ARGS: --no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage
+      AUTO_TRACK_CRON: '0 10-22/3 * * *'
+      VAHAN_TRACK_CRON: '0 10-22/3 * * *'
+      AUTO_TRACK_UPDATE_CHAT_ID: ''
+      VAHAN_TRACK_UPDATE_CHAT_ID: ''
+      AUTO_CLOUD_BACKUP_ENABLED: 'false'
+      BACKUP_HEALTH_MAX_AGE_HOURS: '8'
       LOG_LEVEL: info
       NGINX_HTTP_PORT: '18080'
       NGINX_HTTPS_PORT: '18443'
