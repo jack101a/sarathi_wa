@@ -1,7 +1,7 @@
 import React from 'react';
-import { Server, Cpu, HardDrive, Settings, Database, Download, RefreshCw, ShieldCheck, ShieldAlert, ShieldX, RotateCcw, AlertTriangle, Cloud, Send, CheckCircle2, XCircle, Loader } from 'lucide-react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiGet, apiPostJson, apiPut } from '../../api/client.js';
+import { Server, Cpu, HardDrive, Settings, Database, Download, Upload, RefreshCw, ShieldCheck, ShieldAlert, ShieldX, RotateCcw, AlertTriangle, Cloud, Send, CheckCircle2, XCircle, Loader } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { apiGet, apiPostBinary, apiPostJson, apiPut } from '../../api/client.js';
 
 function mb(bytes) {
   return bytes ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : '—';
@@ -49,6 +49,8 @@ function BackupTypeBadge({ type, isDark }) {
     startup:          { color: '#06b6d4', bg: 'rgba(6,182,212,0.15)',  label: 'Startup' },
     shutdown:         { color: '#a855f7', bg: 'rgba(168,85,247,0.15)', label: 'Shutdown' },
     'restore-safety': { color: '#fbbf24', bg: 'rgba(251,191,36,0.15)', label: 'Safety' },
+    imported:         { color: '#06b6d4', bg: 'rgba(6,182,212,0.15)', label: 'Imported' },
+    postgres:         { color: '#64748b', bg: 'rgba(100,116,139,0.15)', label: 'PostgreSQL' },
   };
   const cfg = map[type] || { color: '#9ca3af', bg: 'rgba(156,163,175,0.12)', label: type || '?' };
   return (
@@ -394,17 +396,43 @@ export function SettingsPanel({ health, isDark, showToast }) {
   });
 
   const [backingUp,     setBackingUp]     = React.useState(false);
+  const [importing,     setImporting]     = React.useState(false);
   const [restoreTarget, setRestoreTarget] = React.useState(null);
   const [isRestoring,   setIsRestoring]   = React.useState(false);
+  const importInputRef = React.useRef(null);
 
   async function handleTriggerBackup() {
     setBackingUp(true);
     try {
-      await apiPostJson('/admin/api/backup');
-      showToast && showToast('Manual database backup created and verified.', 'success');
+      const result = await apiPostJson('/admin/api/backup');
+      const cloudUploaded = result.cloud?.results?.filter(item => item.ok).length || 0;
+      const cloudSuffix = cloudUploaded > 0 ? ` Uploaded to ${cloudUploaded} cloud provider(s).` : '';
+      showToast && showToast(`Database backup created and verified.${cloudSuffix}`, 'success');
       refetchBackups(); refetchHealth();
     } catch (err) { showToast && showToast(`Backup failed: ${err.message}`, 'error'); }
     finally { setBackingUp(false); }
+  }
+
+  async function handleImportBackup(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.dump')) {
+      showToast && showToast('Select a PostgreSQL .dump backup file.', 'error');
+      return;
+    }
+
+    setImporting(true);
+    try {
+      const result = await apiPostBinary('/admin/api/backups/import', file, file.name);
+      showToast && showToast('Backup uploaded and verified. It is ready to restore.', 'success');
+      await Promise.all([refetchBackups(), refetchHealth()]);
+      if (result.backup) setRestoreTarget(result.backup);
+    } catch (err) {
+      showToast && showToast(`Backup import failed: ${err.message}`, 'error');
+    } finally {
+      setImporting(false);
+    }
   }
 
   async function handleRestore(confirmation) {
@@ -488,12 +516,19 @@ export function SettingsPanel({ health, isDark, showToast }) {
             <span style={{ background: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)', color: isDark ? '#9ca3af' : '#6b7280', padding: '0.2rem 0.6rem', borderRadius: '999px', fontSize: '0.72rem', fontWeight: 600 }}>{healthData?.totalBackups ?? '—'} backups</span>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-            <span style={{ fontSize: '0.78rem', color: isDark ? '#9ca3af' : '#6b7280' }}>Keeps 5 recent + 1 daily for 7 days. Auto backup every 6 hours.</span>
-            <button onClick={handleTriggerBackup} disabled={backingUp} style={{ padding: '0.45rem 1rem', borderRadius: '0.5rem', background: 'linear-gradient(135deg,#fbbf24,#f59e0b)', color: '#fff', border: 'none', cursor: backingUp ? 'not-allowed' : 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem', opacity: backingUp ? 0.7 : 1 }}>
-              {backingUp ? <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Database size={14} />}
-              {backingUp ? 'Backing up...' : 'Backup Now'}
-            </button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+            <span style={{ fontSize: '0.78rem', color: isDark ? '#9ca3af' : '#6b7280' }}>Automatic backup every 6 hours. Use Upload & Restore to recover from a downloaded PostgreSQL backup.</span>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <input ref={importInputRef} type="file" accept=".dump,application/octet-stream" onChange={handleImportBackup} style={{ display: 'none' }} />
+              <button onClick={() => importInputRef.current?.click()} disabled={importing || isRestoring} style={{ padding: '0.45rem 1rem', borderRadius: '0.5rem', background: isDark ? 'rgba(6,182,212,0.14)' : 'rgba(6,182,212,0.1)', color: '#06b6d4', border: '1px solid rgba(6,182,212,0.3)', cursor: importing ? 'not-allowed' : 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem', opacity: importing ? 0.7 : 1 }}>
+                {importing ? <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={14} />}
+                {importing ? 'Verifying...' : 'Upload & Restore'}
+              </button>
+              <button onClick={handleTriggerBackup} disabled={backingUp} style={{ padding: '0.45rem 1rem', borderRadius: '0.5rem', background: 'linear-gradient(135deg,#fbbf24,#f59e0b)', color: '#fff', border: 'none', cursor: backingUp ? 'not-allowed' : 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem', opacity: backingUp ? 0.7 : 1 }}>
+                {backingUp ? <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Database size={14} />}
+                {backingUp ? 'Backing up...' : 'Backup Now'}
+              </button>
+            </div>
           </div>
 
           <div style={{ overflowX: 'auto' }}>
@@ -505,7 +540,7 @@ export function SettingsPanel({ health, isDark, showToast }) {
               </thead>
               <tbody>
                 {isFetchingBackups && !backupsData && <tr><td colSpan={6} style={{ padding: '1rem', textAlign: 'center', color: isDark ? '#9ca3af' : '#6b7280' }}>Loading…</td></tr>}
-                {!isFetchingBackups && (!backupsData?.backups || backupsData.backups.length === 0) && <tr><td colSpan={6} style={{ padding: '1rem', textAlign: 'center', color: isDark ? '#9ca3af' : '#6b7280' }}>No backups found.</td></tr>}
+                {!isFetchingBackups && (!backupsData?.backups || backupsData.backups.length === 0) && <tr><td colSpan={6} style={{ padding: '1rem', textAlign: 'center', color: isDark ? '#9ca3af' : '#6b7280' }}>No local backups found. Create one now or upload a PostgreSQL .dump file to restore.</td></tr>}
                 {backupsData?.backups?.map(b => (
                   <tr key={b.fileName} style={{ borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}` }}>
                     <td style={{ padding: '0.6rem 0.75rem', fontFamily: 'monospace', fontSize: '0.72rem', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: isDark ? '#e6edf3' : '#111827' }}>{b.fileName}</td>

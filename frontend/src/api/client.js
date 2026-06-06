@@ -40,6 +40,20 @@ export async function apiPostJson(url, body = {}, opts = {}) {
   return handleResponse(resp);
 }
 
+export async function apiPostBinary(url, body, fileName, opts = {}) {
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'X-Backup-Filename': encodeURIComponent(fileName || 'uploaded.dump'),
+      ...(opts.headers || {}),
+    },
+    body,
+    credentials: 'include',
+  });
+  return handleResponse(resp);
+}
+
 export async function apiPatchJson(url, body = {}, opts = {}) {
   const resp = await fetch(url, {
     method: 'PATCH',

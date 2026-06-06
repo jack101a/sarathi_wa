@@ -71,7 +71,7 @@ function startScheduler() {
 
   // 7. PostgreSQL backup every 6 hours
   cron.schedule('0 */6 * * *', () => {
-    withLock('db_backup', 50, runBackup);
+    withLock('db_backup', 30 * 60, runBackup);
   }, cronOptions);
 
   // 8. Auto-track Sarathi applications every 30 minutes (staggered at minute 0 and 30)

@@ -354,7 +354,7 @@ async function handleIncomingMessage(client, message) {
             if (result.blocked) {
               await message.reply(`🚫 ${result.message}`);
             } else {
-              await message.reply('Your request has started. The result will be sent here.');
+              await message.reply('⏳ Processing...');
             }
           }
         }
@@ -574,7 +574,7 @@ async function handleIncomingMessage(client, message) {
     if (result.blocked) {
       await message.reply(`🚫 ${result.message}`);
     } else {
-      await message.reply('Your request has started. The result will be sent here.');
+      await message.reply('⏳ Processing...');
     }
 
   } catch (error) {

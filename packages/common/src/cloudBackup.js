@@ -4,7 +4,6 @@ const fs = require('fs');
 const { execFileSync } = require('child_process');
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 const cloudBackupSettings = require('./cloudBackupSettings');
-const chatNotifier = require('./chatNotifier');
 const logger = require('./logger');
 
 function checkRcloneInstalled() {
@@ -20,16 +19,25 @@ async function uploadTelegram(filePath, fileName, provider) {
   const chatIds = Array.isArray(provider.config.chatIds) ? provider.config.chatIds.filter(Boolean) : [];
   if (chatIds.length === 0) throw new Error('Telegram cloud backup requires at least one chat id');
 
+  const token = process.env.TELEGRAM_BOT_TOKEN || process.env.TG_TOKEN || '';
+  if (!token) throw new Error('Telegram cloud backup requires TELEGRAM_BOT_TOKEN');
+
   const buffer = fs.readFileSync(filePath);
   for (const chatId of chatIds) {
-    await chatNotifier.sendTelegramDocument(
-      chatId,
-      buffer,
-      fileName,
-      `Database backup: ${fileName}`,
-      'application/octet-stream'
-    );
+    const form = new FormData();
+    form.set('chat_id', String(chatId));
+    form.set('caption', `Database backup: ${fileName}`);
+    form.set('document', new Blob([buffer], { type: 'application/octet-stream' }), fileName);
+    const response = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {
+      method: 'POST',
+      body: form,
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || payload?.ok !== true) {
+      throw new Error(payload?.description || `Telegram upload failed with HTTP ${response.status}`);
+    }
   }
+  return `Delivered to ${chatIds.length} Telegram chat(s)`;
 }
 
 async function uploadRclone(filePath, fileName, provider) {
@@ -40,6 +48,7 @@ async function uploadRclone(filePath, fileName, provider) {
 
   const destination = remotePath ? `${remote}:${remotePath}/${fileName}` : `${remote}:${fileName}`;
   execFileSync('rclone', ['copyto', filePath, destination], { stdio: 'pipe', timeout: 5 * 60 * 1000 });
+  return `Uploaded to ${destination}`;
 }
 
 async function uploadR2(filePath, fileName, provider) {
@@ -61,6 +70,7 @@ async function uploadR2(filePath, fileName, provider) {
     Body: fs.createReadStream(filePath),
     ContentType: 'application/octet-stream'
   }));
+  return `Uploaded to ${bucket}/sarathiwa-backups/${fileName}`;
 }
 
 async function uploadToProvider(providerName, filePath, fileName) {
@@ -68,13 +78,14 @@ async function uploadToProvider(providerName, filePath, fileName) {
   if (!provider.enabled) return { provider: providerName, skipped: true, reason: 'disabled' };
 
   try {
-    if (providerName === 'telegram') await uploadTelegram(filePath, fileName, provider);
-    if (providerName === 'rclone') await uploadRclone(filePath, fileName, provider);
-    if (providerName === 'r2') await uploadR2(filePath, fileName, provider);
+    let result = '';
+    if (providerName === 'telegram') result = await uploadTelegram(filePath, fileName, provider);
+    if (providerName === 'rclone') result = await uploadRclone(filePath, fileName, provider);
+    if (providerName === 'r2') result = await uploadR2(filePath, fileName, provider);
 
     await cloudBackupSettings.recordUploadStatus(providerName, 'success', '');
     logger.info('cloudBackup', 'Cloud backup upload succeeded', { provider: providerName, fileName });
-    return { provider: providerName, ok: true };
+    return { provider: providerName, ok: true, result };
   } catch (err) {
     await cloudBackupSettings.recordUploadStatus(providerName, 'failed', err.message);
     logger.error('cloudBackup', 'Cloud backup upload failed', { provider: providerName, fileName, error: err.message });
@@ -107,8 +118,21 @@ async function testProvider(providerName, configOverride = null) {
   if (providerName === 'telegram') {
     const chatIds = Array.isArray(provider.config.chatIds) ? provider.config.chatIds.filter(Boolean) : [];
     if (chatIds.length === 0) throw new Error('Telegram provider has no chat ids configured');
-    await chatNotifier.sendTelegramMessage(chatIds[0], 'SarathiWA cloud backup test message');
-    return { ok: true, message: 'Telegram test message queued' };
+    const token = process.env.TELEGRAM_BOT_TOKEN || process.env.TG_TOKEN || '';
+    if (!token) throw new Error('Telegram provider requires TELEGRAM_BOT_TOKEN');
+    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: String(chatIds[0]),
+        text: 'SarathiWA cloud backup test message',
+      }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || payload?.ok !== true) {
+      throw new Error(payload?.description || `Telegram test failed with HTTP ${response.status}`);
+    }
+    return { ok: true, message: 'Telegram test message delivered' };
   }
 
   if (providerName === 'rclone') {

@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const { randomUUID } = require('crypto');
 const router = express.Router();
 const { 
   db, 
@@ -28,6 +29,23 @@ const BACKUP_DIR = postgresBackup.BACKUP_DIR;
 
 // Heavy refresh still uses the command services, but tracking storage is Postgres-backed.
 const { refreshAllTrackedApplications } = require('../../../../src/services/trackingControlService');
+const DATABASE_OPERATION_LOCK = 'lock:postgres_backup_operation';
+
+async function acquireDatabaseOperationLock(owner, ttlSeconds) {
+  const token = `${owner}:${randomUUID()}`;
+  const locked = await redis.set(DATABASE_OPERATION_LOCK, token, 'EX', ttlSeconds, 'NX').catch(() => null);
+  return locked === 'OK' ? token : null;
+}
+
+async function releaseDatabaseOperationLock(token) {
+  if (!token) return;
+  await redis.eval(
+    'if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end',
+    1,
+    DATABASE_OPERATION_LOCK,
+    token
+  ).catch(() => {});
+}
 
 // Helper to get BullMQ queue stats
 async function getQueueStats(q) {
@@ -60,6 +78,29 @@ async function cancelQueueJob(q, jobId) {
     }
   } catch (_) {}
   return false;
+}
+
+async function pauseQueuesForRestore(timeoutMs = 5 * 60 * 1000) {
+  await Promise.all([apiQueue.pause(), browserQueue.pause()]);
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const [apiActive, browserActive] = await Promise.all([
+      apiQueue.getActiveCount(),
+      browserQueue.getActiveCount(),
+    ]);
+    if (apiActive === 0 && browserActive === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+
+  throw new Error('Active jobs did not finish within 5 minutes. Restore was cancelled safely.');
+}
+
+async function resumeQueuesAfterRestore() {
+  await Promise.all([
+    apiQueue.resume().catch(() => {}),
+    browserQueue.resume().catch(() => {}),
+  ]);
 }
 
 function toWhatsAppUserJid(phone) {
@@ -98,7 +139,8 @@ function getMaskedRuntimeConfig() {
     backup: {
       type: 'postgres',
       directory: BACKUP_DIR,
-      restoreFromAdminApi: false
+      restoreFromAdminApi: true,
+      importFromAdminApi: true
     }
   };
 }
@@ -841,13 +883,38 @@ router.post('/wa/active', async (req, res) => {
 
 // ── Database Backup ────────────────────────────────────────────────────────
 router.post('/backup', async (req, res) => {
+  const lockToken = await acquireDatabaseOperationLock('manual-backup', 1800);
+  if (!lockToken) {
+    return res.status(409).json({ ok: false, message: 'Another database backup or restore is already running' });
+  }
+
   try {
     const backup = await postgresBackup.createBackup('manual');
+    await releaseDatabaseOperationLock(lockToken);
+    let cloud = null;
+    if (process.env.AUTO_CLOUD_BACKUP_ENABLED !== 'false') {
+      try {
+        cloud = await cloudBackup.uploadToCloud(backup.path, backup.fileName);
+      } catch (cloudErr) {
+        cloud = { ok: false, message: cloudErr.message, results: [] };
+        logger.error('adminRouter', 'Manual cloud backup upload failed', {
+          fileName: backup.fileName,
+          error: cloudErr.message,
+        });
+      }
+    }
     logger.info('adminRouter', 'Manual backup created', { fileName: backup && backup.fileName });
-    res.json({ ok: true, message: 'Database backup created', backup });
+    res.json({
+      ok: true,
+      message: 'Database backup created and verified',
+      backup,
+      cloud,
+    });
   } catch (err) {
     logger.error('adminRouter', 'Manual backup failed', { error: err.message });
     res.status(500).json({ ok: false, message: err.message });
+  } finally {
+    await releaseDatabaseOperationLock(lockToken);
   }
 });
 
@@ -864,6 +931,33 @@ router.get('/backups/health', (req, res) => {
   const health = postgresBackup.getBackupHealth();
   res.json(health);
 });
+
+router.post(
+  '/backups/import',
+  express.raw({ type: 'application/octet-stream', limit: '256mb' }),
+  async (req, res) => {
+    const lockToken = await acquireDatabaseOperationLock('backup-import', 300);
+    if (!lockToken) {
+      return res.status(409).json({ ok: false, message: 'Another database backup or restore is already running' });
+    }
+
+    try {
+      let sourceName = String(req.get('x-backup-filename') || 'uploaded.dump');
+      try { sourceName = decodeURIComponent(sourceName); } catch (_) {}
+      const backup = await postgresBackup.importBackup(sourceName, req.body);
+      res.json({
+        ok: true,
+        message: 'Backup imported and verified',
+        backup,
+      });
+    } catch (err) {
+      logger.error('adminRouter', 'Backup import failed', { error: err.message });
+      res.status(400).json({ ok: false, message: err.message });
+    } finally {
+      await releaseDatabaseOperationLock(lockToken);
+    }
+  }
+);
 
 router.get('/backups/:fileName/download', (req, res) => {
   const fileName = path.basename(req.params.fileName);
@@ -893,12 +987,12 @@ router.post('/backups/:fileName/restore-safe', async (req, res) => {
     return res.status(400).json({ ok: false, message: `Type exactly: ${expectedConfirmation}` });
   }
 
-  const lockKey = 'lock:admin:postgres_restore';
-  const locked = await redis.set(lockKey, fileName, 'EX', 1800, 'NX').catch(() => null);
-  if (locked !== 'OK') {
-    return res.status(409).json({ ok: false, message: 'Another database restore is already running' });
+  const lockToken = await acquireDatabaseOperationLock(`restore:${fileName}`, 1800);
+  if (!lockToken) {
+    return res.status(409).json({ ok: false, message: 'Another database backup or restore is already running' });
   }
 
+  let queuesPaused = false;
   try {
     await redis.set('maintenance:database_restore', JSON.stringify({
       fileName,
@@ -906,15 +1000,19 @@ router.post('/backups/:fileName/restore-safe', async (req, res) => {
       by: 'admin-dashboard',
     }), 'EX', 1800).catch(() => {});
 
+    queuesPaused = true;
+    await pauseQueuesForRestore();
     const result = await postgresBackup.restoreBackup(fileName);
-    await redis.del('maintenance:database_restore').catch(() => {});
+    serviceRepository.invalidateCache();
+    await serviceRepository.refreshCache().catch(() => {});
     res.json({ ok: true, message: 'Database restore completed', ...result });
   } catch (err) {
     logger.error('adminRouter', 'Database restore failed', { fileName, error: err.message });
-    await redis.del('maintenance:database_restore').catch(() => {});
     res.status(500).json({ ok: false, message: err.message });
   } finally {
-    await redis.del(lockKey).catch(() => {});
+    if (queuesPaused) await resumeQueuesAfterRestore();
+    await redis.del('maintenance:database_restore').catch(() => {});
+    await releaseDatabaseOperationLock(lockToken);
   }
 });
 

@@ -111,7 +111,9 @@ services:
       DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL}
       BACKUP_HEALTH_MAX_AGE_HOURS: ${BACKUP_HEALTH_MAX_AGE_HOURS}
       AUTO_CLOUD_BACKUP_ENABLED: ${AUTO_CLOUD_BACKUP_ENABLED}
-    volumes: *common-volumes
+    volumes:
+      - ${CONFIG_PATH}/sarathi_new_test1/data:/app/data
+      - ${CONFIG_PATH}/sarathi_new_test1/rclone:/root/.config/rclone
     depends_on:
       postgres:
         condition: service_healthy
@@ -184,7 +186,9 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       AUTO_CLOUD_BACKUP_ENABLED: ${AUTO_CLOUD_BACKUP_ENABLED}
       BACKUP_HEALTH_MAX_AGE_HOURS: ${BACKUP_HEALTH_MAX_AGE_HOURS}
-    volumes: *common-volumes
+    volumes:
+      - ${CONFIG_PATH}/sarathi_new_test1/data:/app/data
+      - ${CONFIG_PATH}/sarathi_new_test1/rclone:/root/.config/rclone
     depends_on:
       postgres:
         condition: service_healthy

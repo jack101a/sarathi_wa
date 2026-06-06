@@ -117,6 +117,19 @@ jobs:
           ./scripts/compose.sh -f docker-compose.yml exec -T postgres pg_isready -U sarathi -d sarathi
           ./scripts/compose.sh -f docker-compose.yml exec -T redis redis-cli -a "$REDIS_PASSWORD" ping | grep -qx PONG
 
+      - name: Create and verify a shared PostgreSQL backup
+        run: |
+          ./scripts/compose.sh -f docker-compose.yml exec -T api sh -lc '
+            pg_dump --version | grep -q "16\\."
+            pg_restore --version | grep -q "16\\."
+            node -e "const { postgresBackup } = require(\"@sarathi/common\"); postgresBackup.createBackup(\"smoke\").then((backup) => { if (!backup || !backup.verified) throw new Error(\"backup was not verified\"); console.log(backup.fileName); });"
+          '
+          ./scripts/compose.sh -f docker-compose.yml exec -T scheduler sh -lc '
+            pg_dump --version | grep -q "16\\."
+            pg_restore --version | grep -q "16\\."
+            node -e "const { postgresBackup } = require(\"@sarathi/common\"); const backups = postgresBackup.listBackups(); if (!backups.length || !backups[0].verified) throw new Error(\"shared backup is unavailable\"); console.log(backups[0].fileName);"
+          '
+
       - name: Check container states
         run: |
           ./scripts/compose.sh -f docker-compose.yml ps

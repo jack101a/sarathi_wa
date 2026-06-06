@@ -34,11 +34,17 @@ ENV NODE_ENV=production
 ENV APP_ENV=production
 ENV PORT=3000
 
-# Admin manual backups use pg_dump. Restore remains disabled from the web API.
+# PostgreSQL 16 client must match the PostgreSQL 16 server used by Compose.
 RUN echo 'APT::Sandbox::User "root";' > /etc/apt/apt.conf.d/99rootless-sandbox \
     && touch /etc/inputrc \
     && apt-get update \
-    && apt-get install -y --no-install-recommends postgresql-client curl rclone \
+    && apt-get install -y --no-install-recommends ca-certificates curl rclone \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/keyrings/postgresql.asc \
+    && echo "deb [signed-by=/usr/share/keyrings/postgresql.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client-16 \
+    && pg_dump --version | grep -q "16\\." \
+    && pg_restore --version | grep -q "16\\." \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
