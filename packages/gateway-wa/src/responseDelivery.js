@@ -1,6 +1,7 @@
 const { subscriber, redis } = require('@sarathi/common');
 const { MessageMedia } = require('whatsapp-web.js');
 const crypto = require('crypto');
+const { isInstanceActive } = require('./heartbeat');
 
 async function startResponseListener(client) {
   // Subscribe to both whatsapp and wa namespace patterns
@@ -11,6 +12,10 @@ async function startResponseListener(client) {
     let chatId = '';
     let response;
     try {
+      if (!await isInstanceActive()) {
+        return;
+      }
+
       // ── Response dedup ─────────────────────────────────────────────────────
       // All gateway-wa instances subscribe to the same channel.
       // Only the FIRST instance to claim this delivery key actually sends it.

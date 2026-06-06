@@ -20,22 +20,36 @@ function normalizeJob(row) {
 async function createJob({ id, userId, userPhone, queueType, command, payloadJson, payload, chatId, transport, priority = 0, dedupKey }) {
   const jobId = id || makeJobId();
   const body = payload || JSON.parse(payloadJson || '{}');
-  await run(
+  const rows = await query(
     `INSERT INTO jobs (id, user_id, user_phone, queue_type, command, payload, status, chat_id, transport, priority, dedup_key, created_at)
      VALUES (?, ?, ?, ?, ?, ?::jsonb, 'pending', ?, ?, ?, ?, CURRENT_TIMESTAMP)
-     ON CONFLICT (id) DO NOTHING`,
+     ON CONFLICT DO NOTHING
+     RETURNING *`,
     [jobId, userId || null, userPhone || '', queueType, command, JSON.stringify(body || {}), chatId, transport || 'wa', priority, dedupKey || jobId]
   );
 
-  try {
-    const { redis } = require('./redis');
-    await redis.publish('admin:broadcast', JSON.stringify({
-      event: 'job_created',
-      job: { id: jobId, user_id: userId || null, user_phone: userPhone || '', queue_type: queueType, command, status: 'pending', created_at: nowIso() }
-    }));
-  } catch (_) {}
+  const created = rows[0] || null;
 
-  return getJobById(jobId);
+  if (created) {
+    try {
+      const { redis } = require('./redis');
+      await redis.publish('admin:broadcast', JSON.stringify({
+        event: 'job_created',
+        job: { id: jobId, user_id: userId || null, user_phone: userPhone || '', queue_type: queueType, command, status: 'pending', created_at: nowIso() }
+      }));
+    } catch (_) {}
+
+    const normalized = normalizeJob(created);
+    normalized.created = true;
+    return normalized;
+  }
+
+  const existingRows = dedupKey
+    ? await query('SELECT * FROM jobs WHERE dedup_key = ? OR id = ? ORDER BY created_at DESC LIMIT 1', [dedupKey, jobId])
+    : await query('SELECT * FROM jobs WHERE id = ?', [jobId]);
+  const existing = normalizeJob(existingRows[0] || null);
+  if (existing) existing.created = false;
+  return existing;
 }
 
 async function updateJobStatus(jobId, status, resultJson = '{}', errorText = '', workerId = '') {

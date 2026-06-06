@@ -312,6 +312,9 @@ async function handleIncomingMessage(client, message) {
           chatId: message.from,
           dedupKey: message.id && message.id.id ? `wa:${message.id.id}:track-dob` : undefined,
         });
+        if (result.duplicate) {
+          return;
+        }
         if (result.blocked) {
           await message.reply(`🚫 ${result.message}`);
         }
@@ -351,6 +354,9 @@ async function handleIncomingMessage(client, message) {
               chatId: message.from,
               dedupKey: message.id && message.id.id ? `wa:${message.id.id}:${norm.type}` : undefined,
             });
+            if (result.duplicate) {
+              return;
+            }
             if (result.blocked) {
               await message.reply(`🚫 ${result.message}`);
             } else {
@@ -570,6 +576,10 @@ async function handleIncomingMessage(client, message) {
       chatId: message.from,
       dedupKey: message.id && message.id.id ? `wa:${message.id.id}:${type}` : undefined,
     });
+
+    if (result.duplicate) {
+      return;
+    }
 
     if (result.blocked) {
       await message.reply(`🚫 ${result.message}`);

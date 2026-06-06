@@ -110,7 +110,7 @@ async function processRequest(message, transport, commandInfo) {
   const payloadJson = JSON.stringify(payload);
 
   try {
-    await jobRepository.createJob({
+    const createdJob = await jobRepository.createJob({
       id: jobId,
       userId: user.id,
       userPhone: user.canonical_phone,
@@ -121,6 +121,13 @@ async function processRequest(message, transport, commandInfo) {
       transport,
       dedupKey: commandInfo.dedupKey || jobId,
     });
+
+    if (createdJob && createdJob.created === false) {
+      if (billing && billing.creditReserved) {
+        await authRepo.releaseReservedCreditsForJob(user.id, billing.creditCost, jobId).catch(() => {});
+      }
+      return { blocked: false, duplicate: true, jobId: createdJob.id };
+    }
 
     const job = {
       id: jobId,

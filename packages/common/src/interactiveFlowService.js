@@ -52,6 +52,17 @@ const cmdMap = {
   dlapp: 'apply_dl_start'
 };
 
+function parseFlowChoices(text) {
+  const value = String(text || '').trim();
+  if (!/^\d{1,2}(?:\s*[,+/ ]\s*\d{1,2})*$/.test(value)) {
+    return [];
+  }
+  return value
+    .split(/[\s,+/]+/)
+    .map(s => parseInt(s.trim(), 10))
+    .filter(n => !isNaN(n));
+}
+
 async function detectAndHandle(chatId, normalizedBody, dbUser, isAdmin) {
   const text = String(normalizedBody || '').trim().replace(/\s+/g, ' ');
   if (!text) {
@@ -64,7 +75,7 @@ async function detectAndHandle(chatId, normalizedBody, dbUser, isAdmin) {
 
   // 1. Process active session response if present and valid
   if (session && session.expiresAt > now) {
-    const rawChoices = text.split(/[\s,+/]+/).map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+    const rawChoices = parseFlowChoices(text);
     if (rawChoices.length > 0) {
       const isMulti = rawChoices.length > 1;
       const isAllowedMulti = !!(session.isPremium || session.isAdmin);
@@ -277,4 +288,5 @@ async function detectAndHandle(chatId, normalizedBody, dbUser, isAdmin) {
 
 module.exports = {
   detectAndHandle,
+  parseFlowChoices,
 };

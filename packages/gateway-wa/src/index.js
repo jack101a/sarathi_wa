@@ -1,7 +1,7 @@
 const { createWhatsAppClient } = require('./client');
 const { handleIncomingMessage } = require('./messageHandler');
 const { startResponseListener } = require('./responseDelivery');
-const { startHeartbeat, stopHeartbeat, INSTANCE_ID, INSTANCE_ROLE } = require('./heartbeat');
+const { startHeartbeat, isInstanceActive, stopHeartbeat, INSTANCE_ID, INSTANCE_ROLE } = require('./heartbeat');
 
 // Catch unhandled promise rejections (e.g. requestPairingCode before page is ready)
 // so a transient WhatsApp Web error does not crash the entire gateway process.
@@ -16,7 +16,12 @@ async function main() {
   await startHeartbeat();
 
   // Create WhatsApp client
-  const client = await createWhatsAppClient(handleIncomingMessage);
+  const client = await createWhatsAppClient(async (clientInstance, message) => {
+    if (!await isInstanceActive()) {
+      return;
+    }
+    await handleIncomingMessage(clientInstance, message);
+  });
 
   // Start Redis Pub/Sub response listener
   await startResponseListener(client);
