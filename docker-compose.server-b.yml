@@ -1,63 +1,43 @@
-# ══════════════════════════════════════════════════════════════════════════════
-#  Sarathi Bot — Server B Stack (Home Mini PC)
-#  Branch: scaling-production
-#
-#  This runs on your HOME SERVER (mini PC).
-#  Connects to Server A (Oracle VPS) for Redis and PostgreSQL.
-#
-#  WHAT RUNS HERE:
-#  ├── gateway-wa-3  → 3rd WhatsApp linked device (hot standby)
-#  └── worker-browser → handles heavy browser jobs (DL renewal, LL print)
-#                       alongside Server A's worker-browser
-#
-#  SETUP:
-#  1. Set SERVER_A_IP to your Oracle VPS public IP in your .env
-#  2. Make sure Oracle VPS firewall allows your home IP on ports 5432 and 6379
-#  3. Run: docker compose -f docker-compose.server-b.yml up -d
-# ══════════════════════════════════════════════════════════════════════════════
+# Sarathi Bot - Server B workers/gateway stack
+# Set every variable referenced here in the Server-B .env file.
 
 services:
-
   gateway-wa-3:
-    image: ghcr.io/jack101a/sarathiwa_bot:gateway-wa-latest
+    image: ghcr.io/jack101a/sarathiwa_bot:gateway-wa-${IMAGE_TAG}
     container_name: sarathi_gateway_wa_3
     restart: always
     init: true
     stop_grace_period: 60s
     shm_size: "512m"
     environment:
-      - NODE_ENV=production
-      - APP_ENV=production
-      # ── Connect to Server A (Oracle VPS) ──────────────────────────────────
-      - DATABASE_URL=postgres://sarathi:${PG_PASSWORD:?set_PG_PASSWORD}@${SERVER_A_IP:?set_SERVER_A_IP}:5432/sarathi
-      - PGHOST=${SERVER_A_IP:?set_SERVER_A_IP}
-      - PGPORT=5432
-      - PGDATABASE=sarathi
-      - PGUSER=sarathi
-      - PGPASSWORD=${PG_PASSWORD:?set_PG_PASSWORD}
-      - REDIS_URL=redis://:${REDIS_PASSWORD:?set_REDIS_PASSWORD}@${SERVER_A_IP:?set_SERVER_A_IP}:6379
-      - REDIS_HOST=${SERVER_A_IP:?set_SERVER_A_IP}
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:?set_REDIS_PASSWORD}
+      - TZ=${TZ}
+      - NODE_ENV=${NODE_ENV}
+      - APP_ENV=${APP_ENV}
+      - PGHOST=${PGHOST}
+      - PGPORT=${PGPORT}
+      - PGDATABASE=${PGDATABASE}
+      - PGUSER=${PGUSER}
+      - PGPASSWORD=${PGPASSWORD}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
       - INSTANCE_ID=wa-3
-      # ── WhatsApp Auth ──────────────────────────────────────────────────────
-      - AUTHORIZED_USERS=${AUTHORIZED_USERS:-}
-      - AUTHORIZED_GROUPS=${AUTHORIZED_GROUPS:-}
-      - ADMIN_USERS=${ADMIN_USERS:-}
-      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER:-}
+      - INSTANCE_ROLE=failover
+      - REQUIRE_CHAT_FRONTEND=${REQUIRE_CHAT_FRONTEND}
       - SESSION_NAME=session-3
-      # ── Puppeteer ──────────────────────────────────────────────────────────
-      - PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-      - PUPPETEER_HEADLESS=true
-      - PUPPETEER_DISABLE_SANDBOX=true
-      - PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage
-      # ── Notifications ─────────────────────────────────────────────────────
-      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
-      # ── Razorpay Wallet Top-up ────────────────────────────────────────────
-      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-}
-      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:-}
-      - RAZORPAY_QR_NAME=${RAZORPAY_QR_NAME:-Sarathi Bot}
-      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - AUTHORIZED_USERS=${AUTHORIZED_USERS}
+      - AUTHORIZED_GROUPS=${AUTHORIZED_GROUPS}
+      - ADMIN_USERS=${ADMIN_USERS}
+      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER}
+      - PUPPETEER_EXECUTABLE_PATH=${PUPPETEER_EXECUTABLE_PATH}
+      - PUPPETEER_HEADLESS=${PUPPETEER_HEADLESS}
+      - PUPPETEER_DISABLE_SANDBOX=${PUPPETEER_DISABLE_SANDBOX}
+      - PUPPETEER_ARGS=${PUPPETEER_ARGS}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
+      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
+      - RAZORPAY_QR_NAME=${RAZORPAY_QR_NAME}
+      - LOG_LEVEL=${LOG_LEVEL}
     volumes:
       - ${CONFIG_PATH}/sarathi_new/auth_data_3:/app/.wwebjs_auth
       - ${CONFIG_PATH}/sarathi_new/data:/app/data
@@ -67,38 +47,35 @@ services:
       - sarathi_home
 
   worker-browser:
-    image: ghcr.io/jack101a/sarathiwa_bot:worker-browser-latest
+    image: ghcr.io/jack101a/sarathiwa_bot:worker-browser-${IMAGE_TAG}
     container_name: sarathi_worker_browser_b
     restart: always
     init: true
     stop_grace_period: 120s
     shm_size: "2048m"
     environment:
-      - NODE_ENV=production
-      - APP_ENV=production
-      # ── Connect to Server A (Oracle VPS) ──────────────────────────────────
-      - DATABASE_URL=postgres://sarathi:${PG_PASSWORD:?set_PG_PASSWORD}@${SERVER_A_IP:?set_SERVER_A_IP}:5432/sarathi
-      - PGHOST=${SERVER_A_IP:?set_SERVER_A_IP}
-      - PGPORT=5432
-      - PGDATABASE=sarathi
-      - PGUSER=sarathi
-      - PGPASSWORD=${PG_PASSWORD:?set_PG_PASSWORD}
-      - REDIS_URL=redis://:${REDIS_PASSWORD:?set_REDIS_PASSWORD}@${SERVER_A_IP:?set_SERVER_A_IP}:6379
-      - REDIS_HOST=${SERVER_A_IP:?set_SERVER_A_IP}
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:?set_REDIS_PASSWORD}
-      # ── Browser Engine ────────────────────────────────────────────────────
-      - BROWSER_ENGINE=${BROWSER_ENGINE:-puppeteer}
-      - BROWSER_CONCURRENCY=${BROWSER_CONCURRENCY:-2}
-      - MAX_BROWSER_PAGES=${MAX_BROWSER_PAGES:-5}
-      # ── Puppeteer ──────────────────────────────────────────────────────────
-      - PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-      - PUPPETEER_HEADLESS=true
-      - PUPPETEER_DISABLE_SANDBOX=true
-      - PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage
-      # ── Notifications ─────────────────────────────────────────────────────
-      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
-      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TZ=${TZ}
+      - NODE_ENV=${NODE_ENV}
+      - APP_ENV=${APP_ENV}
+      - PGHOST=${PGHOST}
+      - PGPORT=${PGPORT}
+      - PGDATABASE=${PGDATABASE}
+      - PGUSER=${PGUSER}
+      - PGPASSWORD=${PGPASSWORD}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - BROWSER_ENGINE=${BROWSER_ENGINE}
+      - BROWSER_CONCURRENCY=${BROWSER_CONCURRENCY}
+      - MAX_BROWSER_PAGES=${MAX_BROWSER_PAGES}
+      - PUPPETEER_EXECUTABLE_PATH=${PUPPETEER_EXECUTABLE_PATH}
+      - PUPPETEER_HEADLESS=${PUPPETEER_HEADLESS}
+      - PUPPETEER_DISABLE_SANDBOX=${PUPPETEER_DISABLE_SANDBOX}
+      - PUPPETEER_ARGS=${PUPPETEER_ARGS}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - LOG_LEVEL=${LOG_LEVEL}
     volumes:
       - ${CONFIG_PATH}/sarathi_new/data:/app/data
     security_opt:

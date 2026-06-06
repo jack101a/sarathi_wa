@@ -1,30 +1,20 @@
-# ══════════════════════════════════════════════════════════════════════════════
-#  Sarathi Bot — Portainer Production Stack
-#  Branch: scaling-production
-#
-#  HOW TO DEPLOY:
-#  1. Push to scaling-production → GitHub Actions builds all images to GHCR
-#  2. In Portainer → Stacks → Add Stack → paste this file
-#  3. Set all environment variables in the Portainer "env" tab (or load .env)
-#  4. Deploy Stack
-# ══════════════════════════════════════════════════════════════════════════════
+# Sarathi Bot - Portainer production stack
+# Set every variable referenced here in Portainer stack env.
 
 services:
-
-  # ── Infrastructure ───────────────────────────────────────────────────────────
-
   postgres:
     image: postgres:16-alpine
     container_name: sarathi_postgres
     restart: always
     environment:
-      POSTGRES_DB: sarathi
-      POSTGRES_USER: sarathi
-      POSTGRES_PASSWORD: ${PG_PASSWORD:?set_PG_PASSWORD}
+      - TZ=${TZ}
+      - POSTGRES_DB=${PGDATABASE}
+      - POSTGRES_USER=${PGUSER}
+      - POSTGRES_PASSWORD=${PGPASSWORD}
     volumes:
       - ${CONFIG_PATH}/sarathi_new/postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sarathi"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -36,11 +26,13 @@ services:
     image: redis:7-alpine
     container_name: sarathi_redis
     restart: always
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set_REDIS_PASSWORD}", "--appendonly", "yes"]
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    environment:
+      - TZ=${TZ}
     volumes:
       - ${CONFIG_PATH}/sarathi_new/redis:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?set_REDIS_PASSWORD}", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -48,50 +40,42 @@ services:
     networks:
       - ajax_network
 
-  # ── Application Services ─────────────────────────────────────────────────────
-  # TWO WA gateways on Server A — both always active.
-  # Redis SET NX dedup ensures only ONE processes each message.
-  # First scan: gateway-wa-1 QR → second scan: gateway-wa-2 QR (separate linked devices)
-
   gateway-wa-1:
-    image: ghcr.io/jack101a/sarathiwa_bot:gateway-wa-${IMAGE_TAG:-latest}
+    image: ghcr.io/jack101a/sarathiwa_bot:gateway-wa-${IMAGE_TAG}
     container_name: sarathi_gateway_wa_1
     restart: always
     init: true
     stop_grace_period: 60s
     shm_size: "512m"
     environment:
-      - NODE_ENV=production
-      - APP_ENV=production
-      - DATABASE_URL=postgres://sarathi:${PG_PASSWORD:?set_PG_PASSWORD}@postgres:5432/sarathi
-      - PGHOST=postgres
-      - PGPORT=5432
-      - PGDATABASE=sarathi
-      - PGUSER=sarathi
-      - PGPASSWORD=${PG_PASSWORD:?set_PG_PASSWORD}
-      - REDIS_URL=redis://:${REDIS_PASSWORD:?set_REDIS_PASSWORD}@redis:6379
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:?set_REDIS_PASSWORD}
+      - TZ=${TZ}
+      - NODE_ENV=${NODE_ENV}
+      - APP_ENV=${APP_ENV}
+      - PGHOST=${PGHOST}
+      - PGPORT=${PGPORT}
+      - PGDATABASE=${PGDATABASE}
+      - PGUSER=${PGUSER}
+      - PGPASSWORD=${PGPASSWORD}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
       - INSTANCE_ID=wa-1
-      # ── WhatsApp Auth ──────────────────────────────────────────────────────
-      - AUTHORIZED_USERS=${AUTHORIZED_USERS:-}
-      - AUTHORIZED_GROUPS=${AUTHORIZED_GROUPS:-}
-      - ADMIN_USERS=${ADMIN_USERS:-}
-      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER:-}
+      - INSTANCE_ROLE=primary
+      - REQUIRE_CHAT_FRONTEND=${REQUIRE_CHAT_FRONTEND}
       - SESSION_NAME=session-1
-      # ── Puppeteer ──────────────────────────────────────────────────────────
-      - PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-      - PUPPETEER_HEADLESS=true
-      - PUPPETEER_DISABLE_SANDBOX=true
-      - PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage
-      # ── Notifications ─────────────────────────────────────────────────────
-      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
-      # ── Razorpay Wallet Top-up ────────────────────────────────────────────
-      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-}
-      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:-}
-      - RAZORPAY_QR_NAME=${RAZORPAY_QR_NAME:-Sarathi Bot}
-      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - AUTHORIZED_USERS=${AUTHORIZED_USERS}
+      - AUTHORIZED_GROUPS=${AUTHORIZED_GROUPS}
+      - ADMIN_USERS=${ADMIN_USERS}
+      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER}
+      - PUPPETEER_EXECUTABLE_PATH=${PUPPETEER_EXECUTABLE_PATH}
+      - PUPPETEER_HEADLESS=${PUPPETEER_HEADLESS}
+      - PUPPETEER_DISABLE_SANDBOX=${PUPPETEER_DISABLE_SANDBOX}
+      - PUPPETEER_ARGS=${PUPPETEER_ARGS}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
+      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
+      - RAZORPAY_QR_NAME=${RAZORPAY_QR_NAME}
+      - LOG_LEVEL=${LOG_LEVEL}
     volumes:
       - ${CONFIG_PATH}/sarathi_new/auth_data_1:/app/.wwebjs_auth
       - ${CONFIG_PATH}/sarathi_new/data:/app/data
@@ -106,44 +90,41 @@ services:
       - ajax_network
 
   gateway-wa-2:
-    image: ghcr.io/jack101a/sarathiwa_bot:gateway-wa-${IMAGE_TAG:-latest}
+    image: ghcr.io/jack101a/sarathiwa_bot:gateway-wa-${IMAGE_TAG}
     container_name: sarathi_gateway_wa_2
     restart: always
     init: true
     stop_grace_period: 60s
     shm_size: "512m"
     environment:
-      - NODE_ENV=production
-      - APP_ENV=production
-      - DATABASE_URL=postgres://sarathi:${PG_PASSWORD:?set_PG_PASSWORD}@postgres:5432/sarathi
-      - PGHOST=postgres
-      - PGPORT=5432
-      - PGDATABASE=sarathi
-      - PGUSER=sarathi
-      - PGPASSWORD=${PG_PASSWORD:?set_PG_PASSWORD}
-      - REDIS_URL=redis://:${REDIS_PASSWORD:?set_REDIS_PASSWORD}@redis:6379
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:?set_REDIS_PASSWORD}
+      - TZ=${TZ}
+      - NODE_ENV=${NODE_ENV}
+      - APP_ENV=${APP_ENV}
+      - PGHOST=${PGHOST}
+      - PGPORT=${PGPORT}
+      - PGDATABASE=${PGDATABASE}
+      - PGUSER=${PGUSER}
+      - PGPASSWORD=${PGPASSWORD}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
       - INSTANCE_ID=wa-2
-      # ── WhatsApp Auth ──────────────────────────────────────────────────────
-      - AUTHORIZED_USERS=${AUTHORIZED_USERS:-}
-      - AUTHORIZED_GROUPS=${AUTHORIZED_GROUPS:-}
-      - ADMIN_USERS=${ADMIN_USERS:-}
-      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER:-}
+      - INSTANCE_ROLE=primary
+      - REQUIRE_CHAT_FRONTEND=${REQUIRE_CHAT_FRONTEND}
       - SESSION_NAME=session-2
-      # ── Puppeteer ──────────────────────────────────────────────────────────
-      - PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-      - PUPPETEER_HEADLESS=true
-      - PUPPETEER_DISABLE_SANDBOX=true
-      - PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage
-      # ── Notifications ─────────────────────────────────────────────────────
-      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
-      # ── Razorpay Wallet Top-up ────────────────────────────────────────────
-      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-}
-      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:-}
-      - RAZORPAY_QR_NAME=${RAZORPAY_QR_NAME:-Sarathi Bot}
-      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - AUTHORIZED_USERS=${AUTHORIZED_USERS}
+      - AUTHORIZED_GROUPS=${AUTHORIZED_GROUPS}
+      - ADMIN_USERS=${ADMIN_USERS}
+      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER}
+      - PUPPETEER_EXECUTABLE_PATH=${PUPPETEER_EXECUTABLE_PATH}
+      - PUPPETEER_HEADLESS=${PUPPETEER_HEADLESS}
+      - PUPPETEER_DISABLE_SANDBOX=${PUPPETEER_DISABLE_SANDBOX}
+      - PUPPETEER_ARGS=${PUPPETEER_ARGS}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
+      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
+      - RAZORPAY_QR_NAME=${RAZORPAY_QR_NAME}
+      - LOG_LEVEL=${LOG_LEVEL}
     volumes:
       - ${CONFIG_PATH}/sarathi_new/auth_data_2:/app/.wwebjs_auth
       - ${CONFIG_PATH}/sarathi_new/data:/app/data
@@ -158,35 +139,33 @@ services:
       - ajax_network
 
   gateway-tg:
-    image: ghcr.io/jack101a/sarathiwa_bot:gateway-tg-${IMAGE_TAG:-latest}
+    image: ghcr.io/jack101a/sarathiwa_bot:gateway-tg-${IMAGE_TAG}
     restart: always
     environment:
-      - NODE_ENV=production
-      - APP_ENV=production
-      - DATABASE_URL=postgres://sarathi:${PG_PASSWORD:?set_PG_PASSWORD}@postgres:5432/sarathi
-      - PGHOST=postgres
-      - PGPORT=5432
-      - PGDATABASE=sarathi
-      - PGUSER=sarathi
-      - PGPASSWORD=${PG_PASSWORD:?set_PG_PASSWORD}
-      - REDIS_URL=redis://:${REDIS_PASSWORD:?set_REDIS_PASSWORD}@redis:6379
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:?set_REDIS_PASSWORD}
-      # ── Telegram Auth ─────────────────────────────────────────────────────
-      - TG_TOKEN=${TELEGRAM_BOT_TOKEN:-}
-      - AUTHORIZED_TG_USERS=${AUTHORIZED_TG_USERS:-}
-      - AUTHORIZED_TG_GROUPS=${AUTHORIZED_TG_GROUPS:-}
-      - ADMIN_USERS=${ADMIN_USERS:-}
-      # ── Notifications ─────────────────────────────────────────────────────
-      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
-      - TELEGRAM_NOTIFY_CHAT_IDS=${TELEGRAM_NOTIFY_CHAT_IDS:-}
-      # ── Razorpay Wallet Top-up ────────────────────────────────────────────
-      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-}
-      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:-}
-      - RAZORPAY_QR_NAME=${RAZORPAY_QR_NAME:-Sarathi Bot}
-      # ── Misc ──────────────────────────────────────────────────────────────
-      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TZ=${TZ}
+      - NODE_ENV=${NODE_ENV}
+      - APP_ENV=${APP_ENV}
+      - PGHOST=${PGHOST}
+      - PGPORT=${PGPORT}
+      - PGDATABASE=${PGDATABASE}
+      - PGUSER=${PGUSER}
+      - PGPASSWORD=${PGPASSWORD}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - TG_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - AUTHORIZED_TG_USERS=${AUTHORIZED_TG_USERS}
+      - AUTHORIZED_TG_GROUPS=${AUTHORIZED_TG_GROUPS}
+      - ADMIN_USERS=${ADMIN_USERS}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - TELEGRAM_NOTIFY_CHAT_IDS=${TELEGRAM_NOTIFY_CHAT_IDS}
+      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
+      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
+      - RAZORPAY_QR_NAME=${RAZORPAY_QR_NAME}
+      - LOG_LEVEL=${LOG_LEVEL}
+    volumes:
+      - ${CONFIG_PATH}/sarathi_new/data:/app/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -194,40 +173,32 @@ services:
         condition: service_healthy
     networks:
       - ajax_network
-    volumes:
-      - ${CONFIG_PATH}/sarathi_new/data:/app/data
 
   worker-api:
-    image: ghcr.io/jack101a/sarathiwa_bot:worker-api-${IMAGE_TAG:-latest}
+    image: ghcr.io/jack101a/sarathiwa_bot:worker-api-${IMAGE_TAG}
     restart: always
     environment:
-      - NODE_ENV=production
-      - APP_ENV=production
-      - DATABASE_URL=postgres://sarathi:${PG_PASSWORD:?set_PG_PASSWORD}@postgres:5432/sarathi
-      - PGHOST=postgres
-      - PGPORT=5432
-      - PGDATABASE=sarathi
-      - PGUSER=sarathi
-      - PGPASSWORD=${PG_PASSWORD:?set_PG_PASSWORD}
-      - REDIS_URL=redis://:${REDIS_PASSWORD:?set_REDIS_PASSWORD}@redis:6379
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:?set_REDIS_PASSWORD}
-      # ── Frontend tokens (needed for config validation) ────────────────────
-      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER:-}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
-      # ── Concurrency ───────────────────────────────────────────────────────
-      - API_CONCURRENCY=${API_CONCURRENCY:-8}
-      - SESSION_POOL_SIZE=${SESSION_POOL_SIZE:-3}
-      # ── AI (optional) ─────────────────────────────────────────────────────
-      - AI_PARSING_ENABLED=${AI_PARSING_ENABLED:-false}
-      - LITELLM_API_BASE=${LITELLM_API_BASE:-}
-      - LITELLM_API_KEY=${LITELLM_API_KEY:-}
-      - LITELLM_MODEL=${LITELLM_MODEL:-gemini/gemini-1.5-flash}
-      # ── Notifications ─────────────────────────────────────────────────────
-      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
-      # ── Misc ──────────────────────────────────────────────────────────────
-      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TZ=${TZ}
+      - NODE_ENV=${NODE_ENV}
+      - APP_ENV=${APP_ENV}
+      - PGHOST=${PGHOST}
+      - PGPORT=${PGPORT}
+      - PGDATABASE=${PGDATABASE}
+      - PGUSER=${PGUSER}
+      - PGPASSWORD=${PGPASSWORD}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - API_CONCURRENCY=${API_CONCURRENCY}
+      - SESSION_POOL_SIZE=${SESSION_POOL_SIZE}
+      - AI_PARSING_ENABLED=${AI_PARSING_ENABLED}
+      - LITELLM_API_BASE=${LITELLM_API_BASE}
+      - LITELLM_API_KEY=${LITELLM_API_KEY}
+      - LITELLM_MODEL=${LITELLM_MODEL}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - LOG_LEVEL=${LOG_LEVEL}
     volumes:
       - ${CONFIG_PATH}/sarathi_new/data:/app/data
     depends_on:
@@ -239,40 +210,34 @@ services:
       - ajax_network
 
   worker-browser:
-    image: ghcr.io/jack101a/sarathiwa_bot:worker-browser-${IMAGE_TAG:-latest}
+    image: ghcr.io/jack101a/sarathiwa_bot:worker-browser-${IMAGE_TAG}
     restart: always
     init: true
     stop_grace_period: 120s
     shm_size: "2048m"
     environment:
-      - NODE_ENV=production
-      - APP_ENV=production
-      - DATABASE_URL=postgres://sarathi:${PG_PASSWORD:?set_PG_PASSWORD}@postgres:5432/sarathi
-      - PGHOST=postgres
-      - PGPORT=5432
-      - PGDATABASE=sarathi
-      - PGUSER=sarathi
-      - PGPASSWORD=${PG_PASSWORD:?set_PG_PASSWORD}
-      - REDIS_URL=redis://:${REDIS_PASSWORD:?set_REDIS_PASSWORD}@redis:6379
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:?set_REDIS_PASSWORD}
-      # ── Frontend tokens (needed for config validation) ────────────────────
-      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER:-}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
-      # ── Browser Engine (puppeteer | playwright) ───────────────────────────
-      - BROWSER_ENGINE=${BROWSER_ENGINE:-puppeteer}
-      - BROWSER_CONCURRENCY=${BROWSER_CONCURRENCY:-2}
-      - MAX_BROWSER_PAGES=${MAX_BROWSER_PAGES:-5}
-      # ── Puppeteer ──────────────────────────────────────────────────────────
-      - PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-      - PUPPETEER_HEADLESS=true
-      - PUPPETEER_DISABLE_SANDBOX=true
-      - PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage
-      # ── Notifications ─────────────────────────────────────────────────────
-      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
-      # ── Misc ──────────────────────────────────────────────────────────────
-      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TZ=${TZ}
+      - NODE_ENV=${NODE_ENV}
+      - APP_ENV=${APP_ENV}
+      - PGHOST=${PGHOST}
+      - PGPORT=${PGPORT}
+      - PGDATABASE=${PGDATABASE}
+      - PGUSER=${PGUSER}
+      - PGPASSWORD=${PGPASSWORD}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - BROWSER_ENGINE=${BROWSER_ENGINE}
+      - BROWSER_CONCURRENCY=${BROWSER_CONCURRENCY}
+      - MAX_BROWSER_PAGES=${MAX_BROWSER_PAGES}
+      - PUPPETEER_EXECUTABLE_PATH=${PUPPETEER_EXECUTABLE_PATH}
+      - PUPPETEER_HEADLESS=${PUPPETEER_HEADLESS}
+      - PUPPETEER_DISABLE_SANDBOX=${PUPPETEER_DISABLE_SANDBOX}
+      - PUPPETEER_ARGS=${PUPPETEER_ARGS}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - LOG_LEVEL=${LOG_LEVEL}
     volumes:
       - ${CONFIG_PATH}/sarathi_new/data:/app/data
     security_opt:
@@ -286,33 +251,32 @@ services:
       - ajax_network
 
   scheduler:
-    image: ghcr.io/jack101a/sarathiwa_bot:scheduler-${IMAGE_TAG:-latest}
+    image: ghcr.io/jack101a/sarathiwa_bot:scheduler-${IMAGE_TAG}
     restart: always
     environment:
-      - NODE_ENV=production
-      - APP_ENV=production
-      - DATABASE_URL=postgres://sarathi:${PG_PASSWORD:?set_PG_PASSWORD}@postgres:5432/sarathi
-      - PGHOST=postgres
-      - PGPORT=5432
-      - PGDATABASE=sarathi
-      - PGUSER=sarathi
-      - PGPASSWORD=${PG_PASSWORD:?set_PG_PASSWORD}
-      - REDIS_URL=redis://:${REDIS_PASSWORD:?set_REDIS_PASSWORD}@redis:6379
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:?set_REDIS_PASSWORD}
-      # ── Cron schedules ────────────────────────────────────────────────────
-      - AUTO_TRACK_CRON=${AUTO_TRACK_CRON:-0 10-22/3 * * *}
-      - VAHAN_TRACK_CRON=${VAHAN_TRACK_CRON:-0 10-22/3 * * *}
-      # ── Auto tracking targets ─────────────────────────────────────────────
-      - AUTO_TRACK_UPDATE_CHAT_ID=${AUTO_TRACK_UPDATE_CHAT_ID:-}
-      - VAHAN_TRACK_UPDATE_CHAT_ID=${VAHAN_TRACK_UPDATE_CHAT_ID:-}
-      # ── Notifications ─────────────────────────────────────────────────────
-      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
-      - TELEGRAM_NOTIFY_CHAT_IDS=${TELEGRAM_NOTIFY_CHAT_IDS:-}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
-      # ── Misc ──────────────────────────────────────────────────────────────
-      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TZ=${TZ}
+      - NODE_ENV=${NODE_ENV}
+      - APP_ENV=${APP_ENV}
+      - PGHOST=${PGHOST}
+      - PGPORT=${PGPORT}
+      - PGDATABASE=${PGDATABASE}
+      - PGUSER=${PGUSER}
+      - PGPASSWORD=${PGPASSWORD}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - AUTO_TRACK_CRON=${AUTO_TRACK_CRON}
+      - VAHAN_TRACK_CRON=${VAHAN_TRACK_CRON}
+      - AUTO_TRACK_UPDATE_CHAT_ID=${AUTO_TRACK_UPDATE_CHAT_ID}
+      - VAHAN_TRACK_UPDATE_CHAT_ID=${VAHAN_TRACK_UPDATE_CHAT_ID}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - TELEGRAM_NOTIFY_CHAT_IDS=${TELEGRAM_NOTIFY_CHAT_IDS}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - AUTO_CLOUD_BACKUP_ENABLED=${AUTO_CLOUD_BACKUP_ENABLED}
+      - BACKUP_HEALTH_MAX_AGE_HOURS=${BACKUP_HEALTH_MAX_AGE_HOURS}
+      - LOG_LEVEL=${LOG_LEVEL}
+    volumes:
+      - ${CONFIG_PATH}/sarathi_new/data:/app/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -320,48 +284,47 @@ services:
         condition: service_healthy
     networks:
       - ajax_network
-    volumes:
-      - ${CONFIG_PATH}/sarathi_new/data:/app/data
 
   api:
-    image: ghcr.io/jack101a/sarathiwa_bot:api-${IMAGE_TAG:-latest}
+    image: ghcr.io/jack101a/sarathiwa_bot:api-${IMAGE_TAG}
     restart: always
     environment:
-      - NODE_ENV=production
-      - APP_ENV=production
-      - DATABASE_URL=postgres://sarathi:${PG_PASSWORD:?set_PG_PASSWORD}@postgres:5432/sarathi
-      - PGHOST=postgres
-      - PGPORT=5432
-      - PGDATABASE=sarathi
-      - PGUSER=sarathi
-      - PGPASSWORD=${PG_PASSWORD:?set_PG_PASSWORD}
-      - REDIS_URL=redis://:${REDIS_PASSWORD:?set_REDIS_PASSWORD}@redis:6379
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:?set_REDIS_PASSWORD}
-      # ── Frontend tokens (needed for config validation) ────────────────────
-      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER:-}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
-      # ── Admin Dashboard ───────────────────────────────────────────────────
-      - ADMIN_TOKEN=${ADMIN_TOKEN:?set_ADMIN_TOKEN}
-      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
-      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-}
-      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:-}
-      - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET:-}
-      - RAZORPAY_QR_NAME=${RAZORPAY_QR_NAME:-Sarathi Bot}
+      - TZ=${TZ}
+      - NODE_ENV=${NODE_ENV}
+      - APP_ENV=${APP_ENV}
       - PORT=3000
-      # ── Notifications ─────────────────────────────────────────────────────
-      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
-      # ── Misc ──────────────────────────────────────────────────────────────
-      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - PGHOST=${PGHOST}
+      - PGPORT=${PGPORT}
+      - PGDATABASE=${PGDATABASE}
+      - PGUSER=${PGUSER}
+      - PGPASSWORD=${PGPASSWORD}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - WHATSAPP_PHONE_NUMBER=${WHATSAPP_PHONE_NUMBER}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - ADMIN_TOKEN=${ADMIN_TOKEN}
+      - ADMIN_USERNAME=${ADMIN_USERNAME}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH}
+      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
+      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
+      - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET}
+      - RAZORPAY_QR_NAME=${RAZORPAY_QR_NAME}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - AUTO_CLOUD_BACKUP_ENABLED=${AUTO_CLOUD_BACKUP_ENABLED}
+      - BACKUP_HEALTH_MAX_AGE_HOURS=${BACKUP_HEALTH_MAX_AGE_HOURS}
+      - LOG_LEVEL=${LOG_LEVEL}
     ports:
-      - "${PORT:-3000}:3000"
+      - "${PORT}:3000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
+    volumes:
+      - ${CONFIG_PATH}/sarathi_new/data:/app/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -369,10 +332,7 @@ services:
         condition: service_healthy
     networks:
       - ajax_network
-    volumes:
-      - ${CONFIG_PATH}/sarathi_new/data:/app/data
 
-# ── Networks ───────────────────────────────────────────────────────────────────
 networks:
   ajax_network:
     external: true
