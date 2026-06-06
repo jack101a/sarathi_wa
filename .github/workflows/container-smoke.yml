@@ -81,6 +81,20 @@ jobs:
             exit 1
           fi
 
+      - name: Verify worker browser executables
+        run: |
+          ./scripts/compose.sh -f docker-compose.yml exec -T worker-browser node -e '
+            const fs = require("fs");
+            const { chromium, firefox } = require("playwright");
+            for (const [name, type] of Object.entries({ chromium, firefox })) {
+              const executable = type.executablePath();
+              if (!fs.existsSync(executable)) {
+                throw new Error(`${name} executable missing: ${executable}`);
+              }
+              console.log(`${name}: ${executable}`);
+            }
+          '
+
       - name: Scan logs for known production wiring failures
         run: |
           ./scripts/compose.sh -f docker-compose.yml logs --no-color > /tmp/sarathi-compose-smoke.log

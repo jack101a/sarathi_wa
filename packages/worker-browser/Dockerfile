@@ -28,6 +28,7 @@ RUN echo 'APT::Sandbox::User "root";' > /etc/apt/apt.conf.d/99rootless-sandbox \
 
 ENV NODE_ENV=production
 ENV APP_ENV=production
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PUPPETEER_HEADLESS=true
@@ -42,7 +43,9 @@ COPY src ./src
 COPY models ./models
 COPY config.example.yml ./
 
-# Install Playwright chromium browser and its OS dependencies
-RUN npx playwright install --with-deps chromium
+# Browser services use Playwright Chromium; LL Print uses Playwright Firefox.
+# Use the lockfile-installed CLI so browser revisions always match the package.
+RUN npx --no-install playwright install --with-deps chromium firefox \
+    && node -e "const fs=require('fs'); const {chromium,firefox}=require('playwright'); for (const [name,type] of Object.entries({chromium,firefox})) { const executable=type.executablePath(); if (!fs.existsSync(executable)) throw new Error(name + ' executable missing: ' + executable); console.log(name + ': ' + executable); }"
 
 CMD ["node", "packages/worker-browser/src/index.js"]
