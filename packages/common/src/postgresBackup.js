@@ -11,6 +11,7 @@ const HEALTH_MAX_AGE_HOURS = Number(process.env.BACKUP_HEALTH_MAX_AGE_HOURS || 8
 const MAX_IMPORT_BYTES = Number(process.env.BACKUP_IMPORT_MAX_BYTES || 256 * 1024 * 1024);
 const PG_DUMP_BIN = process.env.PG_DUMP_BIN || 'pg_dump';
 const PG_RESTORE_BIN = process.env.PG_RESTORE_BIN || 'pg_restore';
+const PSQL_BIN = process.env.PSQL_BIN || 'psql';
 
 function ensureBackupDir() {
   if (!fs.existsSync(BACKUP_DIR)) {
@@ -187,18 +188,26 @@ function buildPgDumpArgs(backupPath) {
   return { args, env: config.env, safeDbTarget };
 }
 
-function buildPgRestoreArgs(backupPath) {
+function buildPgRestoreArgs(backupPath, options = {}) {
   const config = getPgConfig();
-  const args = [
-    '--clean',
-    '--if-exists',
-    '--no-owner',
-    '--no-privileges',
-    '--exit-on-error',
-    '--single-transaction',
-  ];
+  const args = [];
+  if (options.clean) {
+    args.push('--clean', '--if-exists');
+  }
+  args.push('--no-owner', '--no-privileges', '--exit-on-error', '--single-transaction');
   const safeDbTarget = addDatabaseArgs(args, config);
   args.push(backupPath);
+  return { args, env: config.env, safeDbTarget };
+}
+
+function buildPsqlSchemaResetArgs() {
+  const config = getPgConfig();
+  const args = ['-X', '-v', 'ON_ERROR_STOP=1'];
+  const safeDbTarget = addDatabaseArgs(args, config);
+  args.push(
+    '-c',
+    'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO CURRENT_USER; GRANT USAGE ON SCHEMA public TO PUBLIC;'
+  );
   return { args, env: config.env, safeDbTarget };
 }
 
@@ -281,6 +290,12 @@ async function verifyBackup(fileName) {
   return verifyBackupPath(filePath);
 }
 
+async function resetPublicSchema() {
+  const { args, env, safeDbTarget } = buildPsqlSchemaResetArgs();
+  logger.warn('postgresBackup', 'Resetting public schema before PostgreSQL restore', { safeDbTarget });
+  await runPgTool(PSQL_BIN, args, { env, timeout: 2 * 60 * 1000 });
+}
+
 async function importBackup(sourceName, contents) {
   ensureBackupDir();
   const displayName = path.basename(String(sourceName || 'uploaded.dump'));
@@ -353,7 +368,30 @@ async function restoreBackup(fileName) {
 
   try {
     await db.close();
+    await resetPublicSchema();
     await runPgTool(PG_RESTORE_BIN, args, { env, timeout: 15 * 60 * 1000 });
+  } catch (err) {
+    logger.error('postgresBackup', 'PostgreSQL restore failed; attempting safety backup rollback', {
+      fileName,
+      safetyBackup: safetyBackup && safetyBackup.fileName,
+      error: err.message,
+    });
+
+    if (safetyBackup && safetyBackup.path) {
+      try {
+        await resetPublicSchema();
+        const safetyRestore = buildPgRestoreArgs(safetyBackup.path);
+        await runPgTool(PG_RESTORE_BIN, safetyRestore.args, { env: safetyRestore.env, timeout: 15 * 60 * 1000 });
+        throw new Error(`${err.message}. Database was restored back to safety backup ${safetyBackup.fileName}.`);
+      } catch (rollbackErr) {
+        if (rollbackErr.message.includes('Database was restored back to safety backup')) {
+          throw rollbackErr;
+        }
+        throw new Error(`${err.message}. Automatic safety restore failed: ${rollbackErr.message}. Safety backup: ${safetyBackup.fileName}`);
+      }
+    }
+
+    throw err;
   } finally {
     await db.reopen().catch(() => {});
   }
@@ -374,6 +412,7 @@ module.exports = {
   BACKUP_DIR,
   buildPgDumpArgs,
   buildPgRestoreArgs,
+  buildPsqlSchemaResetArgs,
   createBackup,
   getBackupHealth,
   importBackup,

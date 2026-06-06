@@ -20,8 +20,15 @@ const postgresBackup = require('../packages/common/src/postgresBackup');
 async function run() {
   const restoreArgs = postgresBackup.buildPgRestoreArgs('/tmp/backup.dump').args;
   assert(restoreArgs.includes('--single-transaction'), 'restore must be atomic');
-  assert(restoreArgs.includes('--clean'), 'restore must replace existing objects');
+  assert(!restoreArgs.includes('--clean'), 'restore should replay into a pre-cleaned schema');
   assert(restoreArgs.includes('--exit-on-error'), 'restore must stop on the first error');
+
+  const schemaResetArgs = postgresBackup.buildPsqlSchemaResetArgs().args;
+  assert(schemaResetArgs.includes('ON_ERROR_STOP=1'), 'schema reset must stop on the first error');
+  assert(
+    schemaResetArgs.some((arg) => /DROP SCHEMA IF EXISTS public CASCADE/.test(arg)),
+    'schema reset must cascade-drop target-only dependencies before restore'
+  );
 
   assert.strictEqual(postgresBackup.isValidBackupName('pg_backup_2026.dump'), true);
   assert.strictEqual(postgresBackup.isValidBackupName('../pg_backup_2026.dump'), false);

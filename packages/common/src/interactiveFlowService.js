@@ -34,8 +34,7 @@ const APP_MENU_ITEMS = [
 ];
 
 const LL_MENU_ITEMS = [
-  { cmd: 'lledit', label: 'LL Edit', group: 1 },
-  { cmd: 'dlapp', label: 'Apply New DL', group: 2 }
+  { cmd: 'dlapp', label: 'Apply New DL', group: 1 }
 ];
 
 const cmdMap = {

@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { getSafeJobFailureMessage } = require('../packages/common/src/userFacingErrors');
+const { getSafeJobFailureMessage, isNonRetryableError } = require('../packages/common/src/userFacingErrors');
 
 assert.strictEqual(
   getSafeJobFailureMessage({ code: 'INTERACTIVE_TIMEOUT' }),
@@ -25,5 +25,16 @@ assert.strictEqual(
   }),
   'Aadhaar server is busy.\n\nProcessing stopped. Please try again later.'
 );
+
+assert.strictEqual(
+  getSafeJobFailureMessage({
+    code: 'PORTAL_BUSINESS_RULE',
+    publicMessage: 'Please Apply Your DL After 30 Days',
+  }),
+  'Please Apply Your DL After 30 Days\n\nProcessing stopped.'
+);
+assert.strictEqual(isNonRetryableError({ code: 'PORTAL_BUSINESS_RULE' }), true);
+assert.strictEqual(isNonRetryableError({ retryable: false }), true);
+assert.strictEqual(isNonRetryableError(new Error('captcha failed')), false);
 
 console.log('User-facing error message tests passed.');

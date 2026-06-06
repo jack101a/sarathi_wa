@@ -4,6 +4,38 @@ const fs = require('fs');
 const CONFIG = require('../config/config');
 const { navigateToSarathiHome, smartSolveCaptcha, BASE_URL } = require('./sarathiCommon');
 
+const APPLY_DL_TERMINAL_DIALOG_PATTERNS = [
+    /\bapply\s+(?:your\s+)?dl\s+after\s+\d+\s*days?\b/i,
+    /\bplease\s+apply\s+(?:your\s+)?dl\s+after\b/i,
+];
+
+function normalizePortalMessage(message) {
+    return String(message || '').replace(/\s+/g, ' ').trim();
+}
+
+function isTerminalApplyDLDialog(message) {
+    const normalized = normalizePortalMessage(message);
+    if (!normalized) return false;
+
+    if (APPLY_DL_TERMINAL_DIALOG_PATTERNS.some(pattern => pattern.test(normalized))) {
+        return true;
+    }
+
+    const lower = normalized.toLowerCase();
+    const fatalKeywords = ['invalid', 'not found', 'expired', 'incorrect', 'exist', 'record', 'not match', 'cannot', 'already'];
+    return fatalKeywords.some(kw => lower.includes(kw));
+}
+
+function createApplyDLPortalError(message, stage = 'login') {
+    const publicMessage = normalizePortalMessage(message) || 'The Sarathi portal rejected this DL application.';
+    const error = new Error(`Govt Portal Dialog Error: ${publicMessage}`);
+    error.code = 'PORTAL_BUSINESS_RULE';
+    error.publicMessage = publicMessage;
+    error.portalStage = stage;
+    error.retryable = false;
+    return error;
+}
+
 async function startApplyDLFlow(llNo, dob, mobile) {
     console.log(`🚀 [ApplyDL] Starting flow for LL: ${llNo}, DOB: ${dob}`);
 
@@ -70,9 +102,8 @@ async function startApplyDLFlow(llNo, dob, mobile) {
             // Check if dialog appeared with a validation message
             if (lastDialogMessage) {
                 console.log(`❌ [ApplyDL] Dialog appeared: "${lastDialogMessage}"`);
-                const fatalKeywords = ['invalid', 'not found', 'expired', 'incorrect', 'exist', 'record', 'not match', 'cannot', 'already'];
-                if (fatalKeywords.some(kw => lastDialogMessage.toLowerCase().includes(kw))) {
-                    throw new Error(`Govt Portal Dialog Error: ${lastDialogMessage}`);
+                if (isTerminalApplyDLDialog(lastDialogMessage)) {
+                    throw createApplyDLPortalError(lastDialogMessage, 'login');
                 }
                 lastDialogMessage = null; // Clear if ignorable
             }
@@ -91,6 +122,10 @@ async function startApplyDLFlow(llNo, dob, mobile) {
                 await page.locator("img[src*='captchaimage.jsp']").first().click().catch(() => {});
                 await page.waitForTimeout(1000);
             }
+        }
+
+        if (!detailsLoaded) {
+            throw new Error("Failed to load DL application details after captcha retries.");
         }
 
         // Remove the temporary login dialog handler
@@ -119,7 +154,10 @@ async function startApplyDLFlow(llNo, dob, mobile) {
 
             if (otpDialogMessage) {
                 console.log(`❌ [ApplyDL] Dialog appeared on OTP generation: "${otpDialogMessage}"`);
-                throw new Error(`Govt Portal OTP Error: ${otpDialogMessage}`);
+                if (isTerminalApplyDLDialog(otpDialogMessage)) {
+                    throw createApplyDLPortalError(otpDialogMessage, 'otp');
+                }
+                throw new Error(`Govt Portal OTP Error: ${normalizePortalMessage(otpDialogMessage)}`);
             }
 
             if (await page.locator('#otpNumberSarathi').isVisible()) {
@@ -379,5 +417,7 @@ async function submitApplyDLOTP(browser, context, page, otpCode) {
 
 module.exports = {
     startApplyDLFlow,
-    submitApplyDLOTP
+    submitApplyDLOTP,
+    isTerminalApplyDLDialog,
+    normalizePortalMessage
 };

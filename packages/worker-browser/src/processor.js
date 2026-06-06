@@ -516,7 +516,8 @@ function startBrowserWorker() {
     } catch (error) {
       const errMsg = error.message || String(error);
       const maxAttempts = Number(bullJob.opts.attempts || 1);
-      const isFinalAttempt = bullJob.attemptsMade + 1 >= maxAttempts;
+      const isNonRetryable = userFacingErrors.isNonRetryableError(error);
+      const isFinalAttempt = isNonRetryable || bullJob.attemptsMade + 1 >= maxAttempts;
       logger.error('worker-browser', `Job ${job.id} failed: ${errMsg}`);
 
       if (!isFinalAttempt) {
