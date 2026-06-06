@@ -40,7 +40,7 @@
     "start:worker-browser": "node packages/worker-browser/src/index.js",
     "start:scheduler": "node packages/scheduler/src/index.js",
     "start:dev": "cross-env APP_ENV=development node packages/api/src/index.js",
-    "test": "node tests/testCommandNormalizer.js && node tests/testRazorpaySignature.js && node tests/testSelfRegistrationUtils.js && node tests/testUserFacingErrors.js && node tests/testServiceMessages.js && node tests/testMobileUpdateMessages.js && node tests/testApplyDlPortalDialogs.js && node tests/testInteractiveFlowChoices.js && node tests/testPostgresBackup.js && node tests/testRcloneConfig.js",
+    "test": "node tests/testCommandNormalizer.js && node tests/testRazorpaySignature.js && node tests/testSelfRegistrationUtils.js && node tests/testUserFacingErrors.js && node tests/testServiceMessages.js && node tests/testMobileUpdateMessages.js && node tests/testApplyDlPortalDialogs.js && node tests/testInteractiveFlowChoices.js && node tests/testPostgresBackup.js && node tests/testRcloneConfig.js && node tests/testAdminDashboardRegressions.js",
     "test:status": "node tests/testStatus.js",
     "test:ack": "node tests/testAck.js",
     "test:receipt": "node tests/testReceiptInput.js",

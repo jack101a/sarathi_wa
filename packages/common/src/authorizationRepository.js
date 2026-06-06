@@ -319,8 +319,9 @@ function userSelect() {
   return `SELECT *, COALESCE(plan_id, 'free') AS subscription_plan FROM auth_users`;
 }
 
-async function getUserByPhone(phone) {
-  const rows = await query(`${userSelect()} WHERE canonical_phone = ? AND is_active = 1`, [phone]);
+async function getUserByPhone(phone, { includeInactive = false } = {}) {
+  const activeClause = includeInactive ? '' : ' AND is_active = 1';
+  const rows = await query(`${userSelect()} WHERE canonical_phone = ?${activeClause}`, [phone]);
   return rows[0] || null;
 }
 
@@ -570,7 +571,10 @@ async function setUserRateOverrides(userId, overrides) {
 async function getActivityLog(filters = {}) {
   let sql = 'SELECT * FROM rate_limit_log WHERE 1=1';
   const params = [];
-  if (filters.userId) { sql += ' AND user_id = ?'; params.push(filters.userId); }
+  if (filters.userId) {
+    sql += ' AND (user_id::text = ? OR user_id IN (SELECT id FROM auth_users WHERE canonical_phone = ?))';
+    params.push(filters.userId, filters.userId);
+  }
   if (filters.category) { sql += ' AND category = ?'; params.push(filters.category); }
   if (filters.from) { sql += ' AND timestamp >= ?'; params.push(filters.from); }
   if (filters.to) { sql += ' AND timestamp <= ?'; params.push(filters.to); }
@@ -605,7 +609,8 @@ async function getTotalCreditsSpent() {
   const [row] = await query("SELECT COALESCE(SUM(amount),0) AS total FROM credit_transactions WHERE action = 'deduct'");
   return Number(row?.total || 0);
 }
-async function getUsersWithSpentCredits() {
+async function getUsersWithSpentCredits({ includeInactive = false } = {}) {
+  const activeClause = includeInactive ? '' : 'WHERE u.is_active = 1';
   return query(`
     SELECT u.*, COALESCE(u.plan_id, 'free') AS subscription_plan,
            COALESCE((SELECT SUM(ct.amount) FROM credit_transactions ct WHERE ct.user_id = u.id AND ct.action = 'deduct'), 0) AS credits_spent,
@@ -614,7 +619,7 @@ async function getUsersWithSpentCredits() {
     FROM auth_users u
     LEFT JOIN auth_user_identities i ON u.id = i.auth_user_id AND i.is_active = 1
     LEFT JOIN auth_verifications v ON u.canonical_phone = v.canonical_phone AND v.status = 'pending' AND v.expires_at > CURRENT_TIMESTAMP
-    WHERE u.is_active = 1
+    ${activeClause}
     GROUP BY u.id, v.code
     ORDER BY u.created_at DESC
   `);

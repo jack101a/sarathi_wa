@@ -15,7 +15,10 @@ export function ServicesPanel({ services = [], users = [], plans = [], waGroups 
     note: '',
     is_active: true,
   });
-
+  const [savingService, setSavingService] = useState(false);
+  const [deletingServices, setDeletingServices] = useState(new Set());
+  const [savingPrice, setSavingPrice] = useState(false);
+  const [deletingPrices, setDeletingPrices] = useState(new Set());
   // Form State
   const [id, setId] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -57,7 +60,7 @@ export function ServicesPanel({ services = [], users = [], plans = [], waGroups 
     width: '100%', padding: '0.6rem', borderRadius: '0.5rem',
     background: isDark ? 'rgba(0,0,0,0.2)' : '#fff',
     border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#d1d5db'}`,
-    color: isDark ? '#fff' : '#000', outline: 'none', fontSize: '0.85rem'
+    color: isDark ? '#fff' : '#000', fontSize: '0.85rem'
   };
 
   const selectStyle = {
@@ -118,6 +121,7 @@ export function ServicesPanel({ services = [], users = [], plans = [], waGroups 
       is_active: isActive ? 1 : 0
     };
 
+    setSavingService(true);
     try {
       if (editingService) {
         await apiPut(`/admin/api/services/${id}`, payload);
@@ -130,17 +134,22 @@ export function ServicesPanel({ services = [], users = [], plans = [], waGroups 
       refresh();
     } catch (err) {
       showToast(err.message, 'error');
+    } finally {
+      setSavingService(false);
     }
   }
 
   async function handleDelete(srvId) {
     if (!confirm(`Are you sure you want to delete service '${srvId}'?`)) return;
+    setDeletingServices(prev => new Set(prev).add(srvId));
     try {
       await apiDelete(`/admin/api/services/${srvId}`);
       showToast('Service deleted successfully', 'success');
       refresh();
     } catch (err) {
       showToast(err.message, 'error');
+    } finally {
+      setDeletingServices(prev => { const n = new Set(prev); n.delete(srvId); return n; });
     }
   }
 
@@ -162,6 +171,7 @@ export function ServicesPanel({ services = [], users = [], plans = [], waGroups 
     const cost = Number(pricingForm.credit_cost);
     if (!Number.isFinite(cost) || cost < 0) return showToast('Custom price must be 0 or higher', 'error');
 
+    setSavingPrice(true);
     try {
       await apiPostJson('/admin/api/pricing-overrides', {
         ...pricingForm,
@@ -172,17 +182,22 @@ export function ServicesPanel({ services = [], users = [], plans = [], waGroups 
       refresh();
     } catch (err) {
       showToast(err.message, 'error');
+    } finally {
+      setSavingPrice(false);
     }
   }
 
   async function handleDeletePricingOverride(id) {
     if (!confirm('Delete this custom price?')) return;
+    setDeletingPrices(prev => new Set(prev).add(id));
     try {
       await apiDelete(`/admin/api/pricing-overrides/${id}`);
       showToast('Custom price deleted', 'success');
       refresh();
     } catch (err) {
       showToast(err.message, 'error');
+    } finally {
+      setDeletingPrices(prev => { const n = new Set(prev); n.delete(id); return n; });
     }
   }
 
@@ -274,20 +289,21 @@ export function ServicesPanel({ services = [], users = [], plans = [], waGroups 
 
         <div style={{ padding: '1rem', display: 'grid', gridTemplateColumns: '0.8fr 1.4fr 1.4fr 0.8fr 1.2fr auto', gap: '0.65rem', alignItems: 'end' }}>
           <div>
-            <label style={{ display: 'block', fontSize: '0.7rem', color: thText, marginBottom: '0.25rem' }}>Scope</label>
+            <label htmlFor="priceScope" style={{ display: 'block', fontSize: '0.7rem', color: thText, marginBottom: '0.25rem' }}>Scope</label>
             <select
+              id="priceScope"
               style={selectStyle}
               value={pricingForm.scope_type}
               onChange={e => setPricingForm(f => ({ ...f, scope_type: e.target.value, scope_id: '' }))}
             >
               <option value="plan">Plan</option>
               <option value="group">Group</option>
-              <option value="user">User</option>
             </select>
           </div>
           <div>
-            <label style={{ display: 'block', fontSize: '0.7rem', color: thText, marginBottom: '0.25rem' }}>Target</label>
+            <label htmlFor="priceTarget" style={{ display: 'block', fontSize: '0.7rem', color: thText, marginBottom: '0.25rem' }}>Target</label>
             <select
+              id="priceTarget"
               style={selectStyle}
               value={pricingForm.scope_id}
               onChange={e => setPricingForm(f => ({ ...f, scope_id: e.target.value }))}
@@ -295,12 +311,12 @@ export function ServicesPanel({ services = [], users = [], plans = [], waGroups 
               <option value="">Select...</option>
               {pricingForm.scope_type === 'plan' && plans.map(p => <option key={p.id} value={p.id}>{p.name} ({p.id})</option>)}
               {pricingForm.scope_type === 'group' && groups.map(g => <option key={`${g.channel}:${g.value}`} value={g.value}>{g.label}</option>)}
-              {pricingForm.scope_type === 'user' && users.map(u => <option key={u.id} value={u.id}>{u.name || u.canonical_phone} ({u.canonical_phone})</option>)}
             </select>
           </div>
           <div>
-            <label style={{ display: 'block', fontSize: '0.7rem', color: thText, marginBottom: '0.25rem' }}>Heavy Service</label>
+            <label htmlFor="priceService" style={{ display: 'block', fontSize: '0.7rem', color: thText, marginBottom: '0.25rem' }}>Heavy Service</label>
             <select
+              id="priceService"
               style={selectStyle}
               value={pricingForm.service_id}
               onChange={e => setPricingForm(f => ({ ...f, service_id: e.target.value }))}
@@ -310,8 +326,9 @@ export function ServicesPanel({ services = [], users = [], plans = [], waGroups 
             </select>
           </div>
           <div>
-            <label style={{ display: 'block', fontSize: '0.7rem', color: thText, marginBottom: '0.25rem' }}>Price</label>
+            <label htmlFor="priceCost" style={{ display: 'block', fontSize: '0.7rem', color: thText, marginBottom: '0.25rem' }}>Price</label>
             <input
+              id="priceCost"
               type="number"
               min="0"
               style={inputStyle}
@@ -321,16 +338,17 @@ export function ServicesPanel({ services = [], users = [], plans = [], waGroups 
             />
           </div>
           <div>
-            <label style={{ display: 'block', fontSize: '0.7rem', color: thText, marginBottom: '0.25rem' }}>Note</label>
+            <label htmlFor="priceNote" style={{ display: 'block', fontSize: '0.7rem', color: thText, marginBottom: '0.25rem' }}>Note</label>
             <input
+              id="priceNote"
               style={inputStyle}
               value={pricingForm.note}
               onChange={e => setPricingForm(f => ({ ...f, note: e.target.value }))}
               placeholder="Optional"
             />
           </div>
-          <button style={btnPrimary} onClick={handleSavePricingOverride}>
-            <Plus size={15} /> Save
+          <button disabled={savingPrice} style={{...btnPrimary, opacity: savingPrice ? 0.6 : 1}} onClick={handleSavePricingOverride}>
+            <Plus size={15} /> {savingPrice ? 'Saving...' : 'Save'}
           </button>
         </div>
 
@@ -356,7 +374,7 @@ export function ServicesPanel({ services = [], users = [], plans = [], waGroups 
                   <td style={{ padding: '0.75rem 1rem', color: row.is_active ? '#10b981' : '#6b7280', fontSize: '0.8rem' }}>{row.is_active ? 'Active' : 'Inactive'}</td>
                   <td style={{ padding: '0.75rem 1rem', color: thText, fontSize: '0.8rem' }}>{row.note || '—'}</td>
                   <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
-                    <button style={btnDanger} onClick={() => handleDeletePricingOverride(row.id)}><Trash2 size={14} /></button>
+                    <button disabled={deletingPrices.has(row.id)} style={{...btnDanger, opacity: deletingPrices.has(row.id) ? 0.6 : 1}} onClick={() => handleDeletePricingOverride(row.id)} aria-label="Delete Price Override"><Trash2 size={14} /></button>
                   </td>
                 </tr>
               ))}
@@ -389,7 +407,10 @@ export function ServicesPanel({ services = [], users = [], plans = [], waGroups 
             <tbody>
               {services.length === 0 && (
                 <tr>
-                  <td colSpan="8" style={{ padding: '2rem', textAlign: 'center', color: thText }}>No services registered.</td>
+                  <td colSpan="8" style={{ padding: '3rem', textAlign: 'center', color: thText }}>
+                    <p style={{ margin: '0 0 1rem', fontSize: '0.9rem' }}>No services found.</p>
+                    <button onClick={openCreate} style={{ background: '#6366f1', color: '#fff', border: 'none', padding: '0.5rem 1rem', borderRadius: '0.5rem', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>Create your first service</button>
+                  </td>
                 </tr>
               )}
               {services.map(srv => {
@@ -446,8 +467,8 @@ export function ServicesPanel({ services = [], users = [], plans = [], waGroups 
                       </button>
                     </td>
                     <td style={{ padding: '1rem', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                      <button style={btnEdit} onClick={() => openEdit(srv)} title="Edit"><Edit2 size={14} /></button>
-                      <button style={btnDanger} onClick={() => handleDelete(srv.id)} title="Delete"><Trash2 size={14} /></button>
+                      <button style={btnEdit} onClick={() => openEdit(srv)} aria-label="Edit Service" title="Edit"><Edit2 size={14} /></button>
+                      <button disabled={deletingServices.has(srv.id)} style={{...btnDanger, opacity: deletingServices.has(srv.id) ? 0.6 : 1}} onClick={() => handleDelete(srv.id)} aria-label="Delete Service" title="Delete"><Trash2 size={14} /></button>
                     </td>
                   </tr>
                 );
@@ -476,7 +497,7 @@ export function ServicesPanel({ services = [], users = [], plans = [], waGroups 
               <h3 style={{ margin: 0, color: tdText, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                 <Layers size={18} color="#6366f1" /> {editingService ? 'Edit Service' : 'Add Service'}
               </h3>
-              <button onClick={() => setShowModal(false)} style={{ background: 'none', border: 'none', color: thText, cursor: 'pointer' }}><X size={20} /></button>
+              <button onClick={() => setShowModal(false)} aria-label="Close Modal" style={{ background: 'none', border: 'none', color: thText, cursor: 'pointer' }}><X size={20} /></button>
             </div>
 
             {/* Modal Body */}
@@ -484,11 +505,12 @@ export function ServicesPanel({ services = [], users = [], plans = [], waGroups 
               
               {/* Service ID */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', color: thText, marginBottom: '0.3rem' }}>Service ID (unique, lowercase, no spaces)</label>
+                <label htmlFor="srvId" style={{ display: 'block', fontSize: '0.75rem', color: thText, marginBottom: '0.3rem' }}>Service ID (unique, lowercase, no spaces)</label>
                 <input
+                  id="srvId"
                   style={inputStyle}
                   value={id}
-                  onChange={e => setId(e.target.value.toLowerCase().replace(/\s+/g, ''))}
+                  onChange={e => setId(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
                   disabled={!!editingService}
                   placeholder="e.g. tracking_v2"
                 />
@@ -496,8 +518,9 @@ export function ServicesPanel({ services = [], users = [], plans = [], waGroups 
 
               {/* Display Name */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', color: thText, marginBottom: '0.3rem' }}>Display Name</label>
+                <label htmlFor="srvDisplayName" style={{ display: 'block', fontSize: '0.75rem', color: thText, marginBottom: '0.3rem' }}>Display Name</label>
                 <input
+                  id="srvDisplayName"
                   style={inputStyle}
                   value={displayName}
                   onChange={e => setDisplayName(e.target.value)}
@@ -507,8 +530,9 @@ export function ServicesPanel({ services = [], users = [], plans = [], waGroups 
 
               {/* Description */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', color: thText, marginBottom: '0.3rem' }}>Description / Tooltip</label>
+                <label htmlFor="srvDesc" style={{ display: 'block', fontSize: '0.75rem', color: thText, marginBottom: '0.3rem' }}>Description / Tooltip</label>
                 <input
+                  id="srvDesc"
                   style={inputStyle}
                   value={description}
                   onChange={e => setDescription(e.target.value)}
@@ -517,18 +541,18 @@ export function ServicesPanel({ services = [], users = [], plans = [], waGroups 
               </div>
 
               {/* Category & Queue Type */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div className="responsive-grid">
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', color: thText, marginBottom: '0.3rem' }}>Category Tier</label>
-                  <select style={selectStyle} value={category} onChange={e => setCategory(e.target.value)}>
+                  <label htmlFor="srvCat" style={{ display: 'block', fontSize: '0.75rem', color: thText, marginBottom: '0.3rem' }}>Category Tier</label>
+                  <select id="srvCat" style={selectStyle} value={category} onChange={e => setCategory(e.target.value)}>
                     <option value="light">Light Tier (Quota-based)</option>
                     <option value="medium">Medium Tier (Quota-based)</option>
                     <option value="heavy">Heavy Tier (Credit-based)</option>
                   </select>
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', color: thText, marginBottom: '0.3rem' }}>Queue Worker Engine</label>
-                  <select style={selectStyle} value={queueType} onChange={e => setQueueType(e.target.value)}>
+                  <label htmlFor="srvQueue" style={{ display: 'block', fontSize: '0.75rem', color: thText, marginBottom: '0.3rem' }}>Queue Worker Engine</label>
+                  <select id="srvQueue" style={selectStyle} value={queueType} onChange={e => setQueueType(e.target.value)}>
                     <option value="api">API Queue (Instant fetch)</option>
                     <option value="browser">Browser Queue (Puppeteer slot)</option>
                   </select>
@@ -536,12 +560,13 @@ export function ServicesPanel({ services = [], users = [], plans = [], waGroups 
               </div>
 
               {/* Pricing Override & Sort Order */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div className="responsive-grid">
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', color: thText, marginBottom: '0.3rem' }}>
+                  <label htmlFor="srvCost" style={{ display: 'block', fontSize: '0.75rem', color: thText, marginBottom: '0.3rem' }}>
                     Credit Cost Override {category !== 'heavy' && '(Heavy only)'}
                   </label>
                   <input
+                    id="srvCost"
                     type="number"
                     style={inputStyle}
                     value={creditCost}
@@ -554,8 +579,9 @@ export function ServicesPanel({ services = [], users = [], plans = [], waGroups 
                   </div>
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', color: thText, marginBottom: '0.3rem' }}>Sort Order</label>
+                  <label htmlFor="srvSort" style={{ display: 'block', fontSize: '0.75rem', color: thText, marginBottom: '0.3rem' }}>Sort Order</label>
                   <input
+                    id="srvSort"
                     type="number"
                     style={inputStyle}
                     value={sortOrder}
@@ -591,8 +617,8 @@ export function ServicesPanel({ services = [], users = [], plans = [], waGroups 
               >
                 Cancel
               </button>
-              <button style={btnPrimary} onClick={handleSave}>
-                <Check size={16} /> Save Service
+              <button disabled={savingService} style={{...btnPrimary, opacity: savingService ? 0.6 : 1}} onClick={handleSave}>
+                <Check size={16} /> {savingService ? 'Saving...' : 'Save Service'}
               </button>
             </div>
 

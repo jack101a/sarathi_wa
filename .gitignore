@@ -2,9 +2,8 @@
 node_modules/
 
 # Environment files
-.env
-.env.local
-.env.*.local
+.env*
+!.env*.example
 
 # Runtime/session artifacts
 *.data.json
@@ -38,6 +37,7 @@ coverage/
 Thumbs.db
 .vscode/
 .idea/
+.antigravitycli/
 *.swp
 
 # Keep template env committed
@@ -52,6 +52,7 @@ test-results/
 
 # Sandbox / Trash
 trash/
+IMPORT BACKUP TEST/
 
 # Local databases, tracking stores, logs, and custom configurations
 data/authz.sqlite*
@@ -67,4 +68,4 @@ data/backups/
 # Dev planning artifacts (agent-generated, not part of production codebase)
 implementation_plan.md
 task.md
-walkthrough.md
+walkthrough.md

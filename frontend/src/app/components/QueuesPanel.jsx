@@ -1,7 +1,10 @@
-import React from 'react';
-import { Activity, Layers } from 'lucide-react';
+import React, { useState } from 'react';
+import { Activity, Layers, Play, Pause, Trash2 } from 'lucide-react';
+import { apiPostJson } from '../../api/client.js';
 
-function QueueCard({ name, stats, color, isDark }) {
+function QueueCard({ queueId, name, stats, color, isDark, refresh, showToast }) {
+  const [processing, setProcessing] = useState(false);
+
   const cardStyle = isDark
     ? { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '1rem', padding: '1.5rem', flex: 1 }
     : { background: 'rgba(255,255,255,0.85)', border: '1px solid rgba(0,0,0,0.06)', borderRadius: '1rem', padding: '1.5rem', flex: 1, boxShadow: '0 1px 8px rgba(0,0,0,0.06)' };
@@ -13,19 +16,49 @@ function QueueCard({ name, stats, color, isDark }) {
     { label: 'Failed',    value: stats.failed    ?? 0, color: '#f43f5e' },
   ];
 
+  const handleAction = async (action) => {
+    if (action === 'flush' && !confirm(`Are you sure you want to flush all pending jobs in ${name}?`)) return;
+    setProcessing(true);
+    try {
+      await apiPostJson(`/admin/api/queues/${queueId}/${action}`);
+      showToast && showToast(`Queue ${name} ${action}d successfully.`, 'success');
+      refresh && refresh();
+    } catch (err) {
+      showToast && showToast(`Failed to ${action} queue: ${err.message}`, 'error');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const btnStyle = { padding: '0.4rem 0.8rem', borderRadius: '0.5rem', border: 'none', fontSize: '0.75rem', fontWeight: 600, cursor: processing ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.3rem', opacity: processing ? 0.6 : 1 };
+
   return (
     <div style={cardStyle}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        <div style={{ width: '2.5rem', height: '2.5rem', borderRadius: '0.75rem', background: `${color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Layers size={18} style={{ color }} />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div style={{ width: '2.5rem', height: '2.5rem', borderRadius: '0.75rem', background: `${color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Layers size={18} style={{ color }} />
+          </div>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <p style={{ margin: 0, fontSize: '0.7rem', color: isDark ? '#9ca3af' : '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Queue</p>
+              {stats.isPaused && <span style={{ background: 'rgba(244,63,94,0.1)', color: '#f43f5e', fontSize: '0.65rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: '999px' }}>PAUSED</span>}
+            </div>
+            <p style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: isDark ? '#e6edf3' : '#111827' }}>{name}</p>
+          </div>
         </div>
-        <div>
-          <p style={{ margin: 0, fontSize: '0.7rem', color: isDark ? '#9ca3af' : '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Queue</p>
-          <p style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: isDark ? '#e6edf3' : '#111827' }}>{name}</p>
+
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          {stats.isPaused ? (
+            <button disabled={processing} onClick={() => handleAction('resume')} style={{ ...btnStyle, background: 'rgba(16,185,129,0.15)', color: '#10b981' }}><Play size={14}/> Resume</button>
+          ) : (
+            <button disabled={processing} onClick={() => handleAction('pause')} style={{ ...btnStyle, background: 'rgba(245,158,11,0.15)', color: '#d97706' }}><Pause size={14}/> Pause</button>
+          )}
+          <button disabled={processing} onClick={() => handleAction('flush')} style={{ ...btnStyle, background: 'rgba(244,63,94,0.15)', color: '#f43f5e' }}><Trash2 size={14}/> Flush</button>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+      <div className="responsive-grid" style={{ gap: '0.75rem' }}>
         {rows.map(r => (
           <div key={r.label} style={{ background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)', borderRadius: '0.5rem', padding: '0.75rem' }}>
             <p style={{ margin: 0, fontSize: '0.7rem', color: isDark ? '#9ca3af' : '#6b7280', marginBottom: '0.25rem' }}>{r.label}</p>
@@ -37,7 +70,7 @@ function QueueCard({ name, stats, color, isDark }) {
   );
 }
 
-export function QueuesPanel({ queues, isDark }) {
+export function QueuesPanel({ queues, isDark, refresh, showToast }) {
   const api     = queues?.api     || {};
   const browser = queues?.browser || {};
 
@@ -48,8 +81,8 @@ export function QueuesPanel({ queues, isDark }) {
       </h2>
 
       <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-        <QueueCard name="API Queue"     stats={api}     color="#6366f1" isDark={isDark} />
-        <QueueCard name="Browser Queue" stats={browser} color="#06b6d4" isDark={isDark} />
+        <QueueCard queueId="api" name="API Queue" stats={api} color="#6366f1" isDark={isDark} refresh={refresh} showToast={showToast} />
+        <QueueCard queueId="browser" name="Browser Queue" stats={browser} color="#06b6d4" isDark={isDark} refresh={refresh} showToast={showToast} />
       </div>
 
       {/* Total throughput summary */}

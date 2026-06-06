@@ -1,4 +1,4 @@
-const { query, run } = require('./db');
+const { query, run, runTransaction } = require('./db');
 const crypto = require('crypto');
 
 function nowIso() { return new Date().toISOString(); }
@@ -101,7 +101,10 @@ async function queryJobs(filters = {}) {
   let sql = 'SELECT * FROM jobs WHERE 1=1';
   const params = [];
   if (filters.status) { sql += ' AND status = ?'; params.push(filters.status); }
-  if (filters.userId) { sql += ' AND user_id = ?'; params.push(filters.userId); }
+  if (filters.userId) {
+    sql += ' AND (user_id::text = ? OR user_phone = ?)';
+    params.push(filters.userId, filters.userId);
+  }
   if (filters.command) { sql += ' AND command = ?'; params.push(filters.command); }
   if (filters.from) { sql += ' AND created_at >= ?'; params.push(filters.from); }
   if (filters.to) { sql += ' AND created_at <= ?'; params.push(filters.to); }
@@ -113,14 +116,90 @@ async function queryJobs(filters = {}) {
 }
 
 async function cancelJob(jobId) {
-  const job = await getJobById(jobId);
-  if (!job || job.status !== 'pending') return false;
-  await run("UPDATE jobs SET status = 'cancelled', completed_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'", [jobId]);
-  try {
-    const { redis } = require('./redis');
-    await redis.publish('admin:broadcast', JSON.stringify({ event: 'job_updated', jobId, status: 'cancelled', timestamp: nowIso() }));
-  } catch (_) {}
-  return true;
+  const result = await cancelJobs([jobId]);
+  return result.cancelledIds.includes(jobId);
 }
 
-module.exports = { createJob, updateJobStatus, getJobById, getActiveJobsForUser, getPendingJobs, cleanupOldJobs, queryJobs, cancelJob, normalizeJob };
+function getReservedCreditAmount(job) {
+  const payload = job && job.payload && typeof job.payload === 'object' ? job.payload : {};
+  const billing = payload.__billing && typeof payload.__billing === 'object' ? payload.__billing : {};
+  if (!billing.creditReserved) return 0;
+  return Math.max(0, Number(billing.creditCost) || 0);
+}
+
+async function cancelJobs(jobIds = []) {
+  const ids = [...new Set((Array.isArray(jobIds) ? jobIds : []).map(String).filter(Boolean))];
+  if (ids.length === 0) return { cancelledIds: [], releasedCredits: 0 };
+
+  const result = await runTransaction(async ({ query: txQuery, run: txRun }) => {
+    const placeholders = ids.map(() => '?').join(', ');
+    const jobs = await txQuery(
+      `SELECT id, user_id, payload
+       FROM jobs
+       WHERE id IN (${placeholders}) AND status = 'pending'
+       FOR UPDATE`,
+      ids
+    );
+
+    if (jobs.length === 0) return { cancelledIds: [], releasedCredits: 0 };
+
+    const releaseByUser = new Map();
+    for (const job of jobs) {
+      const amount = getReservedCreditAmount(job);
+      if (!job.user_id || amount <= 0) continue;
+      releaseByUser.set(job.user_id, (releaseByUser.get(job.user_id) || 0) + amount);
+    }
+
+    let releasedCredits = 0;
+    for (const [userId, amount] of releaseByUser) {
+      const [user] = await txQuery(
+        'SELECT COALESCE(reserved_credits,0) AS reserved_credits FROM auth_users WHERE id = ? FOR UPDATE',
+        [userId]
+      );
+      const released = Math.min(amount, Number(user?.reserved_credits || 0));
+      if (released <= 0) continue;
+      await txRun(
+        'UPDATE auth_users SET reserved_credits = GREATEST(COALESCE(reserved_credits,0) - ?, 0), updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [released, userId]
+      );
+      releasedCredits += released;
+    }
+
+    const cancelledIds = jobs.map((job) => job.id);
+    const cancelPlaceholders = cancelledIds.map(() => '?').join(', ');
+    await txRun(
+      `UPDATE jobs
+       SET status = 'cancelled', completed_at = CURRENT_TIMESTAMP
+       WHERE id IN (${cancelPlaceholders}) AND status = 'pending'`,
+      cancelledIds
+    );
+
+    return { cancelledIds, releasedCredits };
+  });
+
+  try {
+    const { redis } = require('./redis');
+    await Promise.all(result.cancelledIds.map((jobId) => redis.publish('admin:broadcast', JSON.stringify({
+      event: 'job_updated',
+      jobId,
+      status: 'cancelled',
+      timestamp: nowIso(),
+    }))));
+  } catch (_) {}
+
+  return result;
+}
+
+module.exports = {
+  createJob,
+  updateJobStatus,
+  getJobById,
+  getActiveJobsForUser,
+  getPendingJobs,
+  cleanupOldJobs,
+  queryJobs,
+  cancelJob,
+  cancelJobs,
+  getReservedCreditAmount,
+  normalizeJob,
+};

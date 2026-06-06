@@ -14,6 +14,8 @@ export function PlansPanel({ plans, services: dbServices = [], refresh, showToas
   const { isDark } = useThemeContext();
   const [showModal, setShowModal] = useState(false);
   const [editingPlan, setEditingPlan] = useState(null);
+  const [savingPlan, setSavingPlan] = useState(false);
+  const [deletingPlans, setDeletingPlans] = useState(new Set());
 
   // Form state
   const [id, setId] = useState('');
@@ -55,7 +57,7 @@ export function PlansPanel({ plans, services: dbServices = [], refresh, showToas
     width: '100%', padding: '0.6rem', borderRadius: '0.5rem',
     background: isDark ? 'rgba(0,0,0,0.2)' : '#fff',
     border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#d1d5db'}`,
-    color: isDark ? '#fff' : '#000', outline: 'none', fontSize: '0.85rem'
+    color: isDark ? '#fff' : '#000', fontSize: '0.85rem'
   };
 
   function openCreate() {
@@ -95,6 +97,7 @@ export function PlansPanel({ plans, services: dbServices = [], refresh, showToas
       is_active: isActive
     };
 
+    setSavingPlan(true);
     try {
       if (editingPlan) {
         await apiPut(`/admin/api/plans/${id}`, payload);
@@ -107,17 +110,22 @@ export function PlansPanel({ plans, services: dbServices = [], refresh, showToas
       refresh();
     } catch (err) {
       showToast(err.message, 'error');
+    } finally {
+      setSavingPlan(false);
     }
   }
 
   async function handleDelete(planId) {
     if (!confirm(`Are you sure you want to delete plan '${planId}'?`)) return;
+    setDeletingPlans(prev => new Set(prev).add(planId));
     try {
       await apiDelete(`/admin/api/plans/${planId}`);
       showToast('Plan deleted', 'success');
       refresh();
     } catch (err) {
       showToast(err.message, 'error');
+    } finally {
+      setDeletingPlans(prev => { const n = new Set(prev); n.delete(planId); return n; });
     }
   }
 
@@ -167,7 +175,10 @@ export function PlansPanel({ plans, services: dbServices = [], refresh, showToas
             <tbody>
               {plans.length === 0 && (
                 <tr>
-                  <td colSpan="6" style={{ padding: '2rem', textAlign: 'center', color: thText }}>No plans created yet.</td>
+                  <td colSpan="6" style={{ padding: '3rem', textAlign: 'center', color: thText }}>
+                    <p style={{ margin: '0 0 1rem', fontSize: '0.9rem' }}>No plans created yet.</p>
+                    <button onClick={openCreate} style={{ background: '#6366f1', color: '#fff', border: 'none', padding: '0.5rem 1rem', borderRadius: '0.5rem', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>Create your first plan</button>
+                  </td>
                 </tr>
               )}
               {plans.map(plan => {
@@ -202,8 +213,8 @@ export function PlansPanel({ plans, services: dbServices = [], refresh, showToas
                       </div>
                     </td>
                     <td style={{ padding: '1rem', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                      <button style={btnEdit} onClick={() => openEdit(plan)}><Edit2 size={14}/></button>
-                      <button style={btnDanger} onClick={() => handleDelete(plan.id)}><Trash2 size={14}/></button>
+                      <button style={btnEdit} onClick={() => openEdit(plan)} aria-label="Edit Plan" title="Edit"><Edit2 size={14}/></button>
+                      <button disabled={deletingPlans.has(plan.id)} style={{...btnDanger, opacity: deletingPlans.has(plan.id) ? 0.6 : 1}} onClick={() => handleDelete(plan.id)} aria-label="Delete Plan" title="Delete"><Trash2 size={14}/></button>
                     </td>
                   </tr>
                 );
@@ -228,24 +239,24 @@ export function PlansPanel({ plans, services: dbServices = [], refresh, showToas
           }}>
             <div style={{ padding: '1.25rem', borderBottom: `1px solid ${trBorder}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 style={{ margin: 0, color: tdText }}>{editingPlan ? 'Edit Plan' : 'Create Plan'}</h3>
-              <button onClick={() => setShowModal(false)} style={{ background: 'none', border: 'none', color: thText, cursor: 'pointer' }}><X size={20}/></button>
+              <button onClick={() => setShowModal(false)} aria-label="Close Modal" style={{ background: 'none', border: 'none', color: thText, cursor: 'pointer' }}><X size={20}/></button>
             </div>
             
             <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div className="responsive-grid">
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', color: thText, marginBottom: '0.3rem' }}>Plan ID (no spaces)</label>
-                  <input style={inputStyle} value={id} onChange={e => setId(e.target.value)} disabled={!!editingPlan} placeholder="e.g. enterprise" />
+                  <label htmlFor="planId" style={{ display: 'block', fontSize: '0.75rem', color: thText, marginBottom: '0.3rem' }}>Plan ID (no spaces)</label>
+                  <input id="planId" style={inputStyle} value={id} onChange={e => setId(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))} disabled={!!editingPlan} placeholder="e.g. enterprise" />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', color: thText, marginBottom: '0.3rem' }}>Plan Name</label>
-                  <input style={inputStyle} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Enterprise Plan" />
+                  <label htmlFor="planName" style={{ display: 'block', fontSize: '0.75rem', color: thText, marginBottom: '0.3rem' }}>Plan Name</label>
+                  <input id="planName" style={inputStyle} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Enterprise Plan" />
                 </div>
               </div>
               
               <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', color: thText, marginBottom: '0.3rem' }}>Description</label>
-                <input style={inputStyle} value={description} onChange={e => setDescription(e.target.value)} placeholder="Brief description" />
+                <label htmlFor="planDesc" style={{ display: 'block', fontSize: '0.75rem', color: thText, marginBottom: '0.3rem' }}>Description</label>
+                <input id="planDesc" style={inputStyle} value={description} onChange={e => setDescription(e.target.value)} placeholder="Brief description" />
               </div>
 
               <div style={{ borderTop: `1px solid ${trBorder}`, paddingTop: '1rem', marginTop: '0.5rem' }}>
@@ -300,7 +311,7 @@ export function PlansPanel({ plans, services: dbServices = [], refresh, showToas
                             }}>
                               {categoryLabels[cat] || `${cat} services`}
                             </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                            <div className="responsive-grid">
                               {list.map(srv => (
                                 <div key={srv.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }} onClick={() => toggleService(srv.id)}>
                                   {services.includes(srv.id) ? <CheckSquare size={16} color="#3b82f6" /> : <Square size={16} color={thText} />}
@@ -320,17 +331,17 @@ export function PlansPanel({ plans, services: dbServices = [], refresh, showToas
 
               <div style={{ borderTop: `1px solid ${trBorder}`, paddingTop: '1rem', marginTop: '0.5rem' }}>
                 <h4 style={{ margin: '0 0 1rem 0', color: tdText, fontSize: '0.9rem' }}>Rate Limits</h4>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div className="responsive-grid">
                   <div style={{ background: isDark ? 'rgba(255,255,255,0.03)' : '#f9fafb', padding: '1rem', borderRadius: '0.5rem', border: `1px solid ${trBorder}` }}>
                     <div style={{ fontSize: '0.8rem', fontWeight: 600, color: tdText, marginBottom: '0.8rem' }}>Light Commands</div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span style={{ fontSize: '0.75rem', color: thText, width: '50px' }}>Daily</span>
-                        <input type="number" style={{...inputStyle, padding: '0.4rem'}} value={lightDay} onChange={e => setLightDay(e.target.value)} />
+                        <label htmlFor="lightDay" style={{ fontSize: '0.75rem', color: thText, width: '50px' }}>Daily</label>
+                        <input id="lightDay" type="number" style={{...inputStyle, padding: '0.4rem'}} value={lightDay} onChange={e => setLightDay(e.target.value)} />
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span style={{ fontSize: '0.75rem', color: thText, width: '50px' }}>Monthly</span>
-                        <input type="number" style={{...inputStyle, padding: '0.4rem'}} value={lightMonth} onChange={e => setLightMonth(e.target.value)} />
+                        <label htmlFor="lightMonth" style={{ fontSize: '0.75rem', color: thText, width: '50px' }}>Monthly</label>
+                        <input id="lightMonth" type="number" style={{...inputStyle, padding: '0.4rem'}} value={lightMonth} onChange={e => setLightMonth(e.target.value)} />
                       </div>
                     </div>
                   </div>
@@ -339,12 +350,12 @@ export function PlansPanel({ plans, services: dbServices = [], refresh, showToas
                     <div style={{ fontSize: '0.8rem', fontWeight: 600, color: tdText, marginBottom: '0.8rem' }}>Medium Commands</div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span style={{ fontSize: '0.75rem', color: thText, width: '50px' }}>Daily</span>
-                        <input type="number" style={{...inputStyle, padding: '0.4rem'}} value={medDay} onChange={e => setMedDay(e.target.value)} />
+                        <label htmlFor="medDay" style={{ fontSize: '0.75rem', color: thText, width: '50px' }}>Daily</label>
+                        <input id="medDay" type="number" style={{...inputStyle, padding: '0.4rem'}} value={medDay} onChange={e => setMedDay(e.target.value)} />
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span style={{ fontSize: '0.75rem', color: thText, width: '50px' }}>Monthly</span>
-                        <input type="number" style={{...inputStyle, padding: '0.4rem'}} value={medMonth} onChange={e => setMedMonth(e.target.value)} />
+                        <label htmlFor="medMonth" style={{ fontSize: '0.75rem', color: thText, width: '50px' }}>Monthly</label>
+                        <input id="medMonth" type="number" style={{...inputStyle, padding: '0.4rem'}} value={medMonth} onChange={e => setMedMonth(e.target.value)} />
                       </div>
                     </div>
                   </div>
@@ -359,7 +370,7 @@ export function PlansPanel({ plans, services: dbServices = [], refresh, showToas
             
             <div style={{ padding: '1.25rem', borderTop: `1px solid ${trBorder}`, display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
               <button style={{ padding: '0.5rem 1rem', borderRadius: '0.5rem', background: 'transparent', color: thText, border: `1px solid ${trBorder}`, cursor: 'pointer' }} onClick={() => setShowModal(false)}>Cancel</button>
-              <button style={btnPrimary} onClick={handleSave}><Check size={16} /> Save Plan</button>
+              <button disabled={savingPlan} style={{...btnPrimary, opacity: savingPlan ? 0.6 : 1}} onClick={handleSave}><Check size={16} /> {savingPlan ? 'Saving...' : 'Save Plan'}</button>
             </div>
           </div>
         </div>

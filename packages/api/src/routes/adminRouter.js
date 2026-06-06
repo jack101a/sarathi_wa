@@ -25,7 +25,9 @@ const {
 
 const { apiQueue, browserQueue } = queue;
 const { handleLogin, handleLogout, handleVerify, requireAdminAuth } = require('../middleware/adminAuth');
+const { createQueueAdminService } = require('../services/queueAdminService');
 const BACKUP_DIR = postgresBackup.BACKUP_DIR;
+const queueAdminService = createQueueAdminService({ jobRepository, logger });
 
 // Heavy refresh still uses the command services, but tracking storage is Postgres-backed.
 const { refreshAllTrackedApplications } = require('../../../../src/services/trackingControlService');
@@ -50,34 +52,24 @@ async function releaseDatabaseOperationLock(token) {
 // Helper to get BullMQ queue stats
 async function getQueueStats(q) {
   try {
-    const [pending, active, completed, failed] = await Promise.all([
+    const [pending, active, completed, failed, isPaused] = await Promise.all([
       q.getJobCountByTypes('waiting', 'delayed'),
       q.getJobCountByTypes('active'),
       q.getJobCountByTypes('completed'),
       q.getJobCountByTypes('failed'),
+      q.isPaused(),
     ]);
     return {
       name: q.name,
       pending,
       running: active,
       completed,
-      failed
+      failed,
+      isPaused
     };
   } catch (err) {
-    return { name: q.name, pending: 0, running: 0, completed: 0, failed: 0 };
+    return { name: q.name, pending: 0, running: 0, completed: 0, failed: 0, isPaused: false };
   }
-}
-
-// Helper to cancel a pending job in BullMQ
-async function cancelQueueJob(q, jobId) {
-  try {
-    const job = await q.getJob(jobId);
-    if (job) {
-      await job.remove();
-      return true;
-    }
-  } catch (_) {}
-  return false;
 }
 
 async function pauseQueuesForRestore(timeoutMs = 5 * 60 * 1000) {
@@ -254,20 +246,21 @@ router.get('/config', async (req, res) => {
 // ── Bootstrap (loads everything the dashboard needs) ──────────────────────
 router.get('/bootstrap', async (req, res) => {
   try {
-    const [users, waGroups, tgGroups, totalCreditsSpent, services, priceOverrides, apiStats, browserStats] = await Promise.all([
-      authRepo.getUsersWithSpentCredits(),
+    const [users, waGroups, tgGroups, totalCreditsSpent, services, priceOverrides, plans, apiStats, browserStats] = await Promise.all([
+      authRepo.getUsersWithSpentCredits({ includeInactive: true }),
       authRepo.getAuthorizedGroups('wa'),
       authRepo.getAuthorizedGroups('tg'),
       authRepo.getTotalCreditsSpent(),
       serviceRepository.getAllServices(),
       pricingRepository.listOverrides(),
+      planRepository.getAllPlans(),
       getQueueStats(apiQueue),
       getQueueStats(browserQueue),
     ]);
 
     const sarathi = await trackingRepository.listByType('sarathi');
     const vahan = await trackingRepository.listByType('vahan');
-    const jobs = await jobRepository.getPendingJobs('api', 20);
+    const jobs = await jobRepository.queryJobs({ limit: 50 });
     const jobStats = await authRepo.getJobStats();
     const totalCredits = await authRepo.getTotalCredits();
 
@@ -287,6 +280,7 @@ router.get('/bootstrap', async (req, res) => {
         successRate: jobStats.successRate,
       },
       users,
+      plans,
       services,
       priceOverrides,
       waGroups,
@@ -434,7 +428,7 @@ router.delete('/pricing-overrides/:id', async (req, res) => {
 // ── Users ──────────────────────────────────────────────────────────────────
 router.get('/users', async (req, res) => {
   try {
-    const users = await authRepo.getUsersWithSpentCredits();
+    const users = await authRepo.getUsersWithSpentCredits({ includeInactive: true });
     res.json({ ok: true, users });
   } catch (err) {
     res.status(500).json({ ok: false, message: err.message });
@@ -539,7 +533,7 @@ router.post('/users/:phone/credits', async (req, res) => {
       if (numAmount <= 0) return res.status(400).json({ ok: false, message: 'amount must be positive' });
     }
 
-    const user = await authRepo.getUserByPhone(phone);
+    const user = await authRepo.getUserByPhone(phone, { includeInactive: true });
     if (!user) return res.status(404).json({ ok: false, message: 'User not found' });
     
     let result;
@@ -557,7 +551,7 @@ router.post('/users/:phone/credits', async (req, res) => {
 router.get('/users/:phone/credit-history', async (req, res) => {
   try {
     const { phone } = req.params;
-    const user = await authRepo.getUserByPhone(phone);
+    const user = await authRepo.getUserByPhone(phone, { includeInactive: true });
     if (!user) return res.status(404).json({ ok: false, message: 'User not found' });
     const limit = Math.min(Number(req.query.limit) || 50, 200);
     const history = await authRepo.getCreditHistory(user.id, limit);
@@ -570,7 +564,7 @@ router.get('/users/:phone/credit-history', async (req, res) => {
 router.get('/users/:phone/logs', async (req, res) => {
   try {
     const { phone } = req.params;
-    const user = await authRepo.getUserByPhone(phone);
+    const user = await authRepo.getUserByPhone(phone, { includeInactive: true });
     if (!user) return res.status(404).json({ ok: false, message: 'User not found' });
     const limit = Math.min(Number(req.query.limit) || 100, 300);
     const [credits, jobs] = await Promise.all([
@@ -588,7 +582,7 @@ router.patch('/users/:phone/rate-overrides', async (req, res) => {
   try {
     const { phone } = req.params;
     const overrides = req.body || {};
-    const user = await authRepo.getUserByPhone(phone);
+    const user = await authRepo.getUserByPhone(phone, { includeInactive: true });
     if (!user) return res.status(404).json({ ok: false, message: 'User not found' });
     await authRepo.setUserRateOverrides(user.id, overrides);
     logger.info('adminRouter', 'Rate overrides set', { phone, overrides });
@@ -763,10 +757,16 @@ router.get('/jobs/:jobId', async (req, res) => {
 router.delete('/jobs/:jobId', async (req, res) => {
   try {
     const { jobId } = req.params;
-    const removedFromApi = await cancelQueueJob(apiQueue, jobId);
-    const removedFromBrowser = await cancelQueueJob(browserQueue, jobId);
+    const queueResult = await queueAdminService.removePendingJob([apiQueue, browserQueue], jobId);
+    if (queueResult.found && !queueResult.removed) {
+      return res.status(409).json({
+        ok: false,
+        message: 'Job is already active and can no longer be cancelled safely',
+      });
+    }
+
     const cancelled = await jobRepository.cancelJob(jobId);
-    if (!cancelled && !removedFromApi && !removedFromBrowser) {
+    if (!cancelled && !queueResult.removed) {
       return res.status(400).json({ ok: false, message: 'Job not found or not in pending state' });
     }
     logger.info('adminRouter', 'Job cancelled', { jobId });
@@ -787,6 +787,36 @@ router.get('/queues', async (req, res) => {
     api:     apiStats,
     browser: browserStats,
   });
+});
+
+router.post('/queues/:name/:action', async (req, res) => {
+  try {
+    const { name, action } = req.params;
+    const q = name === 'api' ? apiQueue : name === 'browser' ? browserQueue : null;
+    if (!q) return res.status(400).json({ ok: false, message: 'Invalid queue name' });
+
+    if (action === 'pause') {
+      await q.pause();
+    } else if (action === 'resume') {
+      await q.resume();
+    } else if (action === 'flush') {
+      const result = await queueAdminService.flushQueue(q);
+      logger.info('adminRouter', 'Queue action completed', { queue: name, action, ...result });
+      return res.json({
+        ok: true,
+        message: `Queue ${name} flushed`,
+        ...result,
+      });
+    } else {
+      return res.status(400).json({ ok: false, message: 'Invalid queue action' });
+    }
+
+    logger.info('adminRouter', 'Queue action completed', { queue: name, action });
+    res.json({ ok: true, message: `Queue ${name} ${action}d` });
+  } catch (err) {
+    logger.error('adminRouter', 'Queue action failed', { error: err.message });
+    res.status(500).json({ ok: false, message: err.message });
+  }
 });
 
 // ── Activity Log ──────────────────────────────────────────────────────────
@@ -812,7 +842,7 @@ router.get('/stats/summary', async (req, res) => {
     const jobStats = await authRepo.getJobStats();
     const totalCredits = await authRepo.getTotalCredits();
     const totalCreditsSpent = await authRepo.getTotalCreditsSpent();
-    const users = await authRepo.getUsersWithSpentCredits();
+    const users = await authRepo.getUsersWithSpentCredits({ includeInactive: true });
     res.json({
       ok: true,
       ...jobStats,

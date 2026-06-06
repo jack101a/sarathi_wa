@@ -122,7 +122,14 @@ export function GroupsPanel({ isDark, showToast }) {
             <tbody>
               {isLoading
                 ? Array.from({ length: 3 }).map((_, i) => <SkeletonTableRow key={i} cols={5} />)
-                : groups.map((g, i) => (
+                : groups.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ padding: '3rem', textAlign: 'center', color: thText }}>
+                      <p style={{ margin: '0 0 1rem', fontSize: '0.9rem' }}>No groups found.</p>
+                      <button onClick={() => setShowAdd(true)} style={{ background: '#6366f1', color: '#fff', border: 'none', padding: '0.5rem 1rem', borderRadius: '0.5rem', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>Create your first group</button>
+                    </td>
+                  </tr>
+                ) : groups.map((g, i) => (
                   <tr key={g.group_id || i} className="hover-row" style={{ borderBottom: `1px solid ${trBorder}` }}>
                     <td style={{ padding: '0.6rem 0.75rem', color: thText }}>{i + 1}</td>
                     <td style={{ padding: '0.6rem 0.75rem', color: tdText, fontFamily: 'monospace', fontSize: '0.8rem' }}>{g.group_id}</td>
@@ -140,9 +147,6 @@ export function GroupsPanel({ isDark, showToast }) {
                   </tr>
                 ))
               }
-              {!isLoading && groups.length === 0 && (
-                <tr><td colSpan={5} style={{ textAlign: 'center', padding: '2rem', color: thText }}>No groups authorized for {activeTab === 'wa' ? 'WhatsApp' : 'Telegram'}</td></tr>
-              )}
             </tbody>
           </table>
         </div>

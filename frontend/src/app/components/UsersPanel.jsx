@@ -18,6 +18,22 @@ function planBadge(planId, plans = []) {
   return <span style={{ background: isPremium ? 'rgba(251,191,36,0.15)' : 'rgba(99,102,241,0.12)', color: isPremium ? '#fbbf24' : '#818cf8', padding: '0.15rem 0.5rem', borderRadius: '999px', fontSize: '0.7rem', fontWeight: 700 }}>{planName || 'free'}</span>;
 }
 
+function toDateInputValue(value) {
+  if (!value) return '';
+  const parsed = value instanceof Date ? value.toISOString() : String(value);
+  return parsed.slice(0, 10);
+}
+
+function parseRateLimitOverrides(value) {
+  if (!value) return {};
+  if (typeof value === 'object') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return {};
+  }
+}
+
 function CreditModal({ phone, isDark, onClose, showToast, onRefresh }) {
   const [amount, setAmount] = useState('');
   const [action, setAction] = useState('add');
@@ -49,7 +65,7 @@ function CreditModal({ phone, isDark, onClose, showToast, onRefresh }) {
         <h3 style={{ margin: '0 0 1.25rem', fontSize: '1rem', fontWeight: 700, color: isDark ? '#e6edf3' : '#111827', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <Coins size={18} color="#a855f7" /> Manage Credits for {phone}
         </h3>
-        
+
         <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', color: isDark ? '#e6edf3' : '#111827' }}><input type="radio" checked={action === 'add'} onChange={() => setAction('add')} /> Add</label>
           <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', color: isDark ? '#e6edf3' : '#111827' }}><input type="radio" checked={action === 'deduct'} onChange={() => setAction('deduct')} /> Deduct</label>
@@ -57,13 +73,13 @@ function CreditModal({ phone, isDark, onClose, showToast, onRefresh }) {
         </div>
 
         <div style={{ marginBottom: '1rem' }}>
-          <label style={labelStyle}>Amount</label>
-          <input type="number" style={inputStyle} value={amount} onChange={e => setAmount(e.target.value)} placeholder="e.g. 100" />
+          <label htmlFor="creditAmount" style={labelStyle}>Amount</label>
+          <input id="creditAmount" type="number" style={inputStyle} value={amount} onChange={e => setAmount(e.target.value)} placeholder="e.g. 100" />
         </div>
-        
+
         <div style={{ marginBottom: '1.25rem' }}>
-          <label style={labelStyle}>Note (Optional)</label>
-          <input type="text" style={inputStyle} value={note} onChange={e => setNote(e.target.value)} placeholder="Reason for change" />
+          <label htmlFor="creditNote" style={labelStyle}>Note (Optional)</label>
+          <input id="creditNote" type="text" style={inputStyle} value={note} onChange={e => setNote(e.target.value)} placeholder="Reason for change" />
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
@@ -113,8 +129,8 @@ function UserLogsModal({ phone, isDark, onClose, showToast }) {
   const tabBtnStyle = (tab) => ({
     padding: '0.5rem 1rem', border: 'none', background: 'transparent',
     cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600,
-    color: activeTab === tab 
-      ? '#6366f1' 
+    color: activeTab === tab
+      ? '#6366f1'
       : (isDark ? '#9ca3af' : '#6b7280'),
     borderBottom: activeTab === tab ? '2px solid #6366f1' : '2px solid transparent',
     transition: 'all 0.2s ease',
@@ -122,7 +138,7 @@ function UserLogsModal({ phone, isDark, onClose, showToast }) {
   });
 
   const listContainerStyle = {
-    flex: 1, overflowY: 'auto', marginTop: '1rem', 
+    flex: 1, overflowY: 'auto', marginTop: '1rem',
     maxHeight: '50vh', paddingRight: '0.25rem'
   };
 
@@ -143,7 +159,7 @@ function UserLogsModal({ phone, isDark, onClose, showToast }) {
             <FileText size={20} color="#6366f1" />
             <span>Activity Logs: {phone}</span>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: isDark ? '#9ca3af' : '#6b7280' }}>
+          <button onClick={onClose} aria-label="Close Logs" style={{ background: 'none', border: 'none', cursor: 'pointer', color: isDark ? '#9ca3af' : '#6b7280' }}>
             <X size={20} />
           </button>
         </div>
@@ -167,11 +183,11 @@ function UserLogsModal({ phone, isDark, onClose, showToast }) {
                       <span style={{ color: '#6366f1', fontFamily: 'monospace' }}>{job.command}</span>
                       <span style={{
                         padding: '0.1rem 0.4rem', borderRadius: '4px', fontSize: '0.65rem',
-                        background: job.status === 'completed' 
-                          ? 'rgba(16,185,129,0.15)' 
+                        background: job.status === 'completed'
+                          ? 'rgba(16,185,129,0.15)'
                           : (job.status === 'failed' ? 'rgba(244,63,94,0.15)' : 'rgba(245,158,11,0.15)'),
-                        color: job.status === 'completed' 
-                          ? '#10b981' 
+                        color: job.status === 'completed'
+                          ? '#10b981'
                           : (job.status === 'failed' ? '#f43f5e' : '#f59e0b')
                       }}>{job.status.toUpperCase()}</span>
                     </div>
@@ -194,9 +210,9 @@ function UserLogsModal({ phone, isDark, onClose, showToast }) {
                 logs.credits.map((tx) => (
                   <div key={tx.id} style={logRowStyle}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
-                      <span style={{ 
-                        color: tx.action === 'add' 
-                          ? '#10b981' 
+                      <span style={{
+                        color: tx.action === 'add'
+                          ? '#10b981'
                           : (tx.action === 'deduct' ? '#f43f5e' : '#a855f7'),
                         textTransform: 'uppercase'
                       }}>
@@ -227,7 +243,7 @@ function UserLogsModal({ phone, isDark, onClose, showToast }) {
 }
 
 // User Drawer Component for Add/Edit
-function UserDrawer({ user, plans, isDark, sarathiTracked = [], vahanTracked = [], onClose, showToast, onRefresh }) {
+function UserDrawer({ user, plans, isDark, sarathiTracked = [], vahanTracked = [], userOverrides = [], services = [], onClose, showToast, onRefresh }) {
   const isEditing = !!user;
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
@@ -235,19 +251,19 @@ function UserDrawer({ user, plans, isDark, sarathiTracked = [], vahanTracked = [
     name: user?.name || '',
     channel: user?.channel || 'wa',
     plan: user?.subscription_plan || (plans.length > 0 ? plans[0].id : 'free'),
-    expiry_date: user?.expiry_date || ''
+    expiry_date: toDateInputValue(user?.expiry_date)
   });
 
   // Overrides state
   let initialOverrides = { light: { perDay: '', perMonth: '' }, medium: { perDay: '', perMonth: '' } };
   if (isEditing && user.rate_limit_overrides) {
-    try {
-      const parsed = JSON.parse(user.rate_limit_overrides);
-      if (parsed.light) { initialOverrides.light.perDay = parsed.light.perDay ?? ''; initialOverrides.light.perMonth = parsed.light.perMonth ?? ''; }
-      if (parsed.medium) { initialOverrides.medium.perDay = parsed.medium.perDay ?? ''; initialOverrides.medium.perMonth = parsed.medium.perMonth ?? ''; }
-    } catch(e) {}
+    const parsed = parseRateLimitOverrides(user.rate_limit_overrides);
+    if (parsed.light) { initialOverrides.light.perDay = parsed.light.perDay ?? ''; initialOverrides.light.perMonth = parsed.light.perMonth ?? ''; }
+    if (parsed.medium) { initialOverrides.medium.perDay = parsed.medium.perDay ?? ''; initialOverrides.medium.perMonth = parsed.medium.perMonth ?? ''; }
   }
   const [overrides, setOverrides] = useState(initialOverrides);
+  const [pricingForm, setPricingForm] = useState({ service_id: '', credit_cost: '' });
+  const [pricingSaving, setPricingSaving] = useState(false);
 
   // Tracked apps for this user
   const userSarathi = isEditing ? sarathiTracked.filter(t => t.chatId === user.canonical_phone) : [];
@@ -284,8 +300,8 @@ function UserDrawer({ user, plans, isDark, sarathiTracked = [], vahanTracked = [
         showToast('User updated', 'success');
       } else {
         const res = await apiPostJson('/admin/api/users', form);
-        const msg = res.code 
-          ? `User created! Outbound activation code sent: ${res.code}` 
+        const msg = res.code
+          ? `User created! Outbound activation code sent: ${res.code}`
           : 'User created successfully';
         showToast(msg, 'success');
       }
@@ -301,8 +317,8 @@ function UserDrawer({ user, plans, isDark, sarathiTracked = [], vahanTracked = [
   return (
     <>
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 40, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(2px)' }} />
-      <div className="drawer-right" style={{ 
-        position: 'fixed', top: 0, right: 0, bottom: 0, width: '450px', maxWidth: '100%', 
+      <div className="drawer-right" style={{
+        position: 'fixed', top: 0, right: 0, bottom: 0, width: '450px', maxWidth: '100%',
         background: isDark ? '#1f2937' : '#ffffff', zIndex: 50,
         borderLeft: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
         boxShadow: '-10px 0 30px rgba(0,0,0,0.1)',
@@ -312,26 +328,26 @@ function UserDrawer({ user, plans, isDark, sarathiTracked = [], vahanTracked = [
           <h3 style={{ margin: 0, fontSize: '1.1rem', color: isDark ? '#e6edf3' : '#111827' }}>
             {isEditing ? 'Edit User' : 'New User'}
           </h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: isDark ? '#9ca3af' : '#6b7280' }}><X size={20}/></button>
+          <button onClick={onClose} aria-label="Close Drawer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: isDark ? '#9ca3af' : '#6b7280' }}><X size={20}/></button>
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem' }}>
           <form id="user-form" onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             <div>
-              <label style={labelStyle}>Phone Number (ID)</label>
-              <input required style={inputStyle} value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="919XXXXXXXXX" disabled={isEditing} />
+              <label htmlFor="userPhone" style={labelStyle}>Phone Number (ID)</label>
+              <input id="userPhone" required style={inputStyle} value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="919XXXXXXXXX" disabled={isEditing} />
               {isEditing && <div style={{ fontSize: '0.7rem', color: isDark ? '#9ca3af' : '#6b7280', marginTop: '0.3rem' }}>Phone number cannot be changed.</div>}
             </div>
 
             <div>
-              <label style={labelStyle}>Full Name</label>
-              <input style={inputStyle} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Applicant Name" />
+              <label htmlFor="userName" style={labelStyle}>Full Name</label>
+              <input id="userName" style={inputStyle} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Applicant Name" />
             </div>
 
             {!isEditing && (
               <div>
-                <label style={labelStyle}>Channel</label>
-                <select style={inputStyle} value={form.channel} onChange={e => setForm(f => ({ ...f, channel: e.target.value }))}>
+                <label htmlFor="userChannel" style={labelStyle}>Channel</label>
+                <select id="userChannel" style={inputStyle} value={form.channel} onChange={e => setForm(f => ({ ...f, channel: e.target.value }))}>
                   <option value="wa">WhatsApp</option>
                   <option value="tg">Telegram</option>
                 </select>
@@ -341,37 +357,37 @@ function UserDrawer({ user, plans, isDark, sarathiTracked = [], vahanTracked = [
             <div style={{ borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`, margin: '0.5rem 0' }}></div>
 
             <div>
-              <label style={labelStyle}>Subscription Plan</label>
-              <select style={inputStyle} value={form.plan} onChange={e => setForm(f => ({ ...f, plan: e.target.value }))}>
+              <label htmlFor="userPlan" style={labelStyle}>Subscription Plan</label>
+              <select id="userPlan" style={inputStyle} value={form.plan} onChange={e => setForm(f => ({ ...f, plan: e.target.value }))}>
                 {plans.map(p => <option key={p.id} value={p.id}>{p.name} ({p.id})</option>)}
               </select>
               <div style={{ fontSize: '0.7rem', color: isDark ? '#9ca3af' : '#6b7280', marginTop: '0.3rem' }}>Plan determines which services are allowed and daily limits.</div>
             </div>
 
             <div>
-              <label style={labelStyle}>Expiry Date (Optional)</label>
-              <input type="date" style={inputStyle} value={form.expiry_date} onChange={e => setForm(f => ({ ...f, expiry_date: e.target.value }))} />
+              <label htmlFor="userExpiry" style={labelStyle}>Expiry Date (Optional)</label>
+              <input id="userExpiry" type="date" style={inputStyle} value={form.expiry_date} onChange={e => setForm(f => ({ ...f, expiry_date: e.target.value }))} />
             </div>
 
             {isEditing && (
               <>
                 <div style={{ borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`, margin: '0.5rem 0' }}></div>
-                
+
                 <div>
                   <label style={{...labelStyle, fontSize: '0.85rem', color: isDark ? '#e6edf3' : '#111827'}}>Custom Rate Limit Overrides</label>
                   <div style={{ fontSize: '0.7rem', color: isDark ? '#9ca3af' : '#6b7280', marginBottom: '0.8rem' }}>Leave blank to inherit limits from the user's Subscription Plan.</div>
-                  
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+
+                  <div className="responsive-grid">
                     <div style={{ background: isDark ? 'rgba(255,255,255,0.03)' : '#f9fafb', padding: '0.8rem', borderRadius: '0.5rem', border: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}` }}>
                       <div style={{ fontSize: '0.75rem', fontWeight: 600, color: isDark ? '#e6edf3' : '#111827', marginBottom: '0.6rem' }}>Light Commands</div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <span style={{ fontSize: '0.7rem', color: isDark ? '#9ca3af' : '#6b7280', width: '40px' }}>Daily</span>
-                          <input type="number" style={{...inputStyle, padding: '0.4rem'}} placeholder="Inherit" value={overrides.light.perDay} onChange={e => setOverrides({...overrides, light: {...overrides.light, perDay: e.target.value}})} />
+                          <label htmlFor="lightDaily" style={{ fontSize: '0.7rem', color: isDark ? '#9ca3af' : '#6b7280', width: '40px' }}>Daily</label>
+                          <input id="lightDaily" type="number" style={{...inputStyle, padding: '0.4rem'}} placeholder="Inherit" value={overrides.light.perDay} onChange={e => setOverrides({...overrides, light: {...overrides.light, perDay: e.target.value}})} />
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <span style={{ fontSize: '0.7rem', color: isDark ? '#9ca3af' : '#6b7280', width: '40px' }}>Month</span>
-                          <input type="number" style={{...inputStyle, padding: '0.4rem'}} placeholder="Inherit" value={overrides.light.perMonth} onChange={e => setOverrides({...overrides, light: {...overrides.light, perMonth: e.target.value}})} />
+                          <label htmlFor="lightMonth" style={{ fontSize: '0.7rem', color: isDark ? '#9ca3af' : '#6b7280', width: '40px' }}>Month</label>
+                          <input id="lightMonth" type="number" style={{...inputStyle, padding: '0.4rem'}} placeholder="Inherit" value={overrides.light.perMonth} onChange={e => setOverrides({...overrides, light: {...overrides.light, perMonth: e.target.value}})} />
                         </div>
                       </div>
                     </div>
@@ -380,12 +396,12 @@ function UserDrawer({ user, plans, isDark, sarathiTracked = [], vahanTracked = [
                       <div style={{ fontSize: '0.75rem', fontWeight: 600, color: isDark ? '#e6edf3' : '#111827', marginBottom: '0.6rem' }}>Medium Commands</div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <span style={{ fontSize: '0.7rem', color: isDark ? '#9ca3af' : '#6b7280', width: '40px' }}>Daily</span>
-                          <input type="number" style={{...inputStyle, padding: '0.4rem'}} placeholder="Inherit" value={overrides.medium.perDay} onChange={e => setOverrides({...overrides, medium: {...overrides.medium, perDay: e.target.value}})} />
+                          <label htmlFor="mediumDaily" style={{ fontSize: '0.7rem', color: isDark ? '#9ca3af' : '#6b7280', width: '40px' }}>Daily</label>
+                          <input id="mediumDaily" type="number" style={{...inputStyle, padding: '0.4rem'}} placeholder="Inherit" value={overrides.medium.perDay} onChange={e => setOverrides({...overrides, medium: {...overrides.medium, perDay: e.target.value}})} />
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <span style={{ fontSize: '0.7rem', color: isDark ? '#9ca3af' : '#6b7280', width: '40px' }}>Month</span>
-                          <input type="number" style={{...inputStyle, padding: '0.4rem'}} placeholder="Inherit" value={overrides.medium.perMonth} onChange={e => setOverrides({...overrides, medium: {...overrides.medium, perMonth: e.target.value}})} />
+                          <label htmlFor="mediumMonth" style={{ fontSize: '0.7rem', color: isDark ? '#9ca3af' : '#6b7280', width: '40px' }}>Month</label>
+                          <input id="mediumMonth" type="number" style={{...inputStyle, padding: '0.4rem'}} placeholder="Inherit" value={overrides.medium.perMonth} onChange={e => setOverrides({...overrides, medium: {...overrides.medium, perMonth: e.target.value}})} />
                         </div>
                       </div>
                     </div>
@@ -393,10 +409,55 @@ function UserDrawer({ user, plans, isDark, sarathiTracked = [], vahanTracked = [
                 </div>
 
                 <div style={{ borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`, margin: '0.5rem 0' }}></div>
-                
+
+                <div>
+                  <label style={{...labelStyle, fontSize: '0.85rem', color: isDark ? '#e6edf3' : '#111827'}}>Custom Service Pricing</label>
+                  <div style={{ fontSize: '0.7rem', color: isDark ? '#9ca3af' : '#6b7280', marginBottom: '0.8rem' }}>Set specific credit costs for this user.</div>
+
+                  <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <select aria-label="Select Heavy Service" style={inputStyle} value={pricingForm.service_id} onChange={e => setPricingForm(f => ({ ...f, service_id: e.target.value }))}>
+                      <option value="">Select heavy service...</option>
+                      {services.filter(s => s.category === 'heavy').map(s => <option key={s.id} value={s.id}>{s.display_name || s.id}</option>)}
+                    </select>
+                    <input type="number" aria-label="Credit Cost" style={{...inputStyle, width: '100px'}} placeholder="Cost" value={pricingForm.credit_cost} onChange={e => setPricingForm(f => ({ ...f, credit_cost: e.target.value }))} />
+                    <button type="button" disabled={pricingSaving || !pricingForm.service_id || pricingForm.credit_cost === ''} onClick={async () => {
+                      setPricingSaving(true);
+                      try {
+                        await apiPostJson('/admin/api/pricing-overrides', { scope_type: 'user', scope_id: String(user.id), service_id: pricingForm.service_id, credit_cost: Number(pricingForm.credit_cost) });
+                        showToast('Custom price added', 'success');
+                        setPricingForm({ service_id: '', credit_cost: '' });
+                        onRefresh();
+                      } catch (err) { showToast(err.message, 'error'); } finally {
+                        setPricingSaving(false);
+                      }
+                    }} style={{ padding: '0.4rem 0.8rem', borderRadius: '0.5rem', background: '#10b981', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, opacity: (pricingSaving || !pricingForm.service_id || pricingForm.credit_cost === '') ? 0.6 : 1 }}>{pricingSaving ? '...' : 'Add'}</button>
+                  </div>
+
+                  {userOverrides.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                      {userOverrides.map(o => (
+                        <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.4rem 0.6rem', background: isDark ? 'rgba(255,255,255,0.03)' : '#f9fafb', borderRadius: '0.4rem', fontSize: '0.75rem', border: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}` }}>
+                          <span>{o.service_name || o.service_id}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span style={{ color: '#f59e0b', fontWeight: 600 }}>{o.credit_cost} cr</span>
+                            <button type="button" onClick={async () => {
+                              try {
+                                await apiDelete(`/admin/api/pricing-overrides/${o.id}`);
+                                onRefresh();
+                              } catch (err) { showToast(err.message, 'error'); }
+                            }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }} aria-label="Delete Price Override"><Trash2 size={12} /></button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`, margin: '0.5rem 0' }}></div>
+
                 <div>
                   <label style={{...labelStyle, fontSize: '0.85rem', color: isDark ? '#e6edf3' : '#111827'}}>Tracked Applications</label>
-                  
+
                   {userSarathi.length === 0 && userVahan.length === 0 ? (
                     <div style={{ fontSize: '0.75rem', color: isDark ? '#9ca3af' : '#6b7280', padding: '1rem', textAlign: 'center', background: isDark ? 'rgba(255,255,255,0.02)' : '#f9fafb', borderRadius: '0.5rem' }}>
                       No applications currently tracked by this user.
@@ -446,21 +507,22 @@ function UserDrawer({ user, plans, isDark, sarathiTracked = [], vahanTracked = [
   );
 }
 
-export function UsersPanel({ users, plans = [], sarathiTracked = [], vahanTracked = [], isDark, onRefresh, showToast }) {
+export function UsersPanel({ users, plans = [], sarathiTracked = [], vahanTracked = [], priceOverrides = [], services = [], isDark, onRefresh, showToast }) {
   const [drawerUser, setDrawerUser] = useState(null); // null = closed, {} = new, {phone: ...} = edit
   const [creditModalPhone, setCreditModalPhone] = useState(null);
   const [logsModalPhone, setLogsModalPhone] = useState(null);
   const [search, setSearch] = useState('');
+  const [processingIds, setProcessingIds] = useState(new Set());
 
   const panelStyle = isDark
     ? { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '1rem', padding: '1.25rem' }
     : { background: 'rgba(255,255,255,0.85)', border: '1px solid rgba(0,0,0,0.06)', borderRadius: '1rem', padding: '1.25rem', boxShadow: '0 1px 8px rgba(0,0,0,0.06)' };
-  
+
   const thText  = isDark ? '#9ca3af' : '#6b7280';
   const tdText  = isDark ? '#e6edf3' : '#111827';
   const trBorder = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
   const inputStyle = { padding: '0.5rem 0.75rem', borderRadius: '0.5rem', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.12)'}`, background: isDark ? 'rgba(255,255,255,0.05)' : '#fff', color: isDark ? '#e6edf3' : '#111827', fontSize: '0.85rem' };
-  
+
   const btnPrimary = { padding: '0.45rem 1rem', borderRadius: '0.5rem', background: 'linear-gradient(135deg,#6366f1,#4f46e5)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' };
   const btnDanger  = { padding: '0.35rem 0.7rem', borderRadius: '0.5rem', background: 'rgba(244,63,94,0.12)', color: '#f43f5e', border: 'none', cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.3rem' };
   const btnGhost   = { padding: '0.35rem 0.7rem', borderRadius: '0.5rem', background: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)', color: isDark ? '#9ca3af' : '#6b7280', border: 'none', cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.3rem' };
@@ -469,15 +531,19 @@ export function UsersPanel({ users, plans = [], sarathiTracked = [], vahanTracke
     const nextStatus = Number(u.is_active) === 1 ? 0 : 1;
     const actionName = nextStatus === 1 ? 'Activate' : 'Deactivate';
     if (!confirm(`${actionName} user ${u.canonical_phone}?`)) return;
+    setProcessingIds(prev => new Set(prev).add(u.canonical_phone));
     try {
       await apiPatchJson(`/admin/api/users/${encodeURIComponent(u.canonical_phone)}`, { is_active: nextStatus });
       showToast(`User ${actionName.toLowerCase()}d`, 'success');
       onRefresh();
-    } catch (err) { showToast(err.message, 'error'); }
+    } catch (err) { showToast(err.message, 'error'); } finally {
+      setProcessingIds(prev => { const n = new Set(prev); n.delete(u.canonical_phone); return n; });
+    }
   }
 
   async function handleResendActivation(u) {
     if (!confirm(`Resend activation WhatsApp message with a new OTP to ${u.canonical_phone}?`)) return;
+    setProcessingIds(prev => new Set(prev).add(u.canonical_phone));
     try {
       const res = await apiPostJson(`/admin/api/users/${encodeURIComponent(u.canonical_phone)}/resend-activation`);
       if (res.ok) {
@@ -486,6 +552,8 @@ export function UsersPanel({ users, plans = [], sarathiTracked = [], vahanTracke
       }
     } catch (err) {
       showToast(err.message, 'error');
+    } finally {
+      setProcessingIds(prev => { const n = new Set(prev); n.delete(u.canonical_phone); return n; });
     }
   }
 
@@ -504,10 +572,11 @@ export function UsersPanel({ users, plans = [], sarathiTracked = [], vahanTracke
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
           <div style={{ position: 'relative' }}>
             <Search size={14} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: thText }} />
-            <input 
-              type="text" placeholder="Search phone or name..." 
-              value={search} onChange={e => setSearch(e.target.value)} 
-              style={{ ...inputStyle, paddingLeft: '2.25rem', width: '220px' }} 
+            <input
+              aria-label="Search users"
+              type="text" placeholder="Search phone or name..."
+              value={search} onChange={e => setSearch(e.target.value)}
+              style={{ ...inputStyle, paddingLeft: '2.25rem', width: '220px' }}
             />
           </div>
           <button style={btnPrimary} onClick={() => setDrawerUser({})}>
@@ -535,7 +604,7 @@ export function UsersPanel({ users, plans = [], sarathiTracked = [], vahanTracke
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
                       <span style={{ fontSize: '0.65rem', color: thText, textTransform: 'uppercase' }}>{u.channel}</span>
                       {u.pending_otp && (
-                        <span 
+                        <span
                           title="Click to copy pending activation OTP"
                           onClick={() => {
                             navigator.clipboard.writeText(u.pending_otp);
@@ -557,17 +626,17 @@ export function UsersPanel({ users, plans = [], sarathiTracked = [], vahanTracke
                       <Plus size={12} color="#a855f7" />
                     </div>
                   </td>
-                  <td style={{ padding: '0.8rem 1rem', color: thText, whiteSpace: 'nowrap' }}>{u.expiry_date || 'Lifetime'}</td>
+                  <td style={{ padding: '0.8rem 1rem', color: thText, whiteSpace: 'nowrap' }}>{toDateInputValue(u.expiry_date) || 'Lifetime'}</td>
                   <td style={{ padding: '0.8rem 1rem' }}>{badge(u.is_active, u.pending_otp)}</td>
                   <td style={{ padding: '0.8rem 1rem' }}>
                     <div style={{ display: 'flex', gap: '0.4rem' }}>
-                      <button style={btnGhost} onClick={() => setDrawerUser(u)} title="Edit"><Pencil size={14} /></button>
-                      <button style={btnGhost} onClick={() => setLogsModalPhone(u.canonical_phone)} title="View Logs"><FileText size={14} /></button>
-                      <button style={Number(u.is_active) === 1 ? btnDanger : btnGhost} onClick={() => handleToggleActive(u)} title={Number(u.is_active) === 1 ? "Deactivate" : "Activate"}>
+                      <button style={btnGhost} onClick={() => setDrawerUser(u)} aria-label="Edit User" title="Edit"><Pencil size={14} /></button>
+                      <button style={btnGhost} onClick={() => setLogsModalPhone(u.canonical_phone)} aria-label="View Logs" title="View Logs"><FileText size={14} /></button>
+                      <button disabled={processingIds.has(u.canonical_phone)} style={{...(Number(u.is_active) === 1 ? btnDanger : btnGhost), opacity: processingIds.has(u.canonical_phone) ? 0.5 : 1}} onClick={() => handleToggleActive(u)} aria-label={Number(u.is_active) === 1 ? "Deactivate" : "Activate"} title={Number(u.is_active) === 1 ? "Deactivate" : "Activate"}>
                         {Number(u.is_active) === 1 ? <PowerOff size={14} /> : <Power size={14} />}
                       </button>
                       {u.pending_otp && (
-                        <button style={btnGhost} onClick={() => handleResendActivation(u)} title="Resend Activation Code">
+                        <button disabled={processingIds.has(u.canonical_phone)} style={{...btnGhost, opacity: processingIds.has(u.canonical_phone) ? 0.5 : 1}} onClick={() => handleResendActivation(u)} aria-label="Resend Activation Code" title="Resend Activation Code">
                           <RefreshCw size={14} color="#f59e0b" />
                         </button>
                       )}
@@ -581,11 +650,13 @@ export function UsersPanel({ users, plans = [], sarathiTracked = [], vahanTracke
       </div>
 
       {drawerUser && (
-        <UserDrawer 
+        <UserDrawer
           user={Object.keys(drawerUser).length > 0 ? drawerUser : null}
           plans={plans}
           sarathiTracked={sarathiTracked}
           vahanTracked={vahanTracked}
+          userOverrides={priceOverrides.filter(o => o.scope_type === 'user' && String(o.scope_id) === String(drawerUser?.id))}
+          services={services}
           isDark={isDark}
           onClose={() => setDrawerUser(null)}
           showToast={showToast}
@@ -594,20 +665,20 @@ export function UsersPanel({ users, plans = [], sarathiTracked = [], vahanTracke
       )}
 
       {creditModalPhone && (
-        <CreditModal 
-          phone={creditModalPhone} 
-          isDark={isDark} 
-          onClose={() => setCreditModalPhone(null)} 
+        <CreditModal
+          phone={creditModalPhone}
+          isDark={isDark}
+          onClose={() => setCreditModalPhone(null)}
           showToast={showToast}
           onRefresh={onRefresh}
         />
       )}
 
       {logsModalPhone && (
-        <UserLogsModal 
-          phone={logsModalPhone} 
-          isDark={isDark} 
-          onClose={() => setLogsModalPhone(null)} 
+        <UserLogsModal
+          phone={logsModalPhone}
+          isDark={isDark}
+          onClose={() => setLogsModalPhone(null)}
           showToast={showToast}
         />
       )}

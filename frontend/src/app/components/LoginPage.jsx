@@ -1,8 +1,12 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { Bot, Eye, EyeOff } from 'lucide-react';
 import { apiPostJson } from '../../api/client.js';
 
 export function LoginPage({ isDark }) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [form, setForm]       = useState({ username: '', password: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -25,7 +29,8 @@ export function LoginPage({ isDark }) {
     width: '100%', padding: '0.65rem 0.875rem', borderRadius: '0.625rem',
     border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.14)'}`,
     background: isDark ? 'rgba(255,255,255,0.06)' : '#fff',
-    color: isDark ? '#e6edf3' : '#111827', fontSize: '0.9rem', boxSizing: 'border-box',
+    color: isDark ? '#e6edf3' : '#111827', fontSize: '0.9rem',
+    boxSizing: 'border-box',
     outline: 'none',
   };
 
@@ -35,7 +40,8 @@ export function LoginPage({ isDark }) {
     setError('');
     try {
       await apiPostJson('/admin/api/login', form);
-      window.location.assign('/admin/dashboard');
+      queryClient.removeQueries({ queryKey: ['session-verify'] });
+      navigate('/dashboard', { replace: true });
     } catch (err) {
       setError(err.message || 'Login failed');
     } finally {
@@ -64,34 +70,34 @@ export function LoginPage({ isDark }) {
         </div>
 
         <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: isDark ? '#9ca3af' : '#6b7280', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Username</label>
+          <div style={{ marginBottom: '1.25rem' }}>
+            <label htmlFor="username" style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: 600, color: isDark ? '#c9d1d9' : '#374151' }}>Username</label>
             <input
-              id="admin-username"
+              id="username"
+              type="text"
               autoComplete="username"
               required
               style={inputStyle}
-              value={form.username}
-              onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
               placeholder="admin"
+              value={form.username}
+              onChange={e => setForm({ ...form, username: e.target.value })}
             />
           </div>
 
-          <div>
-            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: isDark ? '#9ca3af' : '#6b7280', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Password</label>
+          <div style={{ marginBottom: '1.5rem', position: 'relative' }}>
+            <label htmlFor="password" style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: 600, color: isDark ? '#c9d1d9' : '#374151' }}>Password</label>
             <div style={{ position: 'relative' }}>
               <input
-                id="admin-password"
-                type={showPassword ? 'text' : 'password'}
+                id="password"
+                type={showPassword ? "text" : "password"}
                 autoComplete="current-password"
                 required
                 style={{ ...inputStyle, paddingRight: '2.5rem' }}
-                value={form.password}
-                onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
                 placeholder="••••••••"
+                value={form.password}
+                onChange={e => setForm({ ...form, password: e.target.value })}
               />
-              <button type="button" onClick={() => setShowPassword(v => !v)}
-                style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: isDark ? '#9ca3af' : '#6b7280', display: 'flex' }}>
+              <button type="button" aria-label="Toggle password visibility" onClick={() => setShowPassword(v => !v)} style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: isDark ? '#8b949e' : '#9ca3af', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>

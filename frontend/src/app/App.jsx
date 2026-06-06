@@ -14,6 +14,7 @@ import { ActivityPanel } from './components/ActivityPanel.jsx';
 import { SettingsPanel } from './components/SettingsPanel.jsx';
 import { QueuesPanel } from './components/QueuesPanel.jsx';
 import { ServicesPanel } from './components/ServicesPanel.jsx';
+import { PaymentsPanel } from './components/PaymentsPanel.jsx';
 
 import { useToast } from './hooks/useToast.js';
 import { useAdminData } from './hooks/useAdminData.js';
@@ -85,15 +86,15 @@ function ProtectedApp({ isDark }) {
       <Suspense fallback={<Spinner isDark={isDark} />}>
         <Routes>
           <Route path="/"          element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<DashboardPanel stats={stats} recentJobs={recentJobs} loading={loading} isDark={isDark} />} />
-          <Route path="/users"     element={<UsersPanel users={users} plans={plans} sarathiTracked={sarathiTracked} vahanTracked={vahanTracked} isDark={isDark} onRefresh={refresh} showToast={showToast} />} />
+          <Route path="/dashboard" element={<DashboardPanel stats={stats} recentJobs={recentJobs} services={services} loading={loading} isDark={isDark} />} />
+          <Route path="/users"     element={<UsersPanel users={users} plans={plans} sarathiTracked={sarathiTracked} vahanTracked={vahanTracked} priceOverrides={priceOverrides} services={services} isDark={isDark} onRefresh={refresh} showToast={showToast} />} />
           <Route path="/plans"     element={<PlansPanel plans={plans} services={services} isDark={isDark} refresh={refresh} showToast={showToast} />} />
           <Route path="/services"  element={<ServicesPanel services={services} users={users} plans={plans} waGroups={waGroups} tgGroups={tgGroups} priceOverrides={priceOverrides} isDark={isDark} refresh={refresh} showToast={showToast} />} />
-          <Route path="/jobs"      element={<JobsPanel queues={queues} isDark={isDark} showToast={showToast} />} />
+          <Route path="/jobs"      element={<JobsPanel queues={queues} services={services} isDark={isDark} showToast={showToast} />} />
           <Route path="/groups"    element={<GroupsPanel isDark={isDark} showToast={showToast} />} />
           <Route path="/activity"  element={<ActivityPanel users={users} isDark={isDark} showToast={showToast} />} />
-          <Route path="/payments"  element={<Navigate to="/dashboard" replace />} />
-          <Route path="/queues"    element={<Navigate to="/jobs" replace />} />
+          <Route path="/payments"  element={<PaymentsPanel isDark={isDark} />} />
+          <Route path="/queues"    element={<QueuesPanel queues={queues} isDark={isDark} refresh={refresh} showToast={showToast} />} />
           <Route path="/settings"  element={<SettingsPanel health={healthData} isDark={isDark} showToast={showToast} />} />
         </Routes>
       </Suspense>

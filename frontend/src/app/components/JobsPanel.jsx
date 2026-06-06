@@ -5,9 +5,14 @@ import { fetchFilteredJobs, fetchJobDetail } from '../../api/queries.js';
 import { apiDelete } from '../../api/client.js';
 import { SkeletonCard, SkeletonTableRow } from './Skeleton.jsx';
 
-const HEAVY_COMMANDS = ['lledit_start','dl_renewal_start','apply_dl_start'];
-const MEDIUM_COMMANDS = ['llprint_start','fee_print_start','pay_fee_start','slot_booking_start','resend_otp'];
-function getCategory(cmd) {
+function getCategory(cmd, services = []) {
+  if (services && services.length > 0) {
+    const srv = services.find(s => s.id === cmd);
+    if (srv) return srv.category || 'light';
+    return 'light';
+  }
+  const HEAVY_COMMANDS = ['lledit_start','dl_renewal_start','apply_dl_start'];
+  const MEDIUM_COMMANDS = ['llprint_start','fee_print_start','pay_fee_start','slot_booking_start','resend_otp'];
   if (HEAVY_COMMANDS.includes(cmd)) return 'heavy';
   if (MEDIUM_COMMANDS.includes(cmd)) return 'medium';
   return 'light';
@@ -35,7 +40,7 @@ function QueueCard({ title, stats, isDark }) {
   return (
     <div style={{ background: panelBg, border: `1px solid ${border}`, borderRadius: '1rem', padding: '1.25rem', flex: 1, minWidth: '250px' }}>
       <h3 style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', fontWeight: 700, color: isDark ? '#e6edf3' : '#111827' }}>{title}</h3>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+      <div className="responsive-grid">
         <div>
           <p style={{ margin: 0, fontSize: '0.7rem', color: isDark ? '#9ca3af' : '#6b7280' }}>Pending</p>
           <p style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#fbbf24' }}>{stats.pending}</p>
@@ -57,7 +62,7 @@ function QueueCard({ title, stats, isDark }) {
   );
 }
 
-function JobDrawer({ jobId, isDark, onClose, onCancel, showToast }) {
+function JobDrawer({ jobId, services, isDark, onClose, onCancel, showToast }) {
   const { data, isLoading } = useQuery({
     queryKey: ['jobDetail', jobId],
     queryFn: () => fetchJobDetail(jobId),
@@ -92,10 +97,10 @@ function JobDrawer({ jobId, isDark, onClose, onCancel, showToast }) {
               
               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                 {statusBadge(job.status)}
-                <span className={`badge badge-${getCategory(job.command)}`}>{getCategory(job.command)}</span>
+                <span className={`badge badge-${getCategory(job.command, services)}`}>{getCategory(job.command, services)}</span>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div className="responsive-grid">
                 <div>
                   <p style={{ margin: 0, fontSize: '0.75rem', color: isDark ? '#9ca3af' : '#6b7280' }}>User Phone</p>
                   <p style={{ margin: 0, fontSize: '0.9rem', fontWeight: 600, color: isDark ? '#e6edf3' : '#111827', fontFamily: 'monospace' }}>{job.user_phone}</p>
@@ -163,14 +168,14 @@ function JobDrawer({ jobId, isDark, onClose, onCancel, showToast }) {
   );
 }
 
-export function JobsPanel({ queues, isDark, showToast }) {
+export function JobsPanel({ queues, services, isDark, showToast }) {
   const [filters, setFilters] = useState({ status: '', user_id: '', command: '' });
   const [activeFilters, setActiveFilters] = useState({ status: '', user_id: '', command: '' });
   const [selectedJobId, setSelectedJobId] = useState(null);
   
   const queryClient = useQueryClient();
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ['filteredJobs', activeFilters],
     queryFn: () => fetchFilteredJobs(activeFilters),
     staleTime: 5000,
@@ -248,19 +253,22 @@ export function JobsPanel({ queues, isDark, showToast }) {
             <tbody>
               {isLoading
                 ? Array.from({ length: 10 }).map((_, i) => <SkeletonTableRow key={i} cols={7} />)
-                : jobs.map(job => (
+                : !isError && jobs.map(job => (
                   <tr key={job.id} onClick={() => setSelectedJobId(job.id)} className="hover-row" style={{ borderBottom: `1px solid ${trBorder}` }}>
                     <td style={{ padding: '0.6rem 0.75rem', color: tdText, fontFamily: 'monospace', fontSize: '0.75rem' }}>{job.id.slice(0,10)}...</td>
                     <td style={{ padding: '0.6rem 0.75rem', color: tdText, fontFamily: 'monospace' }}>{job.user_phone || '—'}</td>
                     <td style={{ padding: '0.6rem 0.75rem', color: tdText, fontWeight: 500 }}>{job.command}</td>
-                    <td style={{ padding: '0.6rem 0.75rem' }}><span className={`badge badge-${getCategory(job.command)}`}>{getCategory(job.command).substring(0,3)}</span></td>
+                    <td style={{ padding: '0.6rem 0.75rem' }}><span className={`badge badge-${getCategory(job.command, services)}`}>{getCategory(job.command, services).substring(0,3)}</span></td>
                     <td style={{ padding: '0.6rem 0.75rem', color: thText }}>{job.queue_type}</td>
                     <td style={{ padding: '0.6rem 0.75rem' }}>{statusBadge(job.status)}</td>
                     <td style={{ padding: '0.6rem 0.75rem', color: thText }}>{new Date(job.created_at).toLocaleString()}</td>
                   </tr>
                 ))
               }
-              {!isLoading && jobs.length === 0 && (
+              {isError && (
+                <tr><td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: '#f43f5e', background: 'rgba(244,63,94,0.1)' }}>Error loading jobs: {error?.message || 'Unknown error'}</td></tr>
+              )}
+              {!isLoading && !isError && jobs.length === 0 && (
                 <tr><td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: thText }}>No jobs found</td></tr>
               )}
             </tbody>
@@ -271,6 +279,7 @@ export function JobsPanel({ queues, isDark, showToast }) {
       {selectedJobId && (
         <JobDrawer 
           jobId={selectedJobId} 
+          services={services}
           isDark={isDark} 
           onClose={() => setSelectedJobId(null)} 
           onCancel={handleCancel}

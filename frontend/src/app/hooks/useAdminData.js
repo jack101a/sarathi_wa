@@ -1,10 +1,12 @@
 import { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchBootstrap, fetchJobs, fetchQueues, fetchPlans, fetchServices, fetchPricingOverrides, queryKeys } from '../../api/queries.js';
+import { useNavigate } from 'react-router-dom';
+import { fetchBootstrap, fetchQueues, queryKeys } from '../../api/queries.js';
 import { ApiError } from '../../api/client.js';
 
 export function useAdminData(showToast) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   // Setup Server-Sent Events listener for real-time dashboard updates
   useEffect(() => {
@@ -12,14 +14,19 @@ export function useAdminData(showToast) {
     const ssePath = '/admin/api/events';
     const eventSource = new EventSource(ssePath);
 
+    let debounceTimer = null;
+
     eventSource.onmessage = (event) => {
       try {
         const payload = JSON.parse(event.data);
         if (payload.event === 'job_created' || payload.event === 'job_updated') {
-          // Invalidate cache to force React Query to refetch corresponding panels
-          queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
-          queryClient.invalidateQueries({ queryKey: queryKeys.jobs });
-          queryClient.invalidateQueries({ queryKey: queryKeys.queues });
+          if (debounceTimer) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
+            queryClient.invalidateQueries({ queryKey: queryKeys.jobs });
+            queryClient.invalidateQueries({ queryKey: ['filteredJobs'] });
+            queryClient.invalidateQueries({ queryKey: queryKeys.queues });
+          }, 500);
         }
       } catch (err) {
         console.error('[SSE] Failed parsing event data:', err);
@@ -31,6 +38,7 @@ export function useAdminData(showToast) {
     };
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       eventSource.close();
     };
   }, [queryClient]);
@@ -45,39 +53,16 @@ export function useAdminData(showToast) {
     },
   });
 
-  const jobs = useQuery({
-    queryKey: queryKeys.jobs,
-    queryFn: () => fetchJobs(50),
-    staleTime: 10_000,
-    retry: 0,
-  });
-
   const queues = useQuery({
     queryKey: queryKeys.queues,
     queryFn: fetchQueues,
     staleTime: 5_000,
     refetchInterval: 10_000,
-    retry: 0,
-  });
-
-  const plansQuery = useQuery({
-    queryKey: queryKeys.plans,
-    queryFn: fetchPlans,
-    staleTime: 60_000,
-    retry: 0,
-  });
-
-  const servicesQuery = useQuery({
-    queryKey: queryKeys.services,
-    queryFn: fetchServices,
-    staleTime: 60_000,
-    retry: 0,
-  });
-
-  const pricingOverridesQuery = useQuery({
-    queryKey: queryKeys.pricingOverrides,
-    queryFn: fetchPricingOverrides,
-    staleTime: 30_000,
+    enabled: !!bootstrap.data,
+    initialData: () => {
+      const bData = queryClient.getQueryData(queryKeys.bootstrap);
+      return bData ? bData.queues : undefined;
+    },
     retry: 0,
   });
 
@@ -86,7 +71,7 @@ export function useAdminData(showToast) {
     if (bootstrap.isError) {
       const err = bootstrap.error;
       if (err instanceof ApiError && err.status === 401) {
-        window.location.assign('/admin/login');
+        navigate('/login', { replace: true });
       } else {
         showToast && showToast('Failed to load dashboard data — ' + (err?.message || 'unknown error'), 'error');
       }
@@ -103,20 +88,16 @@ export function useAdminData(showToast) {
     tgGroups:       data.tgGroups       || [],
     sarathiTracked: data.sarathiTracked || [],
     vahanTracked:   data.vahanTracked   || [],
-    recentJobs:     (jobs.data && jobs.data.jobs) || data.recentJobs || [],
-    queues:         (queues.data) || data.queues || { api: {}, browser: {} },
-    plans:          plansQuery.data     || [],
-    services:       servicesQuery.data  || data.services     || [],
-    priceOverrides: pricingOverridesQuery.data || data.priceOverrides || [],
+    recentJobs:     data.recentJobs     || [],
+    queues:         queues.data         || data.queues || { api: {}, browser: {} },
+    plans:          data.plans          || [],
+    services:       data.services       || [],
+    priceOverrides: data.priceOverrides || [],
     rateLimitConfig: data.rateLimitConfig || { plans: {}, creditCost: {} },
     loading,
     refresh() {
       bootstrap.refetch();
-      jobs.refetch();
       queues.refetch();
-      plansQuery.refetch();
-      servicesQuery.refetch();
-      pricingOverridesQuery.refetch();
     },
   };
 }

@@ -126,15 +126,21 @@ function formatUptime(seconds) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-const HEAVY_COMMANDS = ['lledit_start','dl_renewal_start','apply_dl_start'];
-const MEDIUM_COMMANDS = ['llprint_start','fee_print_start','pay_fee_start','slot_booking_start','resend_otp'];
-function getCategory(cmd) {
+function getCategory(cmd, services = []) {
+  if (services && services.length > 0) {
+    const srv = services.find(s => s.id === cmd);
+    if (srv) return srv.category || 'light';
+    return 'light'; // default if not found
+  }
+  // Fallback if services not loaded
+  const HEAVY_COMMANDS = ['lledit_start','dl_renewal_start','apply_dl_start'];
+  const MEDIUM_COMMANDS = ['llprint_start','fee_print_start','pay_fee_start','slot_booking_start','resend_otp'];
   if (HEAVY_COMMANDS.includes(cmd)) return 'heavy';
   if (MEDIUM_COMMANDS.includes(cmd)) return 'medium';
   return 'light';
 }
 
-export function DashboardPanel({ stats, recentJobs, loading, isDark }) {
+export function DashboardPanel({ stats, recentJobs, services, loading, isDark }) {
   const cards = [
     { label: 'Total Users',    value: stats.activeUsers  ?? stats.totalUsers ?? '—', icon: Users,       color: '#6366f1' },
     { label: 'Tracked Apps',  value: (Number(stats.sarathiTracked || 0) + Number(stats.vahanTracked || 0)) || '—', icon: MapPin, color: '#10b981' },
@@ -185,7 +191,7 @@ export function DashboardPanel({ stats, recentJobs, loading, isDark }) {
               {loading
                 ? Array.from({ length: 5 }).map((_, i) => <SkeletonTableRow key={i} cols={7} />)
                 : (recentJobs || []).slice(0, 20).map((job, i) => {
-                  const cat = getCategory(job.command);
+                  const cat = getCategory(job.command, services);
                   return (
                   <tr key={job.id || i} style={{ borderBottom: `1px solid ${trBorder}` }}>
                     <td style={{ padding: '0.6rem 0.75rem', color: tdText, fontFamily: 'monospace', fontSize: '0.7rem' }}>{String(job.id || '').slice(0, 8)}…</td>

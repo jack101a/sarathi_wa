@@ -84,9 +84,10 @@ function RestoreModal({ backup, isDark, onConfirm, onCancel, isRestoring }) {
             <li>All data written after this backup point will be <strong>lost</strong>.</li>
           </ul>
           <div style={{ marginTop: '1rem' }}>
-            <label style={{ display: 'block', marginBottom: '0.4rem', fontWeight: 700, color: isDark ? '#e6edf3' : '#111827' }}>Type this to confirm:</label>
+            <label htmlFor="restoreConfirmation" style={{ display: 'block', marginBottom: '0.4rem', fontWeight: 700, color: isDark ? '#e6edf3' : '#111827' }}>Type this to confirm:</label>
             <code style={{ background: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)', padding: '0.35rem 0.5rem', borderRadius: '0.35rem', fontSize: '0.72rem', display: 'block', wordBreak: 'break-all', color: isDark ? '#e6edf3' : '#334155', marginBottom: '0.5rem' }}>{expectedConfirmation}</code>
             <input
+              id="restoreConfirmation"
               value={confirmation}
               onChange={(e) => setConfirmation(e.target.value)}
               disabled={isRestoring}
@@ -154,7 +155,7 @@ function ProviderConfigModal({ provider, isDark, savedConfig, rcloneConfig, onSa
 
   const overlay    = { position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' };
   const modal      = { background: isDark ? '#1e2434' : '#fff', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`, borderRadius: '1rem', padding: '2rem', maxWidth: '480px', width: '90%', boxShadow: '0 25px 60px rgba(0,0,0,0.4)', maxHeight: '90vh', overflowY: 'auto' };
-  const inputStyle = { width: '100%', padding: '0.55rem 0.75rem', borderRadius: '0.5rem', border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'}`, background: isDark ? 'rgba(255,255,255,0.05)' : '#f8fafc', color: isDark ? '#e6edf3' : '#111827', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' };
+  const inputStyle = { width: '100%', padding: '0.55rem 0.75rem', borderRadius: '0.5rem', border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'}`, background: isDark ? 'rgba(255,255,255,0.05)' : '#f8fafc', color: isDark ? '#e6edf3' : '#111827', fontSize: '0.85rem', boxSizing: 'border-box' };
 
   function normalizeProviderConfig(config) {
     if (provider === 'telegram') {
@@ -225,8 +226,8 @@ function ProviderConfigModal({ provider, isDark, savedConfig, rcloneConfig, onSa
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
           {(meta?.fields || []).map(f => (
             <div key={f.key}>
-              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: isDark ? '#9ca3af' : '#6b7280', marginBottom: '0.35rem' }}>{f.label}</label>
-              <input type={f.type || 'text'} value={form[f.key] || ''} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))} placeholder={f.placeholder} style={inputStyle} />
+              <label htmlFor={`field-${f.key}`} style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: isDark ? '#9ca3af' : '#6b7280', marginBottom: '0.35rem' }}>{f.label}</label>
+              <input id={`field-${f.key}`} type={f.type || 'text'} value={form[f.key] || ''} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))} placeholder={f.placeholder} style={inputStyle} />
               {f.hint && <p style={{ margin: '0.25rem 0 0', fontSize: '0.72rem', color: isDark ? '#6b7280' : '#9ca3af' }}>{f.hint}</p>}
             </div>
           ))}
@@ -234,7 +235,7 @@ function ProviderConfigModal({ provider, isDark, savedConfig, rcloneConfig, onSa
             <div style={{ padding: '0.85rem', borderRadius: '0.65rem', background: isDark ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.025)', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}` }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '0.55rem', flexWrap: 'wrap' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: isDark ? '#e6edf3' : '#111827' }}>rclone.conf file</label>
+                  <label htmlFor="rcloneConfText" style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: isDark ? '#e6edf3' : '#111827' }}>rclone.conf file</label>
                   <p style={{ margin: '0.2rem 0 0', fontSize: '0.72rem', color: isDark ? '#9ca3af' : '#6b7280' }}>
                     Paste a complete rclone.conf. Existing contents are never shown back.
                   </p>
@@ -249,7 +250,13 @@ function ProviderConfigModal({ provider, isDark, savedConfig, rcloneConfig, onSa
                   {rcloneConfig.updatedAt ? ` · Updated: ${new Date(rcloneConfig.updatedAt).toLocaleString()}` : ''}
                 </div>
               )}
+              {rcloneConfig?.exists && (
+                <div style={{ marginBottom: '0.75rem', fontSize: '0.75rem', color: isDark ? '#9ca3af' : '#6b7280', padding: '0.5rem', background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', borderRadius: '0.4rem' }}>
+                  <strong>Note:</strong> For security reasons, the current configuration keys are not displayed. Submitting a new configuration below will completely overwrite the existing file.
+                </div>
+              )}
               <textarea
+                id="rcloneConfText"
                 value={rcloneConfText}
                 onChange={e => setRcloneConfText(e.target.value)}
                 placeholder={'[gdrive]\ntype = drive\nscope = drive\n...'}
@@ -402,7 +409,7 @@ function CloudBackupSection({ isDark, showToast }) {
                     <span style={{ fontSize: '1.2rem' }}>{meta.icon}</span>
                     <span style={{ fontWeight: 700, fontSize: '0.85rem', color: isDark ? '#e6edf3' : '#111827' }}>{meta.label}</span>
                   </div>
-                  <button onClick={() => handleToggle(p.provider, p.enabled)} title={p.enabled ? 'Disable' : 'Enable'} style={{ width: '38px', height: '20px', borderRadius: '999px', border: 'none', cursor: 'pointer', background: p.enabled ? meta.color : isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.12)', position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}>
+                  <button onClick={() => handleToggle(p.provider, p.enabled)} aria-label={p.enabled ? `Disable ${meta.label}` : `Enable ${meta.label}`} title={p.enabled ? 'Disable' : 'Enable'} style={{ width: '38px', height: '20px', borderRadius: '999px', border: 'none', cursor: 'pointer', background: p.enabled ? meta.color : isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.12)', position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}>
                     <span style={{ position: 'absolute', top: '2px', left: p.enabled ? '20px' : '2px', width: '16px', height: '16px', borderRadius: '50%', background: '#fff', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
                   </button>
                 </div>

@@ -4,6 +4,7 @@ import {
   LayoutDashboard, Users, MapPin, Activity,
   Settings, Sun, Moon, LogOut, Menu, X, Bot,
   Gauge, Briefcase, UsersRound, ScrollText, Shield, Layers,
+  CreditCard,
 } from 'lucide-react';
 import { useThemeContext } from '../context/ThemeContext.jsx';
 
@@ -13,8 +14,10 @@ const NAV_ITEMS = [
   { path: '/plans',       label: 'Plans',       icon: Shield },
   { path: '/services',    label: 'Services',    icon: Layers },
   { path: '/jobs',        label: 'Jobs',        icon: Briefcase },
+  { path: '/queues',      label: 'Queues',      icon: Activity },
   { path: '/groups',      label: 'Groups',      icon: UsersRound },
   { path: '/activity',    label: 'Activity',    icon: ScrollText },
+  { path: '/payments',    label: 'Billing',     icon: CreditCard },
   { path: '/settings',    label: 'Settings',    icon: Settings },
 ];
 
@@ -31,7 +34,7 @@ export function Sidebar({ handleLogout }) {
   const closeMobile = () => setMobileMenuOpen(false);
 
   const navClass = ({ isActive }) =>
-    `text-sm font-medium transition-colors flex items-center gap-2 focus:outline-none rounded px-1 py-0.5 ${
+    `text-sm font-medium transition-colors flex items-center gap-2 rounded px-1 py-0.5 ${
       isActive ? t_textHeading : `${t_textMuted} hover:text-indigo-500`
     }`;
 
@@ -71,16 +74,19 @@ export function Sidebar({ handleLogout }) {
             {/* Actions */}
             <div className="flex items-center gap-2">
               <button onClick={toggleDark}
+                aria-label="Toggle theme"
                 style={{ padding: '0.5rem', borderRadius: '0.5rem', background: 'transparent', border: 'none', cursor: 'pointer', color: isDark ? '#fbbf24' : '#475569' }}
                 title="Toggle theme">
                 {isDark ? <Sun size={20} /> : <Moon size={20} />}
               </button>
               <button onClick={handleLogout}
+                aria-label="Logout"
                 style={{ padding: '0.5rem', borderRadius: '0.5rem', background: 'transparent', border: 'none', cursor: 'pointer', color: isDark ? '#9ca3af' : '#6b7280' }}
                 title="Logout">
                 <LogOut size={20} />
               </button>
               <button onClick={() => setMobileMenuOpen(true)}
+                aria-label="Open mobile menu"
                 className="md:hidden"
                 style={{ padding: '0.5rem', borderRadius: '0.5rem', background: 'transparent', border: 'none', cursor: 'pointer', color: isDark ? '#9ca3af' : '#6b7280' }}>
                 <Menu size={20} />
@@ -103,7 +109,7 @@ export function Sidebar({ handleLogout }) {
           }}>
             <div className="flex items-center justify-between p-4" style={{ borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}` }}>
               <span className="text-sm font-bold" style={{ color: isDark ? '#e6edf3' : '#111827' }}>Navigation</span>
-              <button onClick={closeMobile} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: isDark ? '#9ca3af' : '#6b7280' }}>
+              <button onClick={closeMobile} aria-label="Close mobile menu" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: isDark ? '#9ca3af' : '#6b7280' }}>
                 <X size={20} />
               </button>
             </div>
