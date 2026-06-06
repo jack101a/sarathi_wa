@@ -134,7 +134,7 @@ const PROVIDER_META = {
   },
 };
 
-function ProviderConfigModal({ provider, isDark, savedConfig, onSave, onClose }) {
+function ProviderConfigModal({ provider, isDark, savedConfig, rcloneConfig, onSave, onSaveRcloneConfig, onClose }) {
   const meta = PROVIDER_META[provider];
   const [form, setForm] = React.useState(() => {
     const d = {};
@@ -149,6 +149,8 @@ function ProviderConfigModal({ provider, isDark, savedConfig, onSave, onClose })
   const [testing,    setTesting]    = React.useState(false);
   const [testResult, setTestResult] = React.useState(null);
   const [saving,     setSaving]     = React.useState(false);
+  const [rcloneConfText, setRcloneConfText] = React.useState('');
+  const [savingRcloneConf, setSavingRcloneConf] = React.useState(false);
 
   const overlay    = { position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' };
   const modal      = { background: isDark ? '#1e2434' : '#fff', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`, borderRadius: '1rem', padding: '2rem', maxWidth: '480px', width: '90%', boxShadow: '0 25px 60px rgba(0,0,0,0.4)', maxHeight: '90vh', overflowY: 'auto' };
@@ -197,6 +199,19 @@ function ProviderConfigModal({ provider, isDark, savedConfig, onSave, onClose })
     try { await onSave(normalizeProviderConfig(form)); onClose(); } finally { setSaving(false); }
   }
 
+  async function handleSaveRcloneConfig() {
+    if (!onSaveRcloneConfig) return;
+    setSavingRcloneConf(true);
+    setTestResult(null);
+    try {
+      await onSaveRcloneConfig(rcloneConfText);
+      setRcloneConfText('');
+      setTestResult({ ok: true, message: 'rclone.conf saved. You can now test the remote.' });
+    } catch (err) {
+      setTestResult({ ok: false, message: err.message });
+    } finally { setSavingRcloneConf(false); }
+  }
+
   return (
     <div style={overlay} onClick={onClose}>
       <div style={modal} onClick={e => e.stopPropagation()}>
@@ -215,6 +230,41 @@ function ProviderConfigModal({ provider, isDark, savedConfig, onSave, onClose })
               {f.hint && <p style={{ margin: '0.25rem 0 0', fontSize: '0.72rem', color: isDark ? '#6b7280' : '#9ca3af' }}>{f.hint}</p>}
             </div>
           ))}
+          {provider === 'rclone' && (
+            <div style={{ padding: '0.85rem', borderRadius: '0.65rem', background: isDark ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.025)', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '0.55rem', flexWrap: 'wrap' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: isDark ? '#e6edf3' : '#111827' }}>rclone.conf file</label>
+                  <p style={{ margin: '0.2rem 0 0', fontSize: '0.72rem', color: isDark ? '#9ca3af' : '#6b7280' }}>
+                    Paste a complete rclone.conf. Existing contents are never shown back.
+                  </p>
+                </div>
+                <span style={{ fontSize: '0.72rem', fontWeight: 700, color: rcloneConfig?.exists ? '#10b981' : '#f43f5e' }}>
+                  {rcloneConfig?.exists ? 'Configured' : 'Not found'}
+                </span>
+              </div>
+              {rcloneConfig?.path && (
+                <div style={{ marginBottom: '0.55rem', fontSize: '0.7rem', color: isDark ? '#6b7280' : '#9ca3af', wordBreak: 'break-all' }}>
+                  Path: {rcloneConfig.path}
+                  {rcloneConfig.updatedAt ? ` · Updated: ${new Date(rcloneConfig.updatedAt).toLocaleString()}` : ''}
+                </div>
+              )}
+              <textarea
+                value={rcloneConfText}
+                onChange={e => setRcloneConfText(e.target.value)}
+                placeholder={'[gdrive]\ntype = drive\nscope = drive\n...'}
+                spellCheck={false}
+                style={{ ...inputStyle, minHeight: '120px', fontFamily: 'monospace', resize: 'vertical', whiteSpace: 'pre' }}
+              />
+              <button
+                onClick={handleSaveRcloneConfig}
+                disabled={savingRcloneConf || !rcloneConfText.trim()}
+                style={{ marginTop: '0.55rem', padding: '0.45rem 0.85rem', borderRadius: '0.45rem', border: 'none', background: '#4285F4', color: '#fff', cursor: savingRcloneConf || !rcloneConfText.trim() ? 'not-allowed' : 'pointer', fontSize: '0.78rem', fontWeight: 700, opacity: savingRcloneConf || !rcloneConfText.trim() ? 0.6 : 1 }}
+              >
+                {savingRcloneConf ? 'Saving rclone.conf…' : 'Save rclone.conf'}
+              </button>
+            </div>
+          )}
         </div>
         {testResult && (
           <div style={{ padding: '0.65rem 0.85rem', borderRadius: '0.5rem', marginBottom: '1rem', background: testResult.ok ? 'rgba(16,185,129,0.12)' : 'rgba(244,63,94,0.12)', border: `1px solid ${testResult.ok ? 'rgba(16,185,129,0.3)' : 'rgba(244,63,94,0.3)'}`, fontSize: '0.8rem', color: testResult.ok ? '#10b981' : '#f43f5e', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -269,6 +319,12 @@ function CloudBackupSection({ isDark, showToast }) {
     showToast && showToast(`${PROVIDER_META[provider].label} configuration saved`, 'success');
   }
 
+  async function handleSaveRcloneConfig(contents) {
+    await apiPut('/admin/api/cloud-backup/rclone-config', { contents });
+    await refetch();
+    showToast && showToast('rclone.conf saved', 'success');
+  }
+
   async function handleUploadNow() {
     setUploadingNow(true); setUploadResults(null);
     try {
@@ -286,7 +342,9 @@ function CloudBackupSection({ isDark, showToast }) {
         <ProviderConfigModal
           provider={configModal} isDark={isDark}
           savedConfig={providers.find(p => p.provider === configModal)?.config || {}}
+          rcloneConfig={data?.rcloneConfig || {}}
           onSave={config => handleSaveConfig(configModal, config)}
+          onSaveRcloneConfig={handleSaveRcloneConfig}
           onClose={() => setConfigModal(null)}
         />
       )}
@@ -354,7 +412,12 @@ function CloudBackupSection({ isDark, showToast }) {
                   {p.lastUploadAt && <span style={{ fontSize: '0.72rem', color: isDark ? '#6b7280' : '#9ca3af', marginLeft: 'auto' }}>Last: {lastUploadStr}</span>}
                 </div>
                 {p.enabled && p.lastError && <div style={{ fontSize: '0.72rem', color: '#f43f5e', marginBottom: '0.5rem', padding: '0.3rem 0.5rem', background: 'rgba(244,63,94,0.08)', borderRadius: '0.35rem', wordBreak: 'break-word' }}>{p.lastError}</div>}
-                {p.provider === 'rclone' && <div style={{ fontSize: '0.72rem', color: rclone.installed ? '#10b981' : '#f43f5e', marginBottom: '0.5rem' }}>{rclone.installed ? `✓ rclone ${rclone.version}` : '✗ rclone not installed'}</div>}
+                {p.provider === 'rclone' && (
+                  <div style={{ fontSize: '0.72rem', marginBottom: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                    <span style={{ color: rclone.installed ? '#10b981' : '#f43f5e' }}>{rclone.installed ? `✓ rclone ${rclone.version}` : '✗ rclone not installed'}</span>
+                    <span style={{ color: data?.rcloneConfig?.exists ? '#10b981' : '#f43f5e' }}>{data?.rcloneConfig?.exists ? '✓ rclone.conf saved' : '✗ rclone.conf missing'}</span>
+                  </div>
+                )}
                 <button onClick={() => setConfigModal(p.provider)} style={{ width: '100%', padding: '0.4rem', borderRadius: '0.45rem', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`, background: 'transparent', color: isDark ? '#9ca3af' : '#6b7280', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, textAlign: 'center' }}>
                   ⚙ Configure
                 </button>

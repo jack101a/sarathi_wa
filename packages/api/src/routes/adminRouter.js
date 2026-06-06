@@ -1024,7 +1024,8 @@ router.get('/cloud-backup/providers', async (req, res) => {
       ok: true,
       providers,
       providersByKey,
-      rcloneInstalled: cloudBackup.checkRcloneInstalled()
+      rcloneInstalled: cloudBackup.checkRcloneInstalled(),
+      rcloneConfig: cloudBackup.getRcloneConfigStatus()
     });
   } catch (err) {
     logger.error('adminRouter', 'Failed to load cloud backup providers', { error: err.message });
@@ -1043,6 +1044,16 @@ router.put('/cloud-backup/providers/:provider', async (req, res) => {
     const status = /Unsupported cloud backup provider/.test(err.message) ? 400 : 500;
     logger.error('adminRouter', 'Failed to update cloud backup provider', { provider: req.params.provider, error: err.message });
     res.status(status).json({ ok: false, message: err.message });
+  }
+});
+
+router.put('/cloud-backup/rclone-config', async (req, res) => {
+  try {
+    const status = cloudBackup.writeRcloneConfig(req.body?.contents || '');
+    res.json({ ok: true, rcloneConfig: status });
+  } catch (err) {
+    logger.error('adminRouter', 'Failed to update rclone config file', { error: err.message });
+    res.status(400).json({ ok: false, message: err.message });
   }
 });
 

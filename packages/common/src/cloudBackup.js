@@ -1,10 +1,18 @@
 'use strict';
 
 const fs = require('fs');
+const path = require('path');
 const { execFileSync } = require('child_process');
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 const cloudBackupSettings = require('./cloudBackupSettings');
 const logger = require('./logger');
+
+const RCLONE_CONFIG_MAX_BYTES = Number(process.env.RCLONE_CONFIG_MAX_BYTES || 256 * 1024);
+
+function getRcloneConfigPath() {
+  if (process.env.RCLONE_CONFIG) return process.env.RCLONE_CONFIG;
+  return path.join(process.env.HOME || '/root', '.config', 'rclone', 'rclone.conf');
+}
 
 function checkRcloneInstalled() {
   try {
@@ -13,6 +21,62 @@ function checkRcloneInstalled() {
   } catch (_) {
     return false;
   }
+}
+
+function getRcloneConfigStatus() {
+  const configPath = getRcloneConfigPath();
+  try {
+    const stat = fs.statSync(configPath);
+    return {
+      path: configPath,
+      exists: true,
+      sizeBytes: stat.size,
+      updatedAt: stat.mtime.toISOString(),
+    };
+  } catch (_) {
+    return {
+      path: configPath,
+      exists: false,
+      sizeBytes: 0,
+      updatedAt: null,
+    };
+  }
+}
+
+function validateRcloneConfigContents(contents) {
+  const text = String(contents || '').replace(/\r\n/g, '\n').trim();
+  if (!text) throw new Error('rclone.conf content is empty');
+  if (Buffer.byteLength(text, 'utf8') > RCLONE_CONFIG_MAX_BYTES) {
+    throw new Error(`rclone.conf is too large. Maximum size is ${Math.floor(RCLONE_CONFIG_MAX_BYTES / 1024)} KB`);
+  }
+  if (text.includes('\0')) throw new Error('rclone.conf contains invalid null bytes');
+  if (!/^\s*\[[^\]\r\n]+\]\s*$/m.test(text)) {
+    throw new Error('rclone.conf must contain at least one remote section like [gdrive]');
+  }
+  if (!/^\s*type\s*=/m.test(text)) {
+    throw new Error('rclone.conf must contain a remote type entry');
+  }
+  return `${text}\n`;
+}
+
+function writeRcloneConfig(contents) {
+  const normalized = validateRcloneConfigContents(contents);
+  const configPath = getRcloneConfigPath();
+  const configDir = path.dirname(configPath);
+  fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
+  const tempPath = `${configPath}.${process.pid}.${Date.now()}.tmp`;
+
+  try {
+    fs.writeFileSync(tempPath, normalized, { mode: 0o600, flag: 'wx' });
+    fs.renameSync(tempPath, configPath);
+    try { fs.chmodSync(configPath, 0o600); } catch (_) {}
+  } catch (err) {
+    try { fs.unlinkSync(tempPath); } catch (_) {}
+    throw err;
+  }
+
+  logger.info('cloudBackup', 'rclone config file updated', { path: configPath });
+  return getRcloneConfigStatus();
 }
 
 async function uploadTelegram(filePath, fileName, provider) {
@@ -163,6 +227,9 @@ async function testProvider(providerName, configOverride = null) {
 
 module.exports = {
   checkRcloneInstalled,
+  getRcloneConfigPath,
+  getRcloneConfigStatus,
+  writeRcloneConfig,
   uploadToCloud,
   testProvider
 };
