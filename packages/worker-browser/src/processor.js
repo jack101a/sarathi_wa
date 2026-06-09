@@ -85,12 +85,24 @@ async function sendText(t, c, x) { return t === 'telegram' ? chatNotifier.sendTe
 async function sendImageFile(t, c, p, cap = '') { const b = fs.readFileSync(p); const n = path.basename(p); return t === 'telegram' ? chatNotifier.sendTelegramPhoto(c, b, n, cap, 'image/png') : chatNotifier.sendWhatsAppMedia(c, b, 'image/png', n, cap); }
 async function sendPdfFile(t, c, p, cap = '') { const b = fs.readFileSync(p); const n = path.basename(p); return t === 'telegram' ? chatNotifier.sendTelegramDocument(c, b, n, cap, 'application/pdf') : chatNotifier.sendWhatsAppMedia(c, b, 'application/pdf', n, cap); }
 
-async function promptAndWaitForInput(transport, chatId, jobId, status, prompt) {
-  return waitInteractiveInput(chatId, jobId, INTERACTIVE_TIMEOUT_MS, async () => {
-    await redis.setex(`session:otp:${chatId}`, 300, JSON.stringify({ jobId, status }));
-    await sendText(transport, chatId, prompt);
-  });
+async function promptAndWaitForInput(transport, chatId, jobId, status, prompt, validator = null, errorMsg = 'Invalid input. Please try again.') {
+  let attempt = 0;
+  while (attempt < 3) {
+    const input = await waitInteractiveInput(chatId, jobId, INTERACTIVE_TIMEOUT_MS, async () => {
+      await redis.setex(`session:otp:${chatId}`, 300, JSON.stringify({ jobId, status }));
+      await sendText(transport, chatId, attempt === 0 ? prompt : errorMsg);
+    });
+    
+    if (!validator) return input;
+    
+    let cleanInput = String(input || '').trim();
+    if (validator(cleanInput)) return cleanInput;
+    attempt++;
+  }
+  throw new Error('Too many invalid attempts. Session cancelled.');
 }
+
+const is6DigitOtp = (val) => /^\d{6}$/.test(String(val).trim());
 
 function getBillingInfo(job) {
   const payload = JSON.parse(job.payload_json || '{}');
@@ -115,7 +127,9 @@ async function handleJob(job) {
         chatId,
         job.id,
         'awaiting_otp',
-        'OTP has been sent. Please reply with the 6-digit OTP within 5 minutes.'
+        'OTP has been sent. Please reply with the 6-digit OTP within 5 minutes.',
+        is6DigitOtp,
+        'Invalid OTP format. Please reply with exactly 6 digits.'
       );
       const pdfPath = await llPrintService.submitLLPrintOTP(context, page, otpCode, payload.appNo, payload.dob);
       await sendPdfFile(transport, chatId, pdfPath, `Learner Licence downloaded successfully for Application No: ${payload.appNo}`);
@@ -136,7 +150,9 @@ async function handleJob(job) {
         chatId,
         job.id,
         'awaiting_otp',
-        'OTP has been sent. Please reply with the 6-digit OTP within 5 minutes.'
+        'OTP has been sent. Please reply with the 6-digit OTP within 5 minutes.',
+        is6DigitOtp,
+        'Invalid OTP format. Please reply with exactly 6 digits.'
       );
       await sendText(transport, chatId, 'OTP received. Completing your request...');
       await llEditService.submitLLEditOTP(context, page, otpCode, payload.appNo, payload.dob, dynamicData);
@@ -161,7 +177,7 @@ async function handleJob(job) {
       const formattedServiceName = serviceName.charAt(0).toUpperCase() + serviceName.slice(1);
       const msg = `OTP has been sent to mobile number ${maskedMobile || '******'} for DL ${formattedServiceName}.\n\nPlease reply with the 6-digit OTP within 5 minutes.`;
 
-      const otpCode = await promptAndWaitForInput(transport, chatId, job.id, 'awaiting_otp', msg);
+      const otpCode = await promptAndWaitForInput(transport, chatId, job.id, 'awaiting_otp', msg, is6DigitOtp, 'Invalid OTP format. Please reply with exactly 6 digits.');
       await sendText(transport, chatId, '⏳ OTP received...');
       
       const result = await dlRenewalService.submitDLRenewalOTP(browser, context, page, otpCode, serviceType);
@@ -206,7 +222,7 @@ async function handleJob(job) {
       const { browser, context, page, maskedMobile } = flowData;
       const msg = `OTP has been sent to mobile number ${maskedMobile || '******'} for the DL application.\n\nPlease reply with the 6-digit OTP within 5 minutes.`;
       
-      const otpCode = await promptAndWaitForInput(transport, chatId, job.id, 'awaiting_otp', msg);
+      const otpCode = await promptAndWaitForInput(transport, chatId, job.id, 'awaiting_otp', msg, is6DigitOtp, 'Invalid OTP format. Please reply with exactly 6 digits.');
       await sendText(transport, chatId, '⏳ OTP received...');
       
       const details = await applyDlService.submitApplyDLOTP(browser, context, page, otpCode);
@@ -328,7 +344,9 @@ async function handleJob(job) {
         chatId,
         job.id,
         'awaiting_booking_otp',
-        'Booking OTP has been sent. Please reply with the OTP within 5 minutes.'
+        'Booking OTP has been sent. Please reply with the OTP within 5 minutes.',
+        is6DigitOtp,
+        'Invalid OTP format. Please reply with exactly 6 digits.'
       );
       await sendText(transport, chatId, 'OTP received. Completing slot booking...');
       
@@ -390,7 +408,9 @@ async function handleJob(job) {
         chatId,
         job.id,
         'awaiting_aadhaar_otp',
-        'Enter the Aadhaar OTP within 5 minutes.'
+        'Enter the Aadhaar OTP within 5 minutes.',
+        is6DigitOtp,
+        'Invalid OTP format. Please reply with exactly 6 digits.'
       );
       await mobileUpdateService.authenticateAadhaar(page, aadhaarOtp);
 
@@ -429,7 +449,9 @@ async function handleJob(job) {
         chatId,
         job.id,
         'awaiting_mobile_otp',
-        'Enter the mobile OTP within 5 minutes.'
+        'Enter the mobile OTP within 5 minutes.',
+        is6DigitOtp,
+        'Invalid OTP format. Please reply with exactly 6 digits.'
       );
       
       const result = await mobileUpdateService.executeBypassScript(page, newMobile, mobileOtp);

@@ -302,7 +302,10 @@ async function submitLLPrintOTP(context, page, otpCode, appNum, dob) {
             }
             // Save a debug screenshot
             await page.screenshot({ path: `debug_llprint_${appNum}.png`, fullPage: true }).catch(() => {});
-            throw new Error(`Failed to reach final submit button. Server says: ${errText.trim()}`);
+            const error = new Error(`Failed to reach final submit button. Server says: ${errText.trim()}`);
+            error.code = 'PORTAL_BUSINESS_RULE';
+            error.publicMessage = errText.trim();
+            throw error;
         }
 
         try {

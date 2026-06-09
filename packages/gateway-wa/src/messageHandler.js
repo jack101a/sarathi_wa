@@ -90,12 +90,18 @@ function startsBrowserCommand(text) {
 async function forwardInteractiveInputIfAny(message, text) {
   const sessionKey = `session:otp:${message.from}`;
   const sessionRaw = await redis.get(sessionKey);
-  if (!sessionRaw || startsBrowserCommand(text)) {
+  if (!sessionRaw) {
     return false;
   }
 
   const session = JSON.parse(sessionRaw);
   const input = String(text || '').trim();
+
+  if (startsBrowserCommand(input)) {
+    await message.reply('⚠️ You already have an active request running. Please reply with the requested input, or type "stop" to cancel it before starting a new one.');
+    return true;
+  }
+
   if (!input) {
     return false;
   }
@@ -291,9 +297,33 @@ async function handleIncomingMessage(client, message) {
     }
 
     // 3. Check Redis for active browser-worker interactive session.
-    // The key name is historical: it is also used for payment, slot, Aadhaar,
-    // and mobile-update inputs, not only OTP codes.
     if (await forwardInteractiveInputIfAny(message, normalizedBody)) {
+      return;
+    }
+
+    if (/^(?:stop|cancel)$/i.test(normalizedBody)) {
+      const { jobRepository } = require('@sarathi/common');
+      let stoppedJobs = 0;
+      if (dbUser) {
+        const jobs = await jobRepository.queryJobs({ userId: dbUser.id });
+        const activeJobs = jobs.filter(j => j.status === 'pending' || j.status === 'running');
+        for (const j of activeJobs) {
+          const ok = await jobRepository.cancelJob(j.id);
+          if (ok) stoppedJobs++;
+        }
+      }
+
+      let stoppedVahan = false;
+      if (hasActiveVahanSession(message.from, 'whatsapp')) {
+        await stopVahanSession(message.from, 'whatsapp');
+        stoppedVahan = true;
+      }
+
+      if (stoppedJobs > 0 || stoppedVahan) {
+        await message.reply(`✅ Stopped ${stoppedJobs} active job(s) and cleared sessions.`);
+      } else {
+        await message.reply('✅ No active jobs or sessions to stop.');
+      }
       return;
     }
 

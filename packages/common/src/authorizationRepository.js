@@ -257,7 +257,7 @@ async function initDb() {
       ['appl_image', 'Acknowledgement Image', 'light', 'api', 0, 125],
       ['slot_pdf', 'Slot Booking Receipt', 'light', 'api', 0, 130],
       ['alive', 'Bot Health Check', 'light', 'api', 0, 140],
-      ['resend_otp', 'LL Password Resend', 'medium', 'browser', 0, 200],
+      ['resend_otp', 'LL Password Resend', 'medium', 'api', 0, 200],
       ['llprint_start', 'LL Print / Download', 'medium', 'browser', 0, 210],
       ['fee_print_start', 'Fee Receipt Print', 'medium', 'browser', 0, 220],
       ['pay_fee_start', 'Fee Payment', 'medium', 'browser', 0, 230],
@@ -445,7 +445,7 @@ async function resetMonthlyUsage(userId) { await run('UPDATE auth_users SET used
 async function resetDailyCount(userId) { await run('UPDATE auth_users SET daily_count = 0, last_daily_reset = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [userId]); }
 async function deactivateUserById(id) { await run('UPDATE auth_users SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [id]); return true; }
 async function deactivateUser(phone) {
-  const user = await getUserByPhone(phone);
+  const user = await getUserByPhone(phone, { includeInactive: true });
   if (!user) return false;
   await run('UPDATE auth_users SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE canonical_phone = ?', [phone]);
   await run('UPDATE auth_user_identities SET is_active = 0 WHERE auth_user_id = ?', [user.id]);

@@ -21,30 +21,80 @@ const ERRORS = {
   MISSING_APP_NO: (cmd, requiresDob = false) => `❌ *आवेदन संख्या (Application Number) नहीं मिली!*\n\n*सही तरीका (Format):*\n👉 \`${cmd} <appl_no>${requiresDob ? ' <DOB>' : ''}\``
 };
 
-const USER_HELP_TEXT = `*Bot Help / बॉट मदद*
+const USER_HELP_TEXT = `*----------🤖 Bot Help----------*
 
-*Application related services / आवेदन संबंधित सेवाएं*
-\`2982778275 01-02-2003\`
+*# Application related services #*
 
-*DL related services / DL संबंधित सेवाएं*
-\`dl MH4720150008844 01-02-2003\`
+> _ Type the appl no. and DOB:_
 
-*Learning Licence related services / लर्निंग लाइसेंस संबंधित सेवाएं*
-\`ll MH47/0050138/2026 01-02-2003\`
 
-*More / अन्य*
-\`plan\` - your plan / आपका प्लान
-\`balance\` - credits / क्रेडिट बैलेंस
-\`track status\` - saved tracking / सेव की गई ट्रैकिंग
+*2982778275  01-02-2003*
 
-*DOB format / जन्मतिथि फॉर्मेट:* DD-MM-YYYY`;
+____________________________
+
+
+*# DL related services #*
+
+>  Type DL no and DOB :
+
+
+*DL MH4720100001234 01-02-2003*
+
+____________________________
+
+
+*# Learning Licence related services #*
+
+>  Type LL and DOB :
+
+
+*LL MH47/0050138/2026 01-02-2003*
+
+____________________________
+
+
+> 📲 Update Mobile Number 
+
+*mobupdate MH4720100001234 01-02-2003*
+
+____________________________
+
+
+>  Resend Password 
+
+*resend 2982778275 01-02-2003*
+
+____________________________
+
+
+*# Tracking Services#*
+
+>  Save DL for auto tracking:
+
+*track add 2982778275 01-02-2003*
+
+>  Track RC status instantly:
+
+*track RC MH260201515412312*
+
+>  View all saved tracks status:
+
+*track status*
+____________________________
+
+
+> *⚙️ More *
+plan - your plan
+balance - credits
+*stop - cancel current running task *
+____________________________`;
 
 const ADMIN_HELP_TEXT = `${USER_HELP_TEXT}
 
-Admin extras:
-\`payfee <appl_no> <dob>\`
-\`bookslot <appl_no> <dob>\`
-\`alive\``;
+*👑 Admin extras / एडमिन सुविधाएं*
+payfee appl_no dob
+bookslot appl_no dob
+alive`;
 
 function parseCommand(rawText, hasMedia, user, isAdmin) {
   if (hasMedia) {
@@ -82,9 +132,7 @@ function parseCommand(rawText, hasMedia, user, isAdmin) {
   const isRefreshCommand = /^(?:\/)?refreshtrack\b/i.test(cleanedText) || /^refresh\s+track$/i.test(cleanedText) || /^track\s+refresh$/i.test(cleanedText);
 
   if (isAuthCommand || isRefreshCommand) {
-    if (!isAdmin) {
-      return { success: false, silent: true };
-    }
+    // Admin check removed, access managed via plans
   }
 
   // Strip leading slash if present
@@ -469,9 +517,7 @@ function parseCommand(rawText, hasMedia, user, isAdmin) {
   };
 
   if (FORM_MAP[cmd]) {
-    if ((cmd === 'payfee' || cmd === 'bookslot') && !isAdmin) {
-      return { success: false, silent: true };
-    }
+    // Admin check removed, access managed via plans
     const appNo = parts[1] || '';
     if (!appNo) {
       return { success: false, error: ERRORS.MISSING_APP_NO(cmd, true) };

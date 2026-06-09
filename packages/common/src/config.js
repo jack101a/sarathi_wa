@@ -335,7 +335,7 @@ const CONFIG = {
       light:  { perDay: 20,  perMonth: 300 },
       medium: { perDay: 5,   perMonth: 60  },
       heavy:  { perDay: 999, perMonth: 9999 }, // governed by credits, not quota
-      maxConcurrent: 3,
+      maxConcurrent: 1,
     },
   },
 

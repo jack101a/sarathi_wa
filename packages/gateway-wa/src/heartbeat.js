@@ -21,6 +21,14 @@ async function startHeartbeat() {
     try {
       const key = `wa:heartbeat:${INSTANCE_ROLE}`;
       await redis.setex(key, 30, 'alive');
+      
+      if (INSTANCE_ROLE === 'primary') {
+        const currentActive = await redis.get('wa:active');
+        if (currentActive !== INSTANCE_ID) {
+          console.log(`[Primary] Reclaiming active status from ${currentActive || 'none'}.`);
+          await redis.set('wa:active', INSTANCE_ID);
+        }
+      }
     } catch (err) {
       console.error(`[Heartbeat] Failed to write heartbeat: ${err.message}`);
     }

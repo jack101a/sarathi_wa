@@ -557,6 +557,20 @@ export function UsersPanel({ users, plans = [], sarathiTracked = [], vahanTracke
     }
   }
 
+  async function handleDeleteUser(u) {
+    if (!confirm(`Are you sure you want to permanently delete user ${u.canonical_phone}? This action cannot be undone.`)) return;
+    setProcessingIds(prev => new Set(prev).add(u.canonical_phone));
+    try {
+      await apiDelete(`/admin/api/users/${encodeURIComponent(u.canonical_phone)}`);
+      showToast('User deleted successfully', 'success');
+      onRefresh();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setProcessingIds(prev => { const n = new Set(prev); n.delete(u.canonical_phone); return n; });
+    }
+  }
+
   const filteredUsers = users.filter(u => {
     if (!search) return true;
     const s = search.toLowerCase();
@@ -640,6 +654,9 @@ export function UsersPanel({ users, plans = [], sarathiTracked = [], vahanTracke
                           <RefreshCw size={14} color="#f59e0b" />
                         </button>
                       )}
+                      <button disabled={processingIds.has(u.canonical_phone)} style={{...btnDanger, opacity: processingIds.has(u.canonical_phone) ? 0.5 : 1}} onClick={() => handleDeleteUser(u)} aria-label="Delete User" title="Delete User">
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                   </td>
                 </tr>

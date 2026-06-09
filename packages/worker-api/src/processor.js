@@ -234,7 +234,7 @@ async function handleJob(job) {
       }, url);
 
       if (resStatus === 200) {
-        await sendText(transport, chatId, `OTP has been sent again for ${payload.appNo}.`);
+        await sendText(transport, chatId, `Password has been sent again for ${payload.appNo}.`);
       } else {
         await sendText(transport, chatId, `Could not resend the OTP for ${payload.appNo}. Please try again.`);
       }

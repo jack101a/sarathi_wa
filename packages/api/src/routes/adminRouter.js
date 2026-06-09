@@ -484,7 +484,8 @@ router.patch('/users/:phone', async (req, res) => {
 router.delete('/users/:phone', async (req, res) => {
   try {
     const { phone } = req.params;
-    await authRepo.deactivateUser(phone);
+    const success = await authRepo.deactivateUser(phone);
+    if (!success) return res.status(404).json({ ok: false, message: 'User not found' });
     logger.info('adminRouter', 'User deactivated', { phone });
     res.json({ ok: true });
   } catch (err) {

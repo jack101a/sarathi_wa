@@ -1352,5 +1352,6 @@ module.exports = {
   refreshTrackedApplications,
   startLookup,
   startPolling,
+  pollTrackedApplications,
   stopSession,
 };
