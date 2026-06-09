@@ -3,6 +3,7 @@ name: Build & Push Docker Images (scaling-production)
 on:
   push:
     branches:
+      - main
       - scaling-production
   workflow_dispatch:        # allow manual trigger from GitHub UI
 
