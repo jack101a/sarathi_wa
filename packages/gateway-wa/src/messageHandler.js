@@ -113,8 +113,18 @@ async function forwardInteractiveInputIfAny(message, text) {
     return true;
   }
 
-  await redis.publish(`otp:input:${session.jobId}`, input);
+  // ── OTP validation at gateway level ────────────────────────────────────────
+  // If the session is waiting for an OTP, validate BEFORE dispatching to worker.
+  // This gives the user instant feedback without wasting a worker attempt.
   const status = String(session.status || '');
+  if (status.includes('otp') || status === 'awaiting_otp') {
+    if (!/^\d{6}$/.test(input)) {
+      await message.reply('❌ Invalid OTP. Please reply with exactly *6 digits* (e.g. 123456).');
+      return true; // consumed the message, but did NOT publish to worker
+    }
+  }
+
+  await redis.publish(`otp:input:${session.jobId}`, input);
   if (status.includes('payment')) {
     await message.reply('Payment confirmation received. Processing...');
   } else if (status.includes('slot')) {
