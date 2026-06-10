@@ -310,7 +310,7 @@ async function submitLLPrintOTP(context, page, otpCode, appNum, dob) {
 
                 // Read any server error message
                 const errorMsgLoc = page.locator(".alert-danger, #errorMessages, .error-message, span[style*='color: red']").first();
-                let errText = "Unknown error (likely incorrect OTP or Captcha).";
+                let errText = "Unknown error (server gave no specific message — likely a captcha mismatch).";
                 if (await errorMsgLoc.isVisible().catch(() => false)) {
                     errText = (await errorMsgLoc.textContent()).trim();
                 }
