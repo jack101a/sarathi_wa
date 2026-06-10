@@ -268,20 +268,10 @@ async function submitLLPrintOTP(context, page, otpCode, appNum, dob) {
         const fetchStatus = await page.evaluate(fetchJs);
         console.log(`    -> Priming Fetch executed. Server returned HTTP ${fetchStatus}`);
 
+
         console.log("\n Final eKYC Authentication...");
 
-        await page.getByRole("img", { name: "Click Here to Refresh Captcha" }).click();
-        await page.waitForTimeout(1500);
-
-        await page.locator("#otpNumberSarathi").fill(otpCode);
-        await smartSolveCaptcha(page, "Tab 1: Final Auth");
-        await page.locator("#otpCheckbox").check();
-
-        console.log("    -> Clicking 'Submit OTP'...");
-        await page.getByRole("button", { name: "Submit OTP" }).click();
-
-        console.log("\n Launching Final PDF Download...");
-        
+        // Set up PDF response listener BEFORE the retry loop so we never miss a PDF
         const pdfResponses = [];
         context.on("response", response => {
             const contentType = (response.headers()["content-type"] || "").toLowerCase();
@@ -291,22 +281,72 @@ async function submitLLPrintOTP(context, page, otpCode, appNum, dob) {
         });
 
         const finalSubmitBtn = page.locator("#otpsubmit");
-        try {
-            await finalSubmitBtn.waitFor({ state: "visible", timeout: 50000 });
-        } catch (waitErr) {
-            console.log("    -> ❌ Timeout waiting for #otpsubmit. Checking for page errors...");
-            const errorMsgLoc = page.locator(".alert-danger, #errorMessages, .error-message, span[style*='color: red']").first();
-            let errText = "Unknown error (likely incorrect OTP or Captcha).";
-            if (await errorMsgLoc.isVisible().catch(() => false)) {
-                errText = await errorMsgLoc.textContent();
+        const MAX_CAPTCHA_RETRIES = 3;
+        let otpSubmitSuccess = false;
+
+        for (let attempt = 1; attempt <= MAX_CAPTCHA_RETRIES; attempt++) {
+            console.log(`    -> OTP Submit attempt ${attempt}/${MAX_CAPTCHA_RETRIES}...`);
+
+            // Refresh captcha image before every attempt
+            await page.getByRole("img", { name: "Click Here to Refresh Captcha" }).click();
+            await page.waitForTimeout(1500);
+
+            // Re-fill OTP and solve captcha fresh each attempt
+            await page.locator("#otpNumberSarathi").fill(otpCode);
+            await smartSolveCaptcha(page, `Final Auth attempt ${attempt}`);
+            await page.locator("#otpCheckbox").check();
+
+            console.log("    -> Clicking 'Submit OTP'...");
+            await page.getByRole("button", { name: "Submit OTP" }).click();
+
+            // Wait for #otpsubmit with a shorter per-attempt timeout
+            try {
+                await finalSubmitBtn.waitFor({ state: "visible", timeout: 15000 });
+                console.log(`    -> ✅ #otpsubmit appeared on attempt ${attempt}.`);
+                otpSubmitSuccess = true;
+                break; // Success — exit retry loop
+            } catch (waitErr) {
+                console.log(`    -> ❌ #otpsubmit not visible on attempt ${attempt}. Checking error...`);
+
+                // Read any server error message
+                const errorMsgLoc = page.locator(".alert-danger, #errorMessages, .error-message, span[style*='color: red']").first();
+                let errText = "Unknown error (likely incorrect OTP or Captcha).";
+                if (await errorMsgLoc.isVisible().catch(() => false)) {
+                    errText = (await errorMsgLoc.textContent()).trim();
+                }
+                console.log(`    -> Server message: "${errText}"`);
+
+                // If the error explicitly mentions OTP being wrong/expired, no point retrying
+                const isOtpError = /invalid otp|otp.*expired|incorrect otp|wrong otp/i.test(errText);
+                if (isOtpError) {
+                    console.log("    -> OTP itself is invalid/expired. Not retrying.");
+                    await page.screenshot({ path: `debug_llprint_${appNum}.png`, fullPage: true }).catch(() => {});
+                    const error = new Error(`Failed to reach final submit button. Server says: ${errText}`);
+                    error.code = 'PORTAL_BUSINESS_RULE';
+                    error.publicMessage = errText;
+                    throw error;
+                }
+
+                // Captcha-related failure — will retry if attempts remain
+                if (attempt === MAX_CAPTCHA_RETRIES) {
+                    await page.screenshot({ path: `debug_llprint_${appNum}.png`, fullPage: true }).catch(() => {});
+                    const error = new Error(`Failed to reach final submit button after ${MAX_CAPTCHA_RETRIES} attempts. Server says: ${errText}`);
+                    error.code = 'PORTAL_BUSINESS_RULE';
+                    error.publicMessage = errText;
+                    throw error;
+                }
+
+                console.log(`    -> Likely captcha mismatch. Retrying...`);
+                await page.waitForTimeout(1000);
             }
-            // Save a debug screenshot
-            await page.screenshot({ path: `debug_llprint_${appNum}.png`, fullPage: true }).catch(() => {});
-            const error = new Error(`Failed to reach final submit button. Server says: ${errText.trim()}`);
-            error.code = 'PORTAL_BUSINESS_RULE';
-            error.publicMessage = errText.trim();
-            throw error;
         }
+
+        if (!otpSubmitSuccess) {
+            throw new Error("OTP submit failed after all retries.");
+        }
+
+        console.log("\n Launching Final PDF Download...");
+
 
         try {
             const [download] = await Promise.all([

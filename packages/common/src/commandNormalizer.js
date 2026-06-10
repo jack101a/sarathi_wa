@@ -21,73 +21,64 @@ const ERRORS = {
   MISSING_APP_NO: (cmd, requiresDob = false) => `❌ *आवेदन संख्या (Application Number) नहीं मिली!*\n\n*सही तरीका (Format):*\n👉 \`${cmd} <appl_no>${requiresDob ? ' <DOB>' : ''}\``
 };
 
-const USER_HELP_TEXT = `*----------🤖 Bot Help----------*
+const USER_HELP_TEXT = `==========================
+           ***   *🤖 Bot Help*   ***
+==========================
 
 *# Application related services #*
 
-> _ Type the appl no. and DOB:_
-
+> Type the appl no. and DOB:
 
 *2982778275  01-02-2003*
-
-____________________________
-
+........................................................
 
 *# DL related services #*
 
->  Type DL no and DOB :
-
+> Type DL no and DOB :
 
 *DL MH4720100001234 01-02-2003*
+........................................................
 
-____________________________
+*# LL related services #*
 
-
-*# Learning Licence related services #*
-
->  Type LL and DOB :
-
+> Type LL and DOB :
 
 *LL MH47/0050138/2026 01-02-2003*
-
-____________________________
-
+........................................................
 
 > 📲 Update Mobile Number 
 
 *mobupdate MH4720100001234 01-02-2003*
+........................................................
 
-____________________________
-
-
->  Resend Password 
+> Resend Password 
 
 *resend 2982778275 01-02-2003*
+........................................................
 
-____________________________
-
-
+==========================
 *# Tracking Services#*
 
->  Save DL for auto tracking:
+> Save DL for auto tracking:
 
 *track add 2982778275 01-02-2003*
 
->  Track RC status instantly:
+> Track RC status instantly:
 
 *track RC MH260201515412312*
 
->  View all saved tracks status:
+> View all saved tracks status:
 
 *track status*
-____________________________
+==========================
 
+-----------------------------------------
+> *⚙️ More*
 
-> *⚙️ More *
-plan - your plan
-balance - credits
-*stop - cancel current running task *
-____________________________`;
+*balance* : to check available balance
+
+*stop* : stop current running task
+-----------------------------------------`;
 
 const ADMIN_HELP_TEXT = `${USER_HELP_TEXT}
 
