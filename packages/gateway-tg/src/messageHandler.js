@@ -269,7 +269,8 @@ async function handleIncomingMessage(bot, msg) {
     // ── Built-in responses (no queueing needed) ──────────────────────────────
 
     if (type === 'help') {
-      await bot.sendMessage(chatId, normResult.message);
+      const dynamicHelpText = await commandNormalizer.generateHelpText(dbUser, isAdmin);
+      await bot.sendMessage(chatId, dynamicHelpText);
       return;
     }
 
@@ -414,6 +415,9 @@ async function handleIncomingMessage(bot, msg) {
     });
 
     if (result.blocked) {
+      if (result.reason === 'service_not_included' || result.reason === 'unregistered') {
+        return;
+      }
       await bot.sendMessage(chatId, `🚫 ${result.message}`);
     } else {
       await bot.sendMessage(chatId, '⏳ Request queued for processing...');

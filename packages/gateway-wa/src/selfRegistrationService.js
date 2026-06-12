@@ -86,6 +86,22 @@ async function cancelOtherPendingVerifications(phone, verifiedId) {
   }
 }
 
+async function isSenderPreRegistered(message) {
+  const pureSender = authorizationService.getWhatsAppSenderId(message);
+  if (!pureSender) return false;
+
+  let existing = await getAnyUserByPhone(pureSender);
+  if (existing) return true;
+
+  if (pureSender.length > 10) {
+    const short10 = pureSender.slice(-10);
+    existing = await getAnyUserByPhone(short10);
+    if (existing) return true;
+  }
+
+  return false;
+}
+
 async function startRegistration(message) {
   if (await hasLinkedUser(message)) {
     await message.reply('You are already registered. Send *help* to continue.');
@@ -121,7 +137,12 @@ async function handleMobileStep(client, message, text, session) {
   }
 
   const existing = await getAnyUserByPhone(phone);
-  if (existing && Number(existing.is_active) !== 1) {
+  if (!existing) {
+    await clearSession(message.from);
+    return { handled: true };
+  }
+
+  if (Number(existing.is_active) !== 1) {
     await clearSession(message.from);
     await message.reply('This mobile number is inactive. Please contact admin to reactivate your account.');
     return { handled: true };
@@ -207,10 +228,8 @@ async function handleOtpStep(message, text, session) {
   await clearSession(message.from);
   await message.reply(
     'Registration successful.\n\n' +
-    'You are now on the Free plan.\n\n' +
     'Examples:\n' +
     '- help\n' +
-    '- plan\n' +
     '- track <application number>'
   );
   return { handled: true };
@@ -240,6 +259,10 @@ async function handleIncoming(client, message, text) {
   }
 
   if (isRegisterCommand(text)) {
+    const isPreRegistered = await isSenderPreRegistered(message);
+    if (!isPreRegistered) {
+      return { handled: false };
+    }
     return startRegistration(message);
   }
 

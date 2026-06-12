@@ -28,7 +28,7 @@ async function checkAndDeactivateExpiredPlans() {
 
         // Notify user
         const chatId = `${u.canonical_phone}@c.us`;
-        const text = "❌ *Plan Expired*\nYour Premium plan has expired. You have been downgraded to the Free Tier. To renew or upgrade, please send *topup*.";
+        const text = "❌ *Plan Expired*\nYour Premium plan has expired. You have been downgraded to the Free Tier.";
         await chatNotifier.sendWhatsAppText(chatId, text);
         
         deactivatedCount++;
@@ -58,11 +58,11 @@ async function sendExpiryWarnings() {
       const expiry = new Date(u.expiry_date).toISOString().slice(0, 10);
       let text = '';
       if (expiry === date7) {
-        text = `📅 *Plan Expiry Warning*\nYour subscription plan will expire in 7 days (on ${expiry}). Send *topup* to renew your plan.`;
+        text = `📅 *Plan Expiry Warning*\nYour subscription plan will expire in 7 days (on ${expiry}).`;
       } else if (expiry === date3) {
-        text = `📅 *Plan Expiry Warning*\nYour subscription plan will expire in 3 days (on ${expiry}). Send *topup* to renew your plan.`;
+        text = `📅 *Plan Expiry Warning*\nYour subscription plan will expire in 3 days (on ${expiry}).`;
       } else if (expiry === date1) {
-        text = `🚨 *Plan Expiry Warning*\nYour subscription plan expires tomorrow (on ${expiry}). Send *topup* to renew your plan immediately to avoid service interruption.`;
+        text = `🚨 *Plan Expiry Warning*\nYour subscription plan expires tomorrow (on ${expiry}).`;
       }
 
       if (text) {

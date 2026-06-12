@@ -1,4 +1,5 @@
 const { normalizeDob } = require('./commandInputService');
+const { query } = require('./db');
 
 function isDlInput(appNo) {
   const cleaned = String(appNo || '').trim().replace(/[-\s]/g, '');
@@ -575,8 +576,140 @@ function parseCommand(rawText, hasMedia, user, isAdmin) {
   return { success: false, unmatched: true };
 }
 
+async function generateHelpText(user, isAdmin) {
+  const planId = (user && (user.plan_id || user.subscription_plan)) || 'free';
+  
+  let allowedServices = new Set();
+  if (isAdmin) {
+    const all = await query('SELECT id FROM services');
+    all.forEach(s => allowedServices.add(s.id));
+  } else {
+    const rows = await query('SELECT service_id FROM plan_services WHERE plan_id = ?', [planId]);
+    rows.forEach(r => allowedServices.add(r.service_id));
+  }
+
+  const sections = [];
+  sections.push('==========================');
+  sections.push('           ***   *🤖 Bot Help*   ***');
+  sections.push('==========================');
+  sections.push('');
+
+  // 1. Application related
+  const appServices = ['appl_pdf', 'slot_pdf', 'form1', 'form1a', 'form2', 'formset'];
+  if (appServices.some(s => allowedServices.has(s))) {
+    sections.push('*# Application related services #*');
+    sections.push('');
+    sections.push('> Type the appl no. and DOB:');
+    sections.push('');
+    sections.push('*2982778275  01-02-2003*');
+    sections.push('........................................................');
+    sections.push('');
+  }
+
+  // 2. DL related
+  if (allowedServices.has('dl_info_start')) {
+    sections.push('*# DL related services #*');
+    sections.push('');
+    sections.push('> Type DL no and DOB :');
+    sections.push('');
+    sections.push('*DL MH4720100001234 01-02-2003*');
+    sections.push('........................................................');
+    sections.push('');
+  }
+
+  // 3. LL related
+  if (allowedServices.has('apply_dl_start')) {
+    sections.push('*# LL related services #*');
+    sections.push('');
+    sections.push('> Type LL and DOB :');
+    sections.push('');
+    sections.push('*LL MH47/0050138/2026 01-02-2003*');
+    sections.push('........................................................');
+    sections.push('');
+  }
+
+  // 4. Update Mobile Number
+  if (allowedServices.has('mobupdate_start')) {
+    sections.push('> 📲 Update Mobile Number ');
+    sections.push('');
+    sections.push('*mobupdate MH4720100001234 01-02-2003*');
+    sections.push('........................................................');
+    sections.push('');
+  }
+
+  // 5. Resend Password
+  if (allowedServices.has('resend_otp')) {
+    sections.push('> Resend Password ');
+    sections.push('');
+    sections.push('*resend 2982778275 01-02-2003*');
+    sections.push('........................................................');
+    sections.push('');
+  }
+
+  // 6. Tracking services
+  const trackingLines = [];
+  if (allowedServices.has('add_track')) {
+    trackingLines.push('> Save DL for auto tracking:');
+    trackingLines.push('');
+    trackingLines.push('*track add 2982778275 01-02-2003*');
+    trackingLines.push('');
+  }
+  if (allowedServices.has('track_rc') || allowedServices.has('add_track_rc')) {
+    trackingLines.push('> Track RC status instantly:');
+    trackingLines.push('');
+    trackingLines.push('*track RC MH260201515412312*');
+    trackingLines.push('');
+  }
+  if (allowedServices.has('track_status')) {
+    trackingLines.push('> View all saved tracks status:');
+    trackingLines.push('');
+    trackingLines.push('*track status*');
+  }
+
+  if (trackingLines.length > 0) {
+    sections.push('==========================');
+    sections.push('*# Tracking Services#*');
+    sections.push('');
+    sections.push(trackingLines.join('\n').trim());
+    sections.push('==========================');
+    sections.push('');
+  }
+
+  // 7. More
+  sections.push('-----------------------------------------');
+  sections.push('> *⚙️ More*');
+  sections.push('');
+  sections.push('*balance* : to check available balance');
+  sections.push('');
+  sections.push('*stop* : stop current running task');
+  sections.push('-----------------------------------------');
+
+  // 8. Admin extras
+  if (isAdmin) {
+    const adminLines = [];
+    if (allowedServices.has('pay_fee_start')) {
+      adminLines.push('payfee appl_no dob');
+    }
+    if (allowedServices.has('slot_booking_start')) {
+      adminLines.push('bookslot appl_no dob');
+    }
+    if (allowedServices.has('alive')) {
+      adminLines.push('alive');
+    }
+
+    if (adminLines.length > 0) {
+      sections.push('');
+      sections.push('*👑 Admin extras / एडमिन सुविधाएं*');
+      sections.push(adminLines.join('\n'));
+    }
+  }
+
+  return sections.join('\n').trim();
+}
+
 module.exports = {
   parseCommand,
+  generateHelpText,
   USER_HELP_TEXT,
   ADMIN_HELP_TEXT,
   ERRORS

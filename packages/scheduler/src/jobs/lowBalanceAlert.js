@@ -10,7 +10,7 @@ async function sendLowBalanceAlerts() {
     let alertCount = 0;
     for (const u of users) {
       const chatId = `${u.canonical_phone}@c.us`;
-      const text = `⚠️ *Low Balance Alert*\nYou have only *${u.credits}* credits remaining. Send *topup* to add more credits and keep your automated services running.`;
+      const text = `⚠️ *Low Balance Alert*\nYou have only *${u.credits}* credits remaining.`;
       logger.info('scheduler', `Sending low balance warning to ${u.canonical_phone} (${u.credits} credits)`);
       await chatNotifier.sendWhatsAppText(chatId, text);
       alertCount++;

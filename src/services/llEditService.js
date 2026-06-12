@@ -304,9 +304,30 @@ async function submitLLEditOTP(context, page, otpCode, targetAppNo, targetDob, d
         await robustSelect(page, '#presDistrict', '518'); 
     }
 
-    const subdistOptions = await page.locator('#presSubDistrict option').evaluateAll(options => options.map(o => o.value));
-    const validSub = subdistOptions.find(v => v !== '-1');
-    if (validSub) await robustSelect(page, '#presSubDistrict', validSub);
+    const subdistOptions = await page.locator('#presSubDistrict option').evaluateAll(options => options.map(o => ({ value: o.value, text: o.textContent.trim() })));
+    let matchingSub = subdistOptions.find(o => o.text.toLowerCase().includes(selectedDist.text.toLowerCase()) || selectedDist.text.toLowerCase().includes(o.text.toLowerCase()));
+    
+    // special handling for Mumbai / Mumbai Suburban / Thane
+    if (!matchingSub) {
+        if (selectedDist.text.toLowerCase().includes('mumbai suburban')) {
+            matchingSub = subdistOptions.find(o => o.text.toLowerCase().includes('mumbai suburban'));
+        } else if (selectedDist.text.toLowerCase().includes('mumbai')) {
+            matchingSub = subdistOptions.find(o => o.text.toLowerCase() === 'mumbai' || o.text.toLowerCase() === 'mumbai city');
+        } else if (selectedDist.text.toLowerCase().includes('thane')) {
+            matchingSub = subdistOptions.find(o => o.text.toLowerCase().includes('thane'));
+        }
+    }
+
+    if (matchingSub) {
+        console.log('[lledit] Found Sub-District Match:', matchingSub.text);
+        await robustSelect(page, '#presSubDistrict', matchingSub.value, matchingSub.text);
+    } else {
+        const firstValidSub = subdistOptions.find(o => o.value !== '-1');
+        if (firstValidSub) {
+            console.log('[lledit] Falling back to first valid sub-district:', firstValidSub.text);
+            await robustSelect(page, '#presSubDistrict', firstValidSub.value, firstValidSub.text);
+        }
+    }
 
     await page.locator('#presSameAsPerm').check().catch(() => {});
     await page.waitForTimeout(1000);

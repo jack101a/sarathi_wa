@@ -229,14 +229,21 @@ async function initDb() {
 
     const freeLimits = JSON.stringify({ light: { perDay: 20, perMonth: 300 }, medium: { perDay: 5, perMonth: 60 }, maxConcurrent: 2 });
     const premiumLimits = JSON.stringify({ light: { perDay: 100, perMonth: 3000 }, medium: { perDay: 20, perMonth: 600 }, maxConcurrent: 5 });
-    await run(
-      'INSERT INTO subscription_plans (id, name, description, limits_json, is_active) VALUES (?, ?, ?, ?::jsonb, 1) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description, limits_json = EXCLUDED.limits_json',
-      ['free', 'Free Tier', 'Basic access to light services', freeLimits]
-    );
-    await run(
-      'INSERT INTO subscription_plans (id, name, description, limits_json, is_active) VALUES (?, ?, ?, ?::jsonb, 1) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description, limits_json = EXCLUDED.limits_json',
-      ['premium', 'Premium Tier', 'Full access to all services', premiumLimits]
-    );
+    const existingPlans = await query("SELECT id FROM subscription_plans WHERE id IN ('free', 'premium')");
+    const existingIds = existingPlans.map(p => p.id);
+
+    if (!existingIds.includes('free')) {
+      await run(
+        'INSERT INTO subscription_plans (id, name, description, limits_json, is_active) VALUES (?, ?, ?, ?::jsonb, 1)',
+        ['free', 'Free Tier', 'Basic access to light services', freeLimits]
+      );
+    }
+    if (!existingIds.includes('premium')) {
+      await run(
+        'INSERT INTO subscription_plans (id, name, description, limits_json, is_active) VALUES (?, ?, ?, ?::jsonb, 1)',
+        ['premium', 'Premium Tier', 'Full access to all services', premiumLimits]
+      );
+    }
 
     const services = [
       ['track', 'DL Status Track', 'light', 'api', 0, 10],
@@ -286,8 +293,12 @@ async function initDb() {
       );
     }
 
-    await run("INSERT INTO plan_services (plan_id, service_id) SELECT 'premium', id FROM services ON CONFLICT DO NOTHING");
-    await run("INSERT INTO plan_services (plan_id, service_id) SELECT 'free', id FROM services WHERE category = 'light' ON CONFLICT DO NOTHING");
+    if (!existingIds.includes('premium')) {
+      await run("INSERT INTO plan_services (plan_id, service_id) SELECT 'premium', id FROM services ON CONFLICT DO NOTHING");
+    }
+    if (!existingIds.includes('free')) {
+      await run("INSERT INTO plan_services (plan_id, service_id) SELECT 'free', id FROM services WHERE category = 'light' ON CONFLICT DO NOTHING");
+    }
 
     const CONFIG = require('./config');
     const users = (CONFIG.SECURITY && CONFIG.SECURITY.AUTHORIZED_USERS) || [];

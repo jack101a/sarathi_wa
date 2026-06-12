@@ -436,7 +436,8 @@ async function handleIncomingMessage(client, message) {
     const { type, payload } = normResult;
 
     if (type === 'help') {
-      await message.reply(normResult.message);
+      const dynamicHelpText = await commandNormalizer.generateHelpText(dbUser, isAdmin);
+      await message.reply(dynamicHelpText);
       return;
     }
 
@@ -622,6 +623,9 @@ async function handleIncomingMessage(client, message) {
     }
 
     if (result.blocked) {
+      if (result.reason === 'service_not_included' || result.reason === 'unregistered') {
+        return;
+      }
       await message.reply(`🚫 ${result.message}`);
     } else {
       await message.reply('⏳ Processing...');
